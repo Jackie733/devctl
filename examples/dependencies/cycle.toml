@@ -1,0 +1,18 @@
+# Intentionally invalid: api and db depend on each other.
+version = 1
+
+[workspace]
+name = "dependency-cycle"
+
+[projects.demo]
+path = "../.."
+
+[services.api]
+project = "demo"
+cmd = ["echo", "api"]
+depends_on = [{ service = "db", condition = "started" }]
+
+[services.db]
+project = "demo"
+cmd = ["echo", "db"]
+depends_on = [{ service = "api", condition = "started" }]

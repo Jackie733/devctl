@@ -1,0 +1,23 @@
+version = 1
+
+[workspace]
+name = "dependency-chain"
+
+[projects.demo]
+path = "../.."
+
+[services.db]
+project = "demo"
+cmd = ["echo", "db"]
+autostart = false
+
+[services.api]
+project = "demo"
+cmd = ["echo", "api"]
+autostart = false
+depends_on = [{ service = "db", condition = "started" }]
+
+[services.web]
+project = "demo"
+cmd = ["echo", "web"]
+depends_on = [{ service = "api", condition = "started" }]

@@ -1,0 +1,22 @@
+# Intentionally invalid: an independent branch contains a cycle.
+version = 1
+
+[workspace]
+name = "separate-cycle"
+
+[projects.demo]
+path = "../.."
+
+[services.api]
+project = "demo"
+cmd = ["echo", "api"]
+
+[services.queue]
+project = "demo"
+cmd = ["echo", "queue"]
+depends_on = [{ service = "worker", condition = "started" }]
+
+[services.worker]
+project = "demo"
+cmd = ["echo", "worker"]
+depends_on = [{ service = "queue", condition = "started" }]

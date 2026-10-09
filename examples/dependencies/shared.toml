@@ -1,0 +1,29 @@
+version = 1
+
+[workspace]
+name = "shared-dependency"
+
+[projects.demo]
+path = "../.."
+
+[services.db]
+project = "demo"
+cmd = ["echo", "db"]
+
+[services.api]
+project = "demo"
+cmd = ["echo", "api"]
+depends_on = [{ service = "db", condition = "started" }]
+
+[services.worker]
+project = "demo"
+cmd = ["echo", "worker"]
+depends_on = [{ service = "db", condition = "started" }]
+
+[services.web]
+project = "demo"
+cmd = ["echo", "web"]
+depends_on = [
+    { service = "api", condition = "started" },
+    { service = "worker", condition = "started" },
+]

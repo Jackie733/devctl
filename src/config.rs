@@ -213,5 +213,156 @@ fn validate_dependencies(config: &Config) -> Result<(), String> {
         }
     }
 
+    let mut visiting = Vec::new();
+    let mut completed = BTreeSet::new();
+
+    for id in config.services.keys() {
+        visit_service(id, &config.services, &mut visiting, &mut completed)?;
+    }
+
     Ok(())
+}
+
+fn visit_service(
+    id: &str,
+    services: &BTreeMap<String, Service>,
+    visiting: &mut Vec<String>,
+    completed: &mut BTreeSet<String>,
+) -> Result<(), String> {
+    if completed.contains(id) {
+        return Ok(());
+    }
+
+    if let Some(start) = visiting.iter().position(|service| service == id) {
+        let mut cycle = visiting[start..].to_vec();
+        cycle.push(id.to_string());
+
+        return Err(format!("Dependency cycle: {}", cycle.join(" -> ")));
+    }
+
+    let service = services
+        .get(id)
+        .ok_or_else(|| format!("Unknown service '{id}' during dependency traversal."))?;
+
+    visiting.push(id.to_string());
+
+    for dependency in &service.depends_on {
+        visit_service(&dependency.service, services, visiting, completed)?;
+    }
+
+    visiting.pop();
+    completed.insert(id.to_string());
+
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn config_for(edges: &[(&str, &[&str])]) -> Config {
+        let mut services = BTreeMap::new();
+
+        for (id, targets) in edges {
+            let mut depends_on = Vec::new();
+            for target in *targets {
+                depends_on.push(Dependency {
+                    service: (*target).to_string(),
+                    condition: DependencyCondition::Started,
+                });
+            }
+
+            services.insert(
+                (*id).to_string(),
+                Service {
+                    project: "demo".to_string(),
+                    cmd: vec!["echo".to_string()],
+                    cwd: None,
+                    autostart: true,
+                    depends_on,
+                },
+            );
+        }
+
+        Config {
+            version: 1,
+            workspace: Workspace {
+                name: "test".to_string(),
+            },
+            projects: BTreeMap::new(),
+            services,
+        }
+    }
+
+    #[test]
+    fn accepts_empty_graph() {
+        assert!(validate_dependencies(&config_for(&[])).is_ok());
+    }
+
+    #[test]
+    fn accepts_dependency_chain() {
+        let config = config_for(&[("web", &["api"]), ("api", &["db"]), ("db", &[])]);
+        assert!(validate_dependencies(&config).is_ok());
+    }
+
+    #[test]
+    fn accepts_shared_dependency() {
+        let config = config_for(&[
+            ("web", &["api", "worker"]),
+            ("api", &["db"]),
+            ("worker", &["db"]),
+            ("db", &[]),
+        ]);
+        assert!(validate_dependencies(&config).is_ok());
+    }
+
+    #[test]
+    fn rejects_indirect_cycle_with_path() {
+        let config = config_for(&[("api", &["db"]), ("db", &["api"])]);
+        let error = validate_dependencies(&config).expect_err("A cycle must be rejected.");
+        assert_eq!(error, "Dependency cycle: api -> db -> api");
+    }
+
+    #[test]
+    fn rejects_cycle_in_separate_branch() {
+        let config = config_for(&[("api", &[]), ("worker", &["queue"]), ("queue", &["worker"])]);
+        let error = validate_dependencies(&config).expect_err("A separate cycle must be rejected.");
+        assert_eq!(error, "Dependency cycle: queue -> worker -> queue");
+    }
+
+    #[test]
+    fn excludes_non_cycle_prefix_from_error() {
+        let config = config_for(&[
+            ("entry", &["worker"]),
+            ("worker", &["queue"]),
+            ("queue", &["worker"]),
+        ]);
+        let error =
+            validate_dependencies(&config).expect_err("A reachable cycle must be rejected.");
+        assert_eq!(error, "Dependency cycle: worker -> queue -> worker");
+    }
+
+    #[test]
+    fn rejects_unknown_dependency() {
+        let config = config_for(&[("api", &["missing"])]);
+        let error =
+            validate_dependencies(&config).expect_err("An unknown target must be rejected.");
+        assert_eq!(error, "Service 'api' depends on unknown service 'missing'.");
+    }
+
+    #[test]
+    fn rejects_self_dependency() {
+        let config = config_for(&[("api", &["api"])]);
+        let error =
+            validate_dependencies(&config).expect_err("A self dependency must be rejected.");
+        assert_eq!(error, "Service 'api' must not depend on itself.");
+    }
+
+    #[test]
+    fn rejects_duplicate_dependency() {
+        let config = config_for(&[("api", &["db", "db"]), ("db", &[])]);
+        let error =
+            validate_dependencies(&config).expect_err("A duplicate target must be rejected.");
+        assert_eq!(error, "Service 'api' has duplicate dependency 'db'.");
+    }
 }
