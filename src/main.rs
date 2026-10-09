@@ -1,4 +1,5 @@
 mod config;
+mod plan;
 
 use std::{env, path::Path, process::ExitCode};
 
@@ -52,11 +53,55 @@ fn main() -> ExitCode {
                 }
             }
         }
+        [flag, path, command, targets @ ..] if flag == "--config" && command == "plan" => {
+            match print_plan(Path::new(path), targets) {
+                Ok(()) => ExitCode::SUCCESS,
+                Err(error) => {
+                    eprintln!("Error: {error}");
+                    ExitCode::FAILURE
+                }
+            }
+        }
         _ => {
             eprintln!("Error: unsupported arguments. Use --help for usage.");
             ExitCode::FAILURE
         }
     }
+}
+
+fn print_plan(path: &Path, targets: &[String]) -> Result<(), String> {
+    let config = config::load(path)?;
+    let order = plan::build(&config, targets)?;
+
+    if order.is_empty() {
+        println!("No services selected.");
+        return Ok(());
+    }
+
+    println!("Startup plan: {}", order.join(" -> "));
+
+    for id in &order {
+        let service = config
+            .services
+            .get(id)
+            .ok_or_else(|| format!("Unknown service '{id}' in startup plan."))?;
+
+        println!("Service: {id}");
+        println!("  Command: {:?}", service.cmd);
+
+        if let Some(cwd) = &service.cwd {
+            println!("  Working directory: {}", cwd.display());
+        }
+
+        for dependency in &service.depends_on {
+            println!(
+                "  Depends on: {}, condition: {:?}",
+                dependency.service, dependency.condition
+            );
+        }
+    }
+
+    Ok(())
 }
 
 fn print_help() {
@@ -65,12 +110,14 @@ fn print_help() {
 Usage:
     devctl [OPTIONS]
     devctl --config <PATH> validate
+    devctl --config <PATH> plan [SERVICE...]
 
 Options:
     -h, --help      Show help
     -V, --version   Show version
 
 Commands:
-    validate        Validate workspace, project, and service definitions"
+    validate        Validate workspace, project, and service definitions
+    plan            Show the dependency-first startup plan"
     );
 }

@@ -22,6 +22,18 @@ cargo run -- --config examples/dependencies/separate-cycle.toml validate
 
 The invalid examples intentionally exit with code 1 and print the cycle to stderr.
 
+Preview a startup plan without executing service commands:
+
+```sh
+cargo run -- --config examples/dependencies/chain.toml plan web
+cargo run -- --config examples/dependencies/chain.toml plan
+cargo run -- --config examples/dependencies/shared.toml plan web
+```
+
+The chain example selects only web by default and includes its disabled-by-default
+dependencies, producing `db -> api -> web`. The shared example includes db once,
+producing `db -> api -> worker -> web`. Plans require a validated, acyclic configuration.
+
 Run the automated checks:
 
 ```sh
