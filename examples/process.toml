@@ -1,0 +1,45 @@
+# Short-lived commands for learning process creation and exit handling on Unix.
+# Any unrequested service exit, including exit code 0, is treated as a failure.
+version = 1
+
+[workspace]
+name = "process-basics"
+
+[projects.demo]
+path = ".."
+
+[services.hello]
+project = "demo"
+cmd = ["sh", "-c", 'printf "Child cwd: "; pwd; printf "Hello from child\n"']
+autostart = false
+
+[services.failure]
+project = "demo"
+cmd = ["sh", "-c", "exit 7"]
+autostart = false
+
+[services.arguments]
+project = "demo"
+cmd = ["printf", "%s\\n", "two words", "$HOME", "*.rs"]
+autostart = false
+
+[services.missing]
+project = "demo"
+cmd = ["devctl-command-that-does-not-exist"]
+autostart = false
+
+[services.cwd]
+project = "demo"
+cwd = "src"
+cmd = ["pwd"]
+autostart = false
+
+[services.stdin_eof]
+project = "demo"
+cmd = ["sh", "-c", 'if read line; then exit 9; fi; printf "stdin EOF\n"']
+autostart = false
+
+[services.signal]
+project = "demo"
+cmd = ["sh", "-c", "kill -TERM $$"]
+autostart = false

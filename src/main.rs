@@ -1,6 +1,7 @@
 mod cli;
 mod config;
 mod plan;
+mod process;
 
 use std::{path::Path, process::ExitCode};
 
@@ -28,6 +29,7 @@ fn execute(cli: Cli) -> Result<(), String> {
         }
         Some(Command::Validate) => print_validation(&cli.config),
         Some(Command::Plan { targets }) => print_plan(&cli.config, &targets),
+        Some(Command::Run { service }) => run_service(&cli.config, &service),
     }
 }
 
@@ -95,4 +97,23 @@ fn print_plan(path: &Path, targets: &[String]) -> Result<(), String> {
     }
 
     Ok(())
+}
+
+fn run_service(path: &Path, id: &str) -> Result<(), String> {
+    let config = config::load(path)?;
+
+    let service = config
+        .services
+        .get(id)
+        .ok_or_else(|| format!("Unknown service '{id}'."))?;
+
+    if !service.depends_on.is_empty() {
+        return Err(format!(
+            "Service '{id}' has dependencies. Dependency execution is not supported yet."
+        ));
+    }
+
+    let status = process::run(id, service)?;
+
+    Err(format!("Service '{id}' exited unexpectedly ({status})."))
 }
