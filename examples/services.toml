@@ -1,0 +1,19 @@
+version = 1
+
+[workspace]
+name = "local-dev"
+
+[projects.backend]
+path = "../"
+
+[projects.frontend]
+path = "../../web app"
+
+[services.api]
+project = "backend"
+cmd = ["cargo", "run"]
+
+[services.web]
+project = "frontend"
+cmd = ["npm", "run", "dev"]
+autostart = false
