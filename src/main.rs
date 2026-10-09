@@ -33,6 +33,9 @@ fn main() -> ExitCode {
                             "Service: {id}, project: {}, autostart: {}",
                             service.project, service.autostart
                         );
+                        if let Some(cwd) = &service.cwd {
+                            println!("  Working directory: {}", cwd.display());
+                        }
                     }
                     ExitCode::SUCCESS
                 }

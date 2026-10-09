@@ -36,6 +36,7 @@ pub struct Project {
 pub struct Service {
     pub project: String,
     pub cmd: Vec<String>,
+    pub cwd: Option<PathBuf>,
 
     #[serde(default = "default_autostart")]
     pub autostart: bool,
@@ -123,6 +124,47 @@ pub fn load(path: &Path) -> Result<Config, String> {
         }
 
         project.path = resolved;
+    }
+
+    for (id, service) in &mut config.services {
+        let project = config.projects.get(&service.project).ok_or_else(|| {
+            format!(
+                "Service '{id}' references unknown project '{}'.",
+                service.project
+            )
+        })?;
+
+        let candidate = match &service.cwd {
+            None => project.path.clone(),
+            Some(path) => {
+                if path.as_os_str().is_empty() {
+                    return Err(format!(
+                        "Service '{id}' working directory must not be empty."
+                    ));
+                }
+                if path.is_absolute() {
+                    path.clone()
+                } else {
+                    project.path.join(path)
+                }
+            }
+        };
+
+        let resolved = candidate.canonicalize().map_err(|error| {
+            format!(
+                "Failed to resolve service '{id}' working directory {}: {error}",
+                candidate.display()
+            )
+        })?;
+
+        if !resolved.is_dir() {
+            return Err(format!(
+                "Service '{id}' working directory is not a directory: {}",
+                resolved.display()
+            ));
+        }
+
+        service.cwd = Some(resolved);
     }
 
     Ok(config)
