@@ -1,5 +1,5 @@
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, BTreeSet},
     fs,
     path::{Path, PathBuf},
 };
@@ -40,10 +40,26 @@ pub struct Service {
 
     #[serde(default = "default_autostart")]
     pub autostart: bool,
+
+    #[serde(default)]
+    pub depends_on: Vec<Dependency>,
 }
 
 fn default_autostart() -> bool {
     true
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Dependency {
+    pub service: String,
+    pub condition: DependencyCondition,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DependencyCondition {
+    Started,
 }
 
 pub fn load(path: &Path) -> Result<Config, String> {
@@ -92,6 +108,8 @@ pub fn load(path: &Path) -> Result<Config, String> {
             ));
         }
     }
+
+    validate_dependencies(&config)?;
 
     let config_path = path
         .canonicalize()
@@ -168,4 +186,32 @@ pub fn load(path: &Path) -> Result<Config, String> {
     }
 
     Ok(config)
+}
+
+fn validate_dependencies(config: &Config) -> Result<(), String> {
+    for (id, service) in &config.services {
+        let mut seen = BTreeSet::new();
+
+        for dependency in &service.depends_on {
+            let target = &dependency.service;
+
+            if target == id {
+                return Err(format!("Service '{id}' must not depend on itself."));
+            }
+
+            if !config.services.contains_key(target) {
+                return Err(format!(
+                    "Service '{id}' depends on unknown service '{target}'."
+                ));
+            }
+
+            if !seen.insert(target) {
+                return Err(format!(
+                    "Service '{id}' has duplicate dependency '{target}'."
+                ));
+            }
+        }
+    }
+
+    Ok(())
 }

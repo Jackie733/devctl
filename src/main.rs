@@ -36,6 +36,13 @@ fn main() -> ExitCode {
                         if let Some(cwd) = &service.cwd {
                             println!("  Working directory: {}", cwd.display());
                         }
+
+                        for dependency in &service.depends_on {
+                            println!(
+                                "  Depends on: {}, condition: {:?}",
+                                dependency.service, dependency.condition
+                            );
+                        }
                     }
                     ExitCode::SUCCESS
                 }

@@ -17,3 +17,6 @@ cmd = ["cargo", "run"]
 project = "frontend"
 cmd = ["npm", "run", "dev"]
 autostart = false
+depends_on = [
+  {service = "api", condition = "started"}
+]
