@@ -7,7 +7,7 @@ name = "local-dev"
 path = "../"
 
 [projects.frontend]
-path = "../../web app"
+path = "../"
 
 [services.api]
 project = "backend"

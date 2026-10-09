@@ -25,6 +25,9 @@ fn main() -> ExitCode {
                     println!("Workspace: {}", config.workspace.name);
                     println!("Projects: {}", config.projects.len());
                     println!("Services: {}", config.services.len());
+                    for (id, project) in &config.projects {
+                        println!("Project: {id}, path: {}", project.path.display());
+                    }
                     for (id, service) in &config.services {
                         println!(
                             "Service: {id}, project: {}, autostart: {}",

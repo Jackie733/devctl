@@ -49,7 +49,7 @@ pub fn load(path: &Path) -> Result<Config, String> {
     let content = fs::read_to_string(path)
         .map_err(|error| format!("Failed to read {}: {error}", path.display()))?;
 
-    let config: Config = toml::from_str(&content)
+    let mut config: Config = toml::from_str(&content)
         .map_err(|error| format!("Failed to parse {}: {error}", path.display()))?;
 
     if config.version != 1 {
@@ -90,6 +90,39 @@ pub fn load(path: &Path) -> Result<Config, String> {
                 "Service '{id}' must have a non-empty command executable."
             ));
         }
+    }
+
+    let config_path = path
+        .canonicalize()
+        .map_err(|error| format!("Failed to resolve config path {}: {error}", path.display()))?;
+
+    let config_dir = config_path
+        .parent()
+        .ok_or_else(|| "Config path must have a parent directory.".to_string())?;
+
+    for (id, project) in &mut config.projects {
+        let candidate = if project.path.is_absolute() {
+            project.path.clone()
+        } else {
+            config_dir.join(&project.path)
+        };
+
+        let resolved = candidate.canonicalize().map_err(|error| {
+            format!(
+                "Failed to resolve project '{id}' path '{}' from {}: {error}",
+                project.path.display(),
+                config_dir.display()
+            )
+        })?;
+
+        if !resolved.is_dir() {
+            return Err(format!(
+                "Project '{id}' path is not a directory: {}",
+                resolved.display()
+            ));
+        }
+
+        project.path = resolved;
     }
 
     Ok(config)
