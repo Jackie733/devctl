@@ -2,23 +2,23 @@
 
 这里只保留当前任务与必要交接；历史见 Git，协作规则见 [AGENTS.md](../AGENTS.md)。
 
-## TERM 宽限与超时强杀：待誊写
+## 自行退出后清理残留组：待誊写
 
-- 阶段：[roadmap.md](roadmap.md) M2；需求：[requirements.md](requirements.md) P04；设计：[DESIGN.md](../DESIGN.md) §4。
-- 目标：停止时先向组发 TERM，给 leader 最多 5 秒退出；leader 退出或超时后强杀残留组，最后 wait 直接子进程。
-- 设计：Linux waitid 的 WNOWAIT/WNOHANG 观察退出而不回收，保留 leader PID 到最后一次组信号；Tokio time 提供非阻塞等待与超时。
-- 本步验收：TERM 清理逻辑确实执行；忽略 TERM 时约 5 秒强杀；leader 先退出时仍强杀残留 worker；原有进程测试继续通过。
-- 验证：隔离临时目录编译与 Clippy 检查通过；宿主原型验证正常 TERM（约 0.03 秒）、忽略 TERM（约 5.04 秒）、leader 先退出且 worker 忽略 TERM（约 0.03 秒）三种情况。功能代码未写入当前源码，等待用户誊写后正式验收。
-- 边界：本步沿 Linux 方向；leader 的自然退出路径清理、强杀后整个进程组完成确认、错误路径与停止竞态仍须后续验收，不代表 P04 全部完成。
-- 下一步：用户誊写后审查、补齐本步行为测试，再继续完善组清理。
+- 阶段：[roadmap.md](roadmap.md) M2；需求：[requirements.md](requirements.md) P02、P04；设计：[DESIGN.md](../DESIGN.md) §4。
+- 目标：leader 自行退出时先观察而不回收，强杀同组残留后代，再 wait 获取原始退出码或信号；用户主动停止复用同一强杀与回收函数。
+- 改动：run 在 spawn 后保存 pgid；select 的退出分支改为 wait_for_exit_without_reaping；stop 接收本轮 pgid；增加两条路径共用的 kill_and_reap。
+- 验收：leader 退出 0、7、信号 15 时均终止残留 worker，保留原始退出信息；正常退出仍属于长期服务的意外退出；已有主动停止行为继续通过。
+- 验证：临时目录原型已编译并验证上述三类残留进程场景；正式源码未写入下一步功能，等待用户誊写后补集成测试验收。
+- 边界：强杀后整组清理完成确认、观察或信号错误路径、停止竞态仍需后续验收；M2 与 P04 尚未全部完成。
+- 下一步：用户誊写后审查自然退出与停止两条路径，补充自行退出的后代测试，再完善组清理完成确认。
 
-## 上一步验收：进程组强制停止
+## 上一步验收：TERM 宽限与超时强杀
 
-- 基线：`bb0a791` 的直接子进程停止；用户已添加 nix signal feature 和 killpg + Child wait。
-- 审查：本轮 Child PID 对应独立进程组；检查整数转换、ESRCH 和其他错误处理；将 wait 失败提示改为明确的回收错误。
-- 测试：新增 shell 派生 sleep worker 的真实进程树场景，确认两者终止、直接 Child 被回收、输出管道关闭；复用 SIGINT/SIGTERM 和原有进程测试，失败清理改为覆盖整组，所有等待有期限。
-- 验证：宿主 `cargo test --locked --offline` 43 项通过；最后错误提示调整后 `cargo test --locked --offline --test process_cli` 12 项通过；fmt、`cargo clippy --locked --offline --all-targets -- -D warnings` 通过。
-- 限制：Linux worker 检查区分已终止的 zombie 与运行进程，不宣称 devctl 回收非直接后代；未验收优雅停止或后台行为。信号行为沿用宿主环境验证，受限沙箱此前存在超时。
+- 基线：`bd4e69a`；用户已添加 Tokio time、waitid WNOWAIT 观察、TERM 及 5 秒超时强杀。
+- 审查：观察不回收，组信号先于 Child wait；查询错误在清理后传播；规范了 Cargo.toml 的空格格式。宽限期用于 leader，leader 提前退出时立即清理残留组。
+- 测试：新增正常 TERM handler、忽略 TERM 超时、leader 提前退出且 worker 忽略 TERM 三项；复用现有测试辅助代码，等待 Ready 后发信号，强杀等待上限改为 10 秒；时间断言留少量容差。
+- 验证：宿主 `cargo test --locked --offline` 46 项通过；定时器容差调整后单独复核超时强杀测试；fmt、`cargo clippy --locked --offline --all-targets -- -D warnings` 通过。
+- 限制：Linux 进程行为；只验收主动停止路径。leader 自行退出仍会直接 wait 而未清理组，作为当前下一步，不宣称完整生命周期已完成。
 
 ## 最近交接（2026-10-10）
 
@@ -26,4 +26,4 @@
 
 后台已纳入首版，路线改为先实现后台控制，再接入 TUI；当前 M2 审查继续支撑可靠停止。用户已确认需求文档 §4 的其他扩展在 MVP 完成并试用后再评估；不阻塞当前开发，不提前实现。
 
-本轮验收用户誊写的进程组强杀并提交必要测试；下一步 TERM 宽限与超时强杀由用户学习并誊写。
+本轮验收用户誊写的 TERM 宽限与超时强杀，提交必要行为测试；下一步自行退出后清理残留组由用户学习并誊写。

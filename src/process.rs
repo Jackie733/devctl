@@ -1,14 +1,21 @@
-use std::process::{ExitStatus, Stdio};
+use std::{
+    process::{ExitStatus, Stdio},
+    time::Duration,
+};
 
 use nix::{
     errno::Errno,
-    sys::signal::{Signal, killpg},
+    sys::{
+        signal::{Signal, killpg},
+        wait::{Id, WaitPidFlag, WaitStatus, waitid},
+    },
     unistd::Pid,
 };
 
 use tokio::{
     process::{Child, Command},
     signal::unix::{SignalKind, signal},
+    time::{sleep, timeout},
 };
 
 use crate::config::Service;
@@ -80,21 +87,55 @@ async fn stop(id: &str, child: &mut Child) -> Result<RunOutcome, String> {
         .map(Pid::from_raw)
         .map_err(|error| format!("Invalid process group for service '{id}': {error}"))?;
 
-    match killpg(pgid, Signal::SIGKILL) {
-        Ok(()) | Err(Errno::ESRCH) => {}
-        Err(error) => {
-            return Err(format!(
-                "Failed to kill process group for service '{id}': {error}"
-            ));
+    signal_group(id, pgid, Signal::SIGTERM)?;
+
+    let observed = match timeout(
+        Duration::from_secs(5),
+        wait_for_exit_without_reaping(id, pgid),
+    )
+    .await
+    {
+        Ok(result) => result,
+        Err(_) => {
+            println!("Service '{id}' did not exit within 5 seconds; forcing stop.");
+            Ok(())
         }
-    }
+    };
+
+    // Clean up remaining group members before releasing the leader's PID.
+    signal_group(id, pgid, Signal::SIGKILL)?;
 
     child
         .wait()
         .await
         .map_err(|error| format!("Failed to reap service '{id}': {error}"))?;
+    observed?;
 
     println!("Stopped service '{id}'.");
-
     Ok(RunOutcome::Stopped)
+}
+
+fn signal_group(id: &str, pgid: Pid, signal: Signal) -> Result<(), String> {
+    match killpg(pgid, signal) {
+        Ok(()) | Err(Errno::ESRCH) => Ok(()),
+        Err(error) => Err(format!(
+            "Failed to send {signal:?} to process group for service '{id}': {error}"
+        )),
+    }
+}
+
+async fn wait_for_exit_without_reaping(id: &str, pid: Pid) -> Result<(), String> {
+    let flags = WaitPidFlag::WEXITED | WaitPidFlag::WNOHANG | WaitPidFlag::WNOWAIT;
+
+    loop {
+        match waitid(Id::Pid(pid), flags) {
+            Ok(WaitStatus::StillAlive) | Err(Errno::EINTR) => {
+                sleep(Duration::from_millis(20)).await;
+            }
+            Ok(_) => return Ok(()),
+            Err(error) => {
+                return Err(format!("Failed to observe service '{id}' exit: {error}"));
+            }
+        }
+    }
 }

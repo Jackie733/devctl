@@ -133,7 +133,12 @@ impl Drop for RunningService {
     }
 }
 
-fn assert_signal_stops_service(signal: Signal, service: &str, has_worker: bool) {
+fn assert_signal_stops_service(
+    signal: Signal,
+    service: &str,
+    has_worker: bool,
+    ready_line: Option<&str>,
+) -> (Vec<String>, Duration) {
     let config = Path::new(env!("CARGO_MANIFEST_DIR")).join("examples/process.toml");
     let devctl = Command::new(env!("CARGO_BIN_EXE_devctl"))
         .arg("--config")
@@ -162,7 +167,8 @@ fn assert_signal_stops_service(signal: Signal, service: &str, has_worker: bool) 
 
     // Synchronize on spawn, rather than sleeping and hoping the handler is ready.
     let deadline = Instant::now() + Duration::from_secs(5);
-    while running.service_pid.is_none() || (has_worker && running.worker_pid.is_none()) {
+    let mut ready = ready_line.is_none();
+    while running.service_pid.is_none() || (has_worker && running.worker_pid.is_none()) || !ready {
         let line = receiver
             .recv_timeout(deadline.saturating_duration_since(Instant::now()))
             .expect("devctl and the worker must report startup within five seconds.");
@@ -170,6 +176,9 @@ fn assert_signal_stops_service(signal: Signal, service: &str, has_worker: bool) 
             running.service_pid = Some(Pid::from_raw(value.trim_end_matches('.').parse().unwrap()));
         } else if let Some(value) = line.strip_prefix("Worker PID: ") {
             running.worker_pid = Some(Pid::from_raw(value.parse().unwrap()));
+        }
+        if ready_line == Some(line.as_str()) {
+            ready = true;
         }
     }
     if let Some(pid) = running.worker_pid {
@@ -181,9 +190,10 @@ fn assert_signal_stops_service(signal: Signal, service: &str, has_worker: bool) 
     }
 
     let devctl_pid = Pid::from_raw(i32::try_from(running.devctl.id()).unwrap());
+    let stop_started = Instant::now();
     kill(devctl_pid, signal).expect("The signal must be sent.");
 
-    let deadline = Instant::now() + Duration::from_secs(5);
+    let deadline = stop_started + Duration::from_secs(10);
     let status = loop {
         if let Some(status) = running.devctl.try_wait().unwrap() {
             break status;
@@ -191,6 +201,7 @@ fn assert_signal_stops_service(signal: Signal, service: &str, has_worker: bool) 
         assert!(Instant::now() < deadline, "devctl did not stop in time.");
         thread::sleep(Duration::from_millis(10));
     };
+    let elapsed = stop_started.elapsed();
     assert!(
         status.success(),
         "User-requested stop must succeed: {status}"
@@ -246,20 +257,56 @@ fn assert_signal_stops_service(signal: Signal, service: &str, has_worker: bool) 
             .iter()
             .any(|line| line.contains("exited unexpectedly"))
     );
+    (lines, elapsed)
 }
 
 #[test]
 fn sigint_stops_the_direct_child_and_succeeds() {
-    assert_signal_stops_service(Signal::SIGINT, "long_running", false);
+    assert_signal_stops_service(Signal::SIGINT, "long_running", false, None);
 }
 
 #[test]
 fn sigterm_stops_the_direct_child_and_succeeds() {
-    assert_signal_stops_service(Signal::SIGTERM, "long_running", false);
+    assert_signal_stops_service(Signal::SIGTERM, "long_running", false, None);
 }
 
 #[cfg(target_os = "linux")]
 #[test]
 fn stopping_terminates_the_service_and_its_worker() {
-    assert_signal_stops_service(Signal::SIGTERM, "process_tree", true);
+    assert_signal_stops_service(Signal::SIGTERM, "process_tree", true, None);
+}
+
+#[test]
+fn term_runs_cleanup_before_stopping() {
+    let (lines, elapsed) =
+        assert_signal_stops_service(Signal::SIGTERM, "graceful", false, Some("Ready"));
+    assert!(lines.iter().any(|line| line == "TERM handled"));
+    assert!(!lines.iter().any(|line| line.contains("forcing stop")));
+    assert!(
+        elapsed < Duration::from_secs(3),
+        "Graceful stop took {elapsed:?}"
+    );
+}
+
+#[test]
+fn ignored_term_is_force_killed_after_the_grace_period() {
+    let (lines, elapsed) =
+        assert_signal_stops_service(Signal::SIGTERM, "ignore_term", false, Some("Ready"));
+    assert!(lines.iter().any(|line| line.contains("forcing stop")));
+    assert!(
+        elapsed >= Duration::from_millis(4900),
+        "Grace period was only {elapsed:?}"
+    );
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn leader_exit_still_terminates_a_worker_that_ignores_term() {
+    let (lines, elapsed) =
+        assert_signal_stops_service(Signal::SIGTERM, "stubborn_worker", true, None);
+    assert!(!lines.iter().any(|line| line.contains("forcing stop")));
+    assert!(
+        elapsed < Duration::from_secs(3),
+        "Worker cleanup took {elapsed:?}"
+    );
 }

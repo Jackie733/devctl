@@ -53,3 +53,18 @@ autostart = false
 project = "demo"
 cmd = ["sh", "-c", 'sleep 60 & printf "Worker PID: %s\n" "$!"; wait']
 autostart = false
+
+[services.ignore_term]
+project = "demo"
+cmd = ["sh", "-c", 'trap "" TERM; printf "Ready\n"; exec sleep 60']
+autostart = false
+
+[services.graceful]
+project = "demo"
+cmd = ["sh", "-c", '''trap 'printf "TERM handled\n"; exit 0' TERM; printf "Ready\n"; while :; do sleep 1; done''']
+autostart = false
+
+[services.stubborn_worker]
+project = "demo"
+cmd = ["sh", "-c", '''sh -c 'trap "" TERM; printf "Worker PID: %s\n" "$$"; exec sleep 60' & wait''']
+autostart = false
