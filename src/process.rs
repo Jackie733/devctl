@@ -57,17 +57,22 @@ pub async fn run(id: &str, service: &Service) -> Result<RunOutcome, String> {
         .id()
         .ok_or_else(|| format!("Service '{id}' has no PID after spawn."))?;
 
+    let pgid = i32::try_from(pid)
+        .map(Pid::from_raw)
+        .map_err(|error| format!("Invalid process group for service '{id}': {error}"))?;
+
     println!("Started service '{id}' with PID {pid}.");
 
     tokio::select! {
         Some(()) = interrupt.recv() => {
-            stop(id, &mut child).await
+            stop(id, &mut child, pgid).await
         }
         Some(()) = terminate.recv() => {
-            stop(id, &mut child).await
+            stop(id, &mut child, pgid).await
         }
-        result = child.wait() => {
-            let status = result.map_err(|error| format!("Failed to wait for service '{id}': {error}"))?;
+        result = wait_for_exit_without_reaping(id, pgid) => {
+            result?;
+            let status = kill_and_reap(id, &mut child, pgid).await?;
 
             println!("Service '{id}' exited: {status}");
 
@@ -76,16 +81,8 @@ pub async fn run(id: &str, service: &Service) -> Result<RunOutcome, String> {
     }
 }
 
-async fn stop(id: &str, child: &mut Child) -> Result<RunOutcome, String> {
+async fn stop(id: &str, child: &mut Child, pgid: Pid) -> Result<RunOutcome, String> {
     println!("Stopping service '{id}'.");
-
-    let pid = child
-        .id()
-        .ok_or_else(|| format!("Service '{id}' has no running child."))?;
-
-    let pgid = i32::try_from(pid)
-        .map(Pid::from_raw)
-        .map_err(|error| format!("Invalid process group for service '{id}': {error}"))?;
 
     signal_group(id, pgid, Signal::SIGTERM)?;
 
@@ -102,17 +99,21 @@ async fn stop(id: &str, child: &mut Child) -> Result<RunOutcome, String> {
         }
     };
 
-    // Clean up remaining group members before releasing the leader's PID.
+    kill_and_reap(id, child, pgid).await?;
+    observed?;
+
+    println!("Stopped service '{id}'.");
+    Ok(RunOutcome::Stopped)
+}
+
+async fn kill_and_reap(id: &str, child: &mut Child, pgid: Pid) -> Result<ExitStatus, String> {
+    // Keep the leader's PID until the final group signal has been sent.
     signal_group(id, pgid, Signal::SIGKILL)?;
 
     child
         .wait()
         .await
-        .map_err(|error| format!("Failed to reap service '{id}': {error}"))?;
-    observed?;
-
-    println!("Stopped service '{id}'.");
-    Ok(RunOutcome::Stopped)
+        .map_err(|error| format!("Failed to reap service '{id}': {error}"))
 }
 
 fn signal_group(id: &str, pgid: Pid, signal: Signal) -> Result<(), String> {

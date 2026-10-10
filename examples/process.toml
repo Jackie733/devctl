@@ -68,3 +68,18 @@ autostart = false
 project = "demo"
 cmd = ["sh", "-c", '''sh -c 'trap "" TERM; printf "Worker PID: %s\n" "$$"; exec sleep 60' & wait''']
 autostart = false
+
+[services.orphan_success]
+project = "demo"
+cmd = ["sh", "-c", 'sleep 60 & printf "Worker PID: %s\n" "$!"; exit 0']
+autostart = false
+
+[services.orphan_failure]
+project = "demo"
+cmd = ["sh", "-c", 'sleep 60 & printf "Worker PID: %s\n" "$!"; exit 7']
+autostart = false
+
+[services.orphan_signal]
+project = "demo"
+cmd = ["sh", "-c", 'sleep 60 & printf "Worker PID: %s\n" "$!"; kill -TERM $$']
+autostart = false
