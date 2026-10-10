@@ -6,4 +6,5 @@ edition = "2024"
 [dependencies]
 clap = { version = "4", features = ["derive"] }
 serde = { version = "1.0.229", features = ["derive"] }
+tokio = { version = "1", features = ["macros", "rt", "process", "signal"] }
 toml = "1"

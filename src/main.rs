@@ -8,8 +8,9 @@ use std::{path::Path, process::ExitCode};
 use clap::{CommandFactory, Parser};
 use cli::{Cli, Command};
 
-fn main() -> ExitCode {
-    match execute(Cli::parse()) {
+#[tokio::main(flavor = "current_thread")]
+async fn main() -> ExitCode {
+    match execute(Cli::parse()).await {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
             eprintln!("Error: {error}");
@@ -18,7 +19,7 @@ fn main() -> ExitCode {
     }
 }
 
-fn execute(cli: Cli) -> Result<(), String> {
+async fn execute(cli: Cli) -> Result<(), String> {
     match cli.command {
         None => {
             Cli::command()
@@ -29,7 +30,7 @@ fn execute(cli: Cli) -> Result<(), String> {
         }
         Some(Command::Validate) => print_validation(&cli.config),
         Some(Command::Plan { targets }) => print_plan(&cli.config, &targets),
-        Some(Command::Run { service }) => run_service(&cli.config, &service),
+        Some(Command::Run { service }) => run_service(&cli.config, &service).await,
     }
 }
 
@@ -99,7 +100,7 @@ fn print_plan(path: &Path, targets: &[String]) -> Result<(), String> {
     Ok(())
 }
 
-fn run_service(path: &Path, id: &str) -> Result<(), String> {
+async fn run_service(path: &Path, id: &str) -> Result<(), String> {
     let config = config::load(path)?;
 
     let service = config
@@ -113,7 +114,10 @@ fn run_service(path: &Path, id: &str) -> Result<(), String> {
         ));
     }
 
-    let status = process::run(id, service)?;
-
-    Err(format!("Service '{id}' exited unexpectedly ({status})."))
+    match process::run(id, service).await? {
+        process::RunOutcome::Exited(status) => {
+            Err(format!("Service '{id}' exited unexpectedly ({status})."))
+        }
+        process::RunOutcome::Stopped => Ok(()),
+    }
 }

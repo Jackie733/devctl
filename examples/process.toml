@@ -1,4 +1,4 @@
-# Short-lived commands for learning process creation and exit handling on Unix.
+# Commands for learning process creation, exit handling, and stopping on Unix.
 # Any unrequested service exit, including exit code 0, is treated as a failure.
 version = 1
 
@@ -42,4 +42,9 @@ autostart = false
 [services.signal]
 project = "demo"
 cmd = ["sh", "-c", "kill -TERM $$"]
+autostart = false
+
+[services.long_running]
+project = "demo"
+cmd = ["sleep", "60"]
 autostart = false
