@@ -9,6 +9,12 @@ use std::{
     time::{Duration, Instant},
 };
 
+use nix::{
+    errno::Errno,
+    sys::signal::{Signal, kill, killpg},
+    unistd::Pid,
+};
+
 fn run_example(example: &str, service: &str) -> std::process::Output {
     let path = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("examples")
@@ -110,29 +116,29 @@ fn dependencies_are_rejected_before_spawn() {
 // Keep failed signal tests from leaving either process running.
 struct RunningService {
     devctl: Child,
-    service_pid: Option<String>,
+    service_pid: Option<Pid>,
+    worker_pid: Option<Pid>,
 }
 
 impl Drop for RunningService {
     fn drop(&mut self) {
-        if let Some(pid) = &self.service_pid {
-            let _ = Command::new("kill")
-                .args(["-s", "KILL", pid])
-                .stdout(Stdio::null())
-                .stderr(Stdio::null())
-                .status();
+        if let Some(pid) = self.service_pid {
+            let _ = killpg(pid, Signal::SIGKILL);
+        }
+        if let Some(pid) = self.worker_pid {
+            let _ = kill(pid, Signal::SIGKILL);
         }
         let _ = self.devctl.kill();
         let _ = self.devctl.wait();
     }
 }
 
-fn assert_signal_stops_service(signal: &str) {
+fn assert_signal_stops_service(signal: Signal, service: &str, has_worker: bool) {
     let config = Path::new(env!("CARGO_MANIFEST_DIR")).join("examples/process.toml");
     let devctl = Command::new(env!("CARGO_BIN_EXE_devctl"))
         .arg("--config")
         .arg(config)
-        .args(["run", "long_running"])
+        .args(["run", service])
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::inherit())
@@ -141,6 +147,7 @@ fn assert_signal_stops_service(signal: &str) {
     let mut running = RunningService {
         devctl,
         service_pid: None,
+        worker_pid: None,
     };
 
     let stdout = running.devctl.stdout.take().unwrap();
@@ -154,21 +161,27 @@ fn assert_signal_stops_service(signal: &str) {
     });
 
     // Synchronize on spawn, rather than sleeping and hoping the handler is ready.
-    let started = receiver
-        .recv_timeout(Duration::from_secs(5))
-        .expect("devctl must report startup within five seconds.");
-    let pid = started
-        .strip_prefix("Started service 'long_running' with PID ")
-        .and_then(|value| value.strip_suffix('.'))
-        .expect("Startup must include the service PID.");
-    assert!(pid.parse::<u32>().is_ok());
-    running.service_pid = Some(pid.to_owned());
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while running.service_pid.is_none() || (has_worker && running.worker_pid.is_none()) {
+        let line = receiver
+            .recv_timeout(deadline.saturating_duration_since(Instant::now()))
+            .expect("devctl and the worker must report startup within five seconds.");
+        if let Some(value) = line.strip_prefix(&format!("Started service '{service}' with PID ")) {
+            running.service_pid = Some(Pid::from_raw(value.trim_end_matches('.').parse().unwrap()));
+        } else if let Some(value) = line.strip_prefix("Worker PID: ") {
+            running.worker_pid = Some(Pid::from_raw(value.parse().unwrap()));
+        }
+    }
+    if let Some(pid) = running.worker_pid {
+        assert_eq!(
+            kill(pid, None),
+            Ok(()),
+            "The worker must start before stopping."
+        );
+    }
 
-    let delivered = Command::new("kill")
-        .args(["-s", signal, &running.devctl.id().to_string()])
-        .status()
-        .expect("The signal must be sent.");
-    assert!(delivered.success());
+    let devctl_pid = Pid::from_raw(i32::try_from(running.devctl.id()).unwrap());
+    kill(devctl_pid, signal).expect("The signal must be sent.");
 
     let deadline = Instant::now() + Duration::from_secs(5);
     let status = loop {
@@ -183,29 +196,50 @@ fn assert_signal_stops_service(signal: &str) {
         "User-requested stop must succeed: {status}"
     );
 
-    let alive = Command::new("kill")
-        .args(["-0", pid])
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status()
-        .expect("The child PID must be checked.");
-    assert!(
-        !alive.success(),
+    assert_eq!(
+        kill(running.service_pid.unwrap(), None),
+        Err(Errno::ESRCH),
         "The direct child must be gone and reaped."
     );
+    if let Some(pid) = running.worker_pid {
+        // Linux may retain an orphaned zombie until its new parent reaps it.
+        // Check that the worker has terminated, rather than claiming to reap it.
+        let deadline = Instant::now() + Duration::from_secs(5);
+        loop {
+            match std::fs::read_to_string(format!("/proc/{pid}/stat")) {
+                Ok(stat) => {
+                    let state = stat.rsplit_once(") ").unwrap().1.as_bytes()[0];
+                    if state == b'Z' || state == b'X' {
+                        break;
+                    }
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => break,
+                Err(error) => panic!("Failed to check worker state: {error}"),
+            }
+            assert!(Instant::now() < deadline, "The worker is still running.");
+            thread::sleep(Duration::from_millis(10));
+        }
+    }
     running.service_pid = None;
+    running.worker_pid = None;
 
+    // Bound pipe closure too: a surviving descendant can keep stdout open.
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while !reader.is_finished() {
+        assert!(Instant::now() < deadline, "Service output did not close.");
+        thread::sleep(Duration::from_millis(10));
+    }
     reader.join().unwrap();
     let lines: Vec<_> = receiver.try_iter().collect();
     assert!(
         lines
             .iter()
-            .any(|line| line == "Stopping service 'long_running'.")
+            .any(|line| line == &format!("Stopping service '{service}'."))
     );
     assert!(
         lines
             .iter()
-            .any(|line| line == "Stopped service 'long_running'.")
+            .any(|line| line == &format!("Stopped service '{service}'."))
     );
     assert!(
         !lines
@@ -216,10 +250,16 @@ fn assert_signal_stops_service(signal: &str) {
 
 #[test]
 fn sigint_stops_the_direct_child_and_succeeds() {
-    assert_signal_stops_service("INT");
+    assert_signal_stops_service(Signal::SIGINT, "long_running", false);
 }
 
 #[test]
 fn sigterm_stops_the_direct_child_and_succeeds() {
-    assert_signal_stops_service("TERM");
+    assert_signal_stops_service(Signal::SIGTERM, "long_running", false);
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn stopping_terminates_the_service_and_its_worker() {
+    assert_signal_stops_service(Signal::SIGTERM, "process_tree", true);
 }

@@ -1,5 +1,11 @@
 use std::process::{ExitStatus, Stdio};
 
+use nix::{
+    errno::Errno,
+    sys::signal::{Signal, killpg},
+    unistd::Pid,
+};
+
 use tokio::{
     process::{Child, Command},
     signal::unix::{SignalKind, signal},
@@ -66,10 +72,27 @@ pub async fn run(id: &str, service: &Service) -> Result<RunOutcome, String> {
 async fn stop(id: &str, child: &mut Child) -> Result<RunOutcome, String> {
     println!("Stopping service '{id}'.");
 
+    let pid = child
+        .id()
+        .ok_or_else(|| format!("Service '{id}' has no running child."))?;
+
+    let pgid = i32::try_from(pid)
+        .map(Pid::from_raw)
+        .map_err(|error| format!("Invalid process group for service '{id}': {error}"))?;
+
+    match killpg(pgid, Signal::SIGKILL) {
+        Ok(()) | Err(Errno::ESRCH) => {}
+        Err(error) => {
+            return Err(format!(
+                "Failed to kill process group for service '{id}': {error}"
+            ));
+        }
+    }
+
     child
-        .kill()
+        .wait()
         .await
-        .map_err(|error| format!("Failed to stop service '{id}': {error}"))?;
+        .map_err(|error| format!("Failed to reap service '{id}': {error}"))?;
 
     println!("Stopped service '{id}'.");
 

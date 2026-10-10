@@ -48,3 +48,8 @@ autostart = false
 project = "demo"
 cmd = ["sleep", "60"]
 autostart = false
+
+[services.process_tree]
+project = "demo"
+cmd = ["sh", "-c", 'sleep 60 & printf "Worker PID: %s\n" "$!"; wait']
+autostart = false

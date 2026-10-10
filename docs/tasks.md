@@ -2,23 +2,23 @@
 
 这里只保留当前任务与必要交接；历史见 Git，协作规则见 [AGENTS.md](../AGENTS.md)。
 
-## 进程组强制停止：待誊写
+## TERM 宽限与超时强杀：待誊写
 
 - 阶段：[roadmap.md](roadmap.md) M2；需求：[requirements.md](requirements.md) P04；设计：[DESIGN.md](../DESIGN.md) §4。
-- 目标：收到停止信号时，使用本轮 Child 的 PID 对应的进程组发送 SIGKILL，并显式 wait 直接子进程。
-- 改动：按需添加 nix 的 signal feature；在 `src/process.rs` 的 stop 中调用 killpg，处理组已经不存在的 ESRCH。
-- 本步验收：直接进程及未脱离组的后代被强制终止；停止请求成功返回；已有退出与信号测试继续通过。
-- 边界：本步只扩大强杀范围；TERM 宽限期、超时强杀、leader 自然退出后清理、整组清理完成的确认仍待后续 M2 小步，不代表 P04 完成。
-- 验证：教学代码在隔离临时目录编译检查；等待用户誊写后做正式行为验收，不写入当前功能源码。
-- 下一步：用户誊写后审查进程组停止、补充后代测试，再继续优雅停止。
+- 目标：停止时先向组发 TERM，给 leader 最多 5 秒退出；leader 退出或超时后强杀残留组，最后 wait 直接子进程。
+- 设计：Linux waitid 的 WNOWAIT/WNOHANG 观察退出而不回收，保留 leader PID 到最后一次组信号；Tokio time 提供非阻塞等待与超时。
+- 本步验收：TERM 清理逻辑确实执行；忽略 TERM 时约 5 秒强杀；leader 先退出时仍强杀残留 worker；原有进程测试继续通过。
+- 验证：隔离临时目录编译与 Clippy 检查通过；宿主原型验证正常 TERM（约 0.03 秒）、忽略 TERM（约 5.04 秒）、leader 先退出且 worker 忽略 TERM（约 0.03 秒）三种情况。功能代码未写入当前源码，等待用户誊写后正式验收。
+- 边界：本步沿 Linux 方向；leader 的自然退出路径清理、强杀后整个进程组完成确认、错误路径与停止竞态仍须后续验收，不代表 P04 全部完成。
+- 下一步：用户誊写后审查、补齐本步行为测试，再继续完善组清理。
 
-## 上一步验收：异步运行与直接子进程信号停止
+## 上一步验收：进程组强制停止
 
-- 审查：Tokio current_thread 运行时与 select 等待可用；自然退出仍显示失败，用户信号停止返回成功。当前 child.kill 只强杀直接子进程。
-- 测试：新增 SIGINT、SIGTERM 两项 CLI 集成测试，等待启动通知再发信号，有超时及失败清理，检查成功退出和直接子进程 PID 消失；复用原有自然退出、参数、cwd、stdin 和启动失败测试。
-- 验证：宿主环境 `cargo test --locked --offline` 42 项通过；`cargo fmt --check`、`cargo clippy --locked --offline --all-targets -- -D warnings` 通过。
-- 环境限制：信号测试在受限沙箱超时，相同测试在宿主环境通过；未将沙箱失败改为忽略测试。
-- 遗留：未验证完整进程组清理、优雅停止或后台行为；当前只完成 M2 的基础切片。
+- 基线：`bb0a791` 的直接子进程停止；用户已添加 nix signal feature 和 killpg + Child wait。
+- 审查：本轮 Child PID 对应独立进程组；检查整数转换、ESRCH 和其他错误处理；将 wait 失败提示改为明确的回收错误。
+- 测试：新增 shell 派生 sleep worker 的真实进程树场景，确认两者终止、直接 Child 被回收、输出管道关闭；复用 SIGINT/SIGTERM 和原有进程测试，失败清理改为覆盖整组，所有等待有期限。
+- 验证：宿主 `cargo test --locked --offline` 43 项通过；最后错误提示调整后 `cargo test --locked --offline --test process_cli` 12 项通过；fmt、`cargo clippy --locked --offline --all-targets -- -D warnings` 通过。
+- 限制：Linux worker 检查区分已终止的 zombie 与运行进程，不宣称 devctl 回收非直接后代；未验收优雅停止或后台行为。信号行为沿用宿主环境验证，受限沙箱此前存在超时。
 
 ## 最近交接（2026-10-10）
 
@@ -26,4 +26,4 @@
 
 后台已纳入首版，路线改为先实现后台控制，再接入 TUI；当前 M2 审查继续支撑可靠停止。用户已确认需求文档 §4 的其他扩展在 MVP 完成并试用后再评估；不阻塞当前开发，不提前实现。
 
-本轮验收并提交已有异步运行与信号处理改动，正式功能代码仍限于直接子进程停止；下一步进程组停止由用户学习并誊写。
+本轮验收用户誊写的进程组强杀并提交必要测试；下一步 TERM 宽限与超时强杀由用户学习并誊写。
