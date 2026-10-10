@@ -4,7 +4,7 @@
 
 ## 异步进程与信号停止：待审查
 
-- 阶段：[roadmap.md](roadmap.md) M2；需求：[requirements.md](requirements.md) P02、P04；设计：[DESIGN.md](../DESIGN.md) §7。
+- 阶段：[roadmap.md](roadmap.md) M2；需求：[requirements.md](requirements.md) P02、P04；设计：[DESIGN.md](../DESIGN.md) §4。
 - 基线：`a18b9d6` 已提交单服务运行及退出报告；配置和依赖计划已有代码，不代表 M1、M2 整体验收完成。
 - 待审查：`Cargo.toml`、`Cargo.lock`、`src/main.rs`、`src/process.rs` 中的 Tokio 异步运行与 SIGINT/SIGTERM 处理改动。
 - 本步验收：确认自然退出、启动失败、信号停止及直接子进程回收的行为；检查已有测试，按缺口补充测试后运行测试、fmt、clippy。
@@ -14,4 +14,6 @@
 
 ## 最近交接（2026-10-10）
 
-教学规范已提交于 `3fb389f`。本轮精简重复文档；文档差异、链接、章节引用及代码围栏检查通过，核对需求表、边界、预算与发布验收保持原样。纯文档改动不运行功能测试，现有未提交源码与依赖改动保留待审查。
+用户已确认：web 的 `pnpm run dev`、小程序的 `npm run dev:weapp`、中台的 `npm run dev` 同时启动，无需等待中台就绪；首版必须有 TUI、单项启停和日志，结束开发时全部停止。已按此收缩需求、设计和路线；当前 M2 审查仍服务于可靠退出。平台与实际项目路径待试用前核实。
+
+本轮只修改产品与任务文档；链接、需求映射、配置示例和差异检查通过。配置中的路径为占位符，未运行真实项目或功能测试；现有源码与依赖改动继续待审查。
