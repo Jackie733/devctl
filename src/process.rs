@@ -107,13 +107,93 @@ async fn stop(id: &str, child: &mut Child, pgid: Pid) -> Result<RunOutcome, Stri
 }
 
 async fn kill_and_reap(id: &str, child: &mut Child, pgid: Pid) -> Result<ExitStatus, String> {
-    // Keep the leader's PID until the final group signal has been sent.
+    // Keep the leader's PID until the group has no live members.
     signal_group(id, pgid, Signal::SIGKILL)?;
 
-    child
-        .wait()
-        .await
-        .map_err(|error| format!("Failed to reap service '{id}': {error}"))
+    timeout(Duration::from_secs(1), async {
+        wait_for_group_exit(id, pgid).await?;
+        child
+            .wait()
+            .await
+            .map_err(|error| format!("Failed to reap service '{id}': {error}"))
+    })
+    .await
+    .map_err(|_| {
+        format!("Process group for service '{id}' did not finish cleanup within 1 second.")
+    })?
+}
+
+async fn wait_for_group_exit(id: &str, pgid: Pid) -> Result<(), String> {
+    loop {
+        let result = tokio::task::spawn_blocking(move || group_has_live_members(pgid))
+            .await
+            .map_err(|error| {
+                format!("Failed to check process group for service '{id}': {error}")
+            })?;
+
+        let alive = result?;
+        if !alive {
+            return Ok(());
+        }
+
+        signal_group(id, pgid, Signal::SIGKILL)?;
+        sleep(Duration::from_millis(20)).await;
+    }
+}
+
+fn group_has_live_members(pgid: Pid) -> Result<bool, String> {
+    let entries =
+        std::fs::read_dir("/proc").map_err(|error| format!("Failed to read /proc: {error}"))?;
+
+    for entry in entries {
+        let entry = entry.map_err(|error| format!("Failed to read process entry: {error}"))?;
+
+        if !entry
+            .file_name()
+            .to_string_lossy()
+            .bytes()
+            .all(|byte| byte.is_ascii_digit())
+        {
+            continue;
+        }
+
+        let path = entry.path().join("stat");
+        let stat = match std::fs::read(&path) {
+            Ok(stat) => stat,
+            Err(error)
+                if error.kind() == std::io::ErrorKind::NotFound
+                    || error.raw_os_error() == Some(Errno::ESRCH as i32) =>
+            {
+                continue;
+            }
+            Err(error) => return Err(format!("Failed to read {}: {error}", path.display())),
+        };
+
+        if is_live_group_member(&stat, pgid)
+            .map_err(|error| format!("{error} in {}", path.display()))?
+        {
+            return Ok(true);
+        }
+    }
+
+    Ok(false)
+}
+
+fn is_live_group_member(stat: &[u8], pgid: Pid) -> Result<bool, &'static str> {
+    let suffix = stat
+        .iter()
+        .rposition(|byte| *byte == b')')
+        .and_then(|end| std::str::from_utf8(&stat[end + 1..]).ok())
+        .ok_or("Invalid process status")?;
+
+    let mut fields = suffix.split_whitespace();
+    let state = fields.next().ok_or("Missing process state")?;
+    let group = fields
+        .nth(1)
+        .and_then(|value| value.parse::<i32>().ok())
+        .ok_or("Missing or invalid process group")?;
+
+    Ok(group == pgid.as_raw() && !matches!(state, "Z" | "X" | "x"))
 }
 
 fn signal_group(id: &str, pgid: Pid, signal: Signal) -> Result<(), String> {
@@ -138,5 +218,60 @@ async fn wait_for_exit_without_reaping(id: &str, pid: Pid) -> Result<(), String>
                 return Err(format!("Failed to observe service '{id}' exit: {error}"));
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn process_names_can_contain_spaces_parentheses_and_non_utf8_bytes() {
+        let stat = b"11 (worker (busy) \xff) S 7 42 0";
+        assert_eq!(is_live_group_member(stat, Pid::from_raw(42)), Ok(true));
+    }
+
+    #[test]
+    fn group_membership_uses_pgrp_instead_of_ppid() {
+        let pgid = Pid::from_raw(42);
+        assert_eq!(is_live_group_member(b"11 (cmd) S 42 7 0", pgid), Ok(false));
+        assert_eq!(is_live_group_member(b"11 (cmd) S 7 42 0", pgid), Ok(true));
+    }
+
+    #[test]
+    fn only_zombie_and_dead_members_are_excluded() {
+        for state in ["R", "S", "D", "T", "t", "I", "Z", "X", "x"] {
+            let stat = format!("11 (cmd) {state} 7 42 0");
+            assert_eq!(
+                is_live_group_member(stat.as_bytes(), Pid::from_raw(42)),
+                Ok(!matches!(state, "Z" | "X" | "x")),
+                "Unexpected liveness for state {state}"
+            );
+        }
+    }
+
+    #[test]
+    fn invalid_status_is_an_error_instead_of_a_missing_member() {
+        for stat in [
+            b"11 cmd S 7 42".as_slice(),
+            b"11 (cmd)",
+            b"11 (cmd) S 7",
+            b"11 (cmd) S 7 invalid",
+            b"11 (cmd) S 7 \xff",
+        ] {
+            assert!(is_live_group_member(stat, Pid::from_raw(42)).is_err());
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn detects_the_current_live_process_group() {
+        assert!(group_has_live_members(nix::unistd::getpgrp()).unwrap());
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn a_missing_group_has_no_live_members() {
+        assert!(!group_has_live_members(Pid::from_raw(i32::MAX)).unwrap());
     }
 }

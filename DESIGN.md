@@ -72,7 +72,7 @@ cmd = ["npm", "run", "dev"]
 
 沿用当前 Linux/Unix 方向，每个命令建立独立进程组。npm/pnpm 启动器及其未脱离组的后代都属于本轮管理范围。
 
-停止流程：标记 Stopping → 给组发 TERM → 在停止预算内等待 → 超时给组发 KILL → wait 直接 Child → 有界排空输出 → 报告完成。初始停止预算提议为 5 秒，真实项目试用后再调整。
+停止流程：标记 Stopping → 给组发 TERM → 在停止预算内等待 → 强制清理残留组 → 确认组内无存活成员 → wait 直接 Child → 有界排空输出 → 报告完成。初始停止预算提议为 5 秒，真实项目试用后再调整。
 
 停止期间观察 leader 退出但暂不回收，保留其 PID 直到最后一次进程组信号发送完成，避免回收后 PID 复用。Linux 使用 waitid 的 WNOWAIT/WNOHANG 实现该观察，再由 Tokio Child 显式 wait 回收。leader 在宽限期内退出时立即强制清理残留组成员，不额外给予它们另一轮宽限期。
 
