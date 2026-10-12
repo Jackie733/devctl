@@ -14,7 +14,7 @@ use nix::{
 
 use tokio::{
     process::{Child, Command},
-    signal::unix::{SignalKind, signal},
+    sync::oneshot,
     time::{sleep, timeout},
 };
 
@@ -25,7 +25,11 @@ pub enum RunOutcome {
     Stopped,
 }
 
-pub async fn run(id: &str, service: &Service) -> Result<RunOutcome, String> {
+pub async fn run(
+    id: &str,
+    service: &Service,
+    stop_request: oneshot::Receiver<()>,
+) -> Result<RunOutcome, String> {
     let (program, args) = service
         .cmd
         .split_first()
@@ -35,12 +39,6 @@ pub async fn run(id: &str, service: &Service) -> Result<RunOutcome, String> {
         .cwd
         .as_ref()
         .ok_or_else(|| format!("Service '{id}' has no resolved working directory."))?;
-
-    let mut interrupt = signal(SignalKind::interrupt())
-        .map_err(|error| format!("Failed to register SIGINT handler: {error}"))?;
-
-    let mut terminate = signal(SignalKind::terminate())
-        .map_err(|error| format!("Failed to register SIGTERM handler: {error}"))?;
 
     let mut child = Command::new(program)
         .args(args)
@@ -64,10 +62,7 @@ pub async fn run(id: &str, service: &Service) -> Result<RunOutcome, String> {
     println!("Started service '{id}' with PID {pid}.");
 
     tokio::select! {
-        Some(()) = interrupt.recv() => {
-            stop(id, &mut child, pgid).await
-        }
-        Some(()) = terminate.recv() => {
+        _ = stop_request => {
             stop(id, &mut child, pgid).await
         }
         result = wait_for_exit_without_reaping(id, pgid) => {
@@ -273,5 +268,93 @@ mod tests {
     #[test]
     fn a_missing_group_has_no_live_members() {
         assert!(!group_has_live_members(Pid::from_raw(i32::MAX)).unwrap());
+    }
+
+    #[cfg(target_os = "linux")]
+    #[tokio::test]
+    async fn stop_requests_and_sender_loss_clean_up_the_process_group() {
+        use std::{fs, path::PathBuf};
+
+        use nix::sys::signal::kill;
+
+        struct Fixture {
+            dir: PathBuf,
+            pids: Option<(Pid, Pid)>,
+        }
+
+        impl Drop for Fixture {
+            fn drop(&mut self) {
+                if let Some((leader, worker)) = self.pids {
+                    let _ = killpg(leader, Signal::SIGKILL);
+                    let _ = kill(worker, Signal::SIGKILL);
+                }
+                let _ = fs::remove_dir_all(&self.dir);
+            }
+        }
+
+        for send_request in [true, false] {
+            let dir = std::env::temp_dir().join(format!(
+                "devctl-stop-channel-{}-{send_request}",
+                std::process::id()
+            ));
+            fs::create_dir(&dir).unwrap();
+            let mut fixture = Fixture { dir, pids: None };
+            let ready_path = fixture.dir.join("ready");
+            let service = Service {
+                project: "demo".into(),
+                cmd: vec![
+                    "sh".into(),
+                    "-c".into(),
+                    "sleep 60 & printf '%s %s\\n' \"$$\" \"$!\" > \"$1\"; wait".into(),
+                    "sh".into(),
+                    ready_path.to_str().unwrap().into(),
+                ],
+                cwd: Some(fixture.dir.clone()),
+                autostart: false,
+                depends_on: Vec::new(),
+            };
+
+            let (sender, receiver) = oneshot::channel();
+            let running = run("controlled", &service, receiver);
+            tokio::pin!(running);
+
+            let ready = async {
+                loop {
+                    if let Ok(content) = fs::read_to_string(&ready_path) {
+                        let pids: Vec<i32> = content
+                            .split_whitespace()
+                            .map(|pid| pid.parse().unwrap())
+                            .collect();
+                        if let [leader, worker] = pids.as_slice() {
+                            return (Pid::from_raw(*leader), Pid::from_raw(*worker));
+                        }
+                    }
+                    sleep(Duration::from_millis(10)).await;
+                }
+            };
+
+            let pids = tokio::select! {
+                result = &mut running => panic!("Service finished before the stop request: {}", result.is_ok()),
+                result = timeout(Duration::from_secs(3), ready) => result.unwrap(),
+            };
+            fixture.pids = Some(pids);
+            assert_eq!(kill(pids.0, None), Ok(()));
+            assert_eq!(kill(pids.1, None), Ok(()));
+
+            if send_request {
+                sender.send(()).unwrap();
+            } else {
+                drop(sender);
+            }
+
+            let outcome = timeout(Duration::from_secs(8), running)
+                .await
+                .expect("Stop must finish within the cleanup budget.")
+                .unwrap();
+            assert!(matches!(outcome, RunOutcome::Stopped));
+            assert_eq!(kill(pids.0, None), Err(Errno::ESRCH));
+            assert!(!group_has_live_members(pids.0).unwrap());
+            fixture.pids = None;
+        }
     }
 }

@@ -7,5 +7,5 @@ edition = "2024"
 clap = { version = "4", features = ["derive"] }
 nix = { version = "0.31.3", features = ["signal"] }
 serde = { version = "1.0.229", features = ["derive"] }
-tokio = { version = "1", features = ["macros", "rt", "process", "signal", "time"] }
+tokio = { version = "1", features = ["macros", "rt", "process", "signal", "time", "sync"] }
 toml = "1"

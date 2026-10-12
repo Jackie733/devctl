@@ -7,6 +7,10 @@ use std::{path::Path, process::ExitCode};
 
 use clap::{CommandFactory, Parser};
 use cli::{Cli, Command};
+use tokio::{
+    signal::unix::{SignalKind, signal},
+    sync::oneshot,
+};
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> ExitCode {
@@ -114,7 +118,28 @@ async fn run_service(path: &Path, id: &str) -> Result<(), String> {
         ));
     }
 
-    match process::run(id, service).await? {
+    let mut interrupt = signal(SignalKind::interrupt())
+        .map_err(|error| format!("Failed to register SIGINT handler: {error}"))?;
+    let mut terminate = signal(SignalKind::terminate())
+        .map_err(|error| format!("Failed to register SIGTERM handler: {error}"))?;
+
+    let (stop_sender, stop_request) = oneshot::channel();
+    let running = process::run(id, service, stop_request);
+    tokio::pin!(running);
+
+    let outcome = tokio::select! {
+        result = &mut running => result?,
+        Some(()) = interrupt.recv() => {
+            let _ = stop_sender.send(());
+            running.await?
+        }
+        Some(()) = terminate.recv() => {
+            let _ = stop_sender.send(());
+            running.await?
+        }
+    };
+
+    match outcome {
         process::RunOutcome::Exited(status) => {
             Err(format!("Service '{id}' exited unexpectedly ({status})."))
         }
