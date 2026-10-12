@@ -1,5 +1,6 @@
 mod cli;
 mod config;
+mod manager;
 mod plan;
 mod process;
 mod service_task;
@@ -8,7 +9,7 @@ use std::{path::Path, process::ExitCode};
 
 use clap::{CommandFactory, Parser};
 use cli::{Cli, Command};
-use service_task::ServiceTask;
+use manager::Manager;
 use tokio::signal::unix::{SignalKind, signal};
 
 #[tokio::main(flavor = "current_thread")]
@@ -122,17 +123,18 @@ async fn run_service(path: &Path, id: &str) -> Result<(), String> {
     let mut terminate = signal(SignalKind::terminate())
         .map_err(|error| format!("Failed to register SIGTERM handler: {error}"))?;
 
-    let mut task = ServiceTask::spawn(id.to_owned(), service);
+    let mut manager = Manager::default();
+    manager.start(id.to_owned(), service)?;
 
     let outcome = tokio::select! {
-        result = task.wait() => result?,
+        result = manager.wait(id) => result?,
         Some(()) = interrupt.recv() => {
-            task.request_stop();
-            task.wait().await?
+            manager.request_stop(id)?;
+            manager.wait(id).await?
         }
         Some(()) = terminate.recv() => {
-            task.request_stop();
-            task.wait().await?
+            manager.request_stop(id)?;
+            manager.wait(id).await?
         }
     };
 
