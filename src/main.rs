@@ -5,7 +5,7 @@ mod plan;
 mod process;
 mod service_task;
 
-use std::{path::Path, process::ExitCode};
+use std::{collections::BTreeSet, path::Path, process::ExitCode};
 
 use clap::{CommandFactory, Parser};
 use cli::{Cli, Command};
@@ -34,7 +34,7 @@ async fn execute(cli: Cli) -> Result<(), String> {
         }
         Some(Command::Validate) => print_validation(&cli.config),
         Some(Command::Plan { targets }) => print_plan(&cli.config, &targets),
-        Some(Command::Run { service }) => run_service(&cli.config, &service).await,
+        Some(Command::Run { services }) => run_services(&cli.config, &services).await,
     }
 }
 
@@ -104,18 +104,25 @@ fn print_plan(path: &Path, targets: &[String]) -> Result<(), String> {
     Ok(())
 }
 
-async fn run_service(path: &Path, id: &str) -> Result<(), String> {
+async fn run_services(path: &Path, targets: &[String]) -> Result<(), String> {
     let mut config = config::load(path)?;
+    let mut seen = BTreeSet::new();
+    let mut selected = Vec::new();
 
-    let service = config
-        .services
-        .remove(id)
-        .ok_or_else(|| format!("Unknown service '{id}'."))?;
-
-    if !service.depends_on.is_empty() {
-        return Err(format!(
-            "Service '{id}' has dependencies. Dependency execution is not supported yet."
-        ));
+    for id in targets {
+        if !seen.insert(id) {
+            continue;
+        }
+        let service = config
+            .services
+            .remove(id)
+            .ok_or_else(|| format!("Unknown service '{id}'."))?;
+        if !service.depends_on.is_empty() {
+            return Err(format!(
+                "Service '{id}' has dependencies. Dependency execution is not supported yet."
+            ));
+        }
+        selected.push((id.clone(), service));
     }
 
     let mut interrupt = signal(SignalKind::interrupt())
@@ -124,23 +131,48 @@ async fn run_service(path: &Path, id: &str) -> Result<(), String> {
         .map_err(|error| format!("Failed to register SIGTERM handler: {error}"))?;
 
     let mut manager = Manager::default();
-    manager.start(id.to_owned(), service)?;
-
-    let (id, result) = tokio::select! {
-        completion = manager.wait_next() => completion.ok_or_else(|| "No unjoined service task remains.".to_owned())?,
-        Some(()) = interrupt.recv() => {
-            return manager.stop_all().await;
+    for (id, service) in selected {
+        if let Err(error) = manager.start(id, service) {
+            return match manager.stop_all().await {
+                Ok(()) => Err(error),
+                Err(cleanup) => Err(format!("{error}\n{cleanup}")),
+            };
         }
-        Some(()) = terminate.recv() => {
-            return manager.stop_all().await;
+    }
+
+    let mut failed = false;
+    let stop_requested = loop {
+        let completion = tokio::select! {
+            completion = manager.wait_next() => completion,
+            Some(()) = interrupt.recv() => break true,
+            Some(()) = terminate.recv() => break true,
+        };
+        let Some((id, result)) = completion else {
+            break false;
+        };
+
+        let error = match result {
+            Ok(process::RunOutcome::Exited(status)) => {
+                Some(format!("Service '{id}' exited unexpectedly ({status})."))
+            }
+            Ok(process::RunOutcome::Stopped) => None,
+            Err(error) => Some(format!("Service '{id}': {error}")),
+        };
+        if let Some(error) = error {
+            eprintln!("Error: {error}");
+            failed = true;
         }
     };
 
-    match result? {
-        process::RunOutcome::Exited(status) => {
-            Err(format!("Service '{id}' exited unexpectedly ({status})."))
-        }
-        process::RunOutcome::Stopped => Ok(()),
+    if stop_requested && let Err(error) = manager.stop_all().await {
+        eprintln!("Error: {error}");
+        failed = true;
+    }
+
+    if failed {
+        Err("One or more services failed.".to_owned())
+    } else {
+        Ok(())
     }
 }
 

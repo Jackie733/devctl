@@ -1,5 +1,8 @@
 #![cfg(unix)]
 
+mod support;
+use support::ConfigFixture;
+
 use std::{
     io::{BufRead, BufReader},
     path::Path,
@@ -16,9 +19,8 @@ use nix::{
 };
 
 fn run_example(example: &str, service: &str) -> std::process::Output {
-    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("examples")
-        .join(example);
+    let fixture = ConfigFixture::new(example);
+    let path = &fixture.path;
 
     Command::new(env!("CARGO_BIN_EXE_devctl"))
         .arg("--config")
@@ -139,7 +141,8 @@ fn assert_service_exit(
     has_worker: bool,
     ready_line: Option<&str>,
 ) -> (Vec<String>, Duration) {
-    let config = Path::new(env!("CARGO_MANIFEST_DIR")).join("examples/process.toml");
+    let fixture = ConfigFixture::new("process.toml");
+    let config = &fixture.path;
     let devctl = Command::new(env!("CARGO_BIN_EXE_devctl"))
         .arg("--config")
         .arg(config)

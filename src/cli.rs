@@ -30,10 +30,10 @@ pub enum Command {
         targets: Vec<String>,
     },
 
-    /// Run one dependency-free service in the foreground.
+    /// Run dependency-free services in the foreground.
     Run {
-        /// Service to run.
-        #[arg(value_name = "SERVICE")]
-        service: String,
+        /// Services to run.
+        #[arg(value_name = "SERVICE", required = true, num_args = 1..)]
+        services: Vec<String>,
     },
 }

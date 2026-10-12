@@ -2,23 +2,25 @@
 
 这里只保留当前任务与必要交接；历史见 Git，协作规则见 [AGENTS.md](../AGENTS.md)。
 
-## 多项前台运行与失败隔离：待誊写
+## 配置运行锁与跨命令互斥：待誊写
 
-- 阶段：[roadmap.md](roadmap.md) M3；需求：[requirements.md](requirements.md) P01、P07、P02、P04、W03；设计：[DESIGN.md](../DESIGN.md) §3、§4。
-- 目标：`run SERVICE...` 显式选择一项或多项，无需等待任一命令结束或业务就绪；重复 ID 只登记一次；单项启动失败或退出立即显示原因，其他项继续运行；前台停止信号集中清理并保留本轮失败退出码。
-- 改动：cli.rs 的 Run 参数改为至少一个 String 的 Vec；main.rs 的 run_services 先去重、校验并取得全部 Service 所有权，再统一登记；循环调用 wait_next，逐项显示错误并记录 failed；信号触发 stop_all。登记过程中若意外失败，先等待已登记项清理再返回错误。
-- 验收：未知 ID、未支持的依赖在整批任何 spawn 前拒绝；三个受控服务均启动，不等待第一项退出；重复 ID 无第二进程；启动失败、退出码 0/7 或信号退出立即报告且另一项保留运行；SIGINT/SIGTERM 清理整批进程组并回收直接子进程；之前有失败则最终退出码仍为 1。
-- 教学代码验证：隔离副本 `/tmp/devctl-multi-run-step.js_h99tb` 中 `CARGO_TARGET_DIR=/tmp/devctl-retry-step.2rsnb361/target cargo test --locked --offline` 75 项通过（70 项基线 + tests/multi_run_cli.rs 的 5 项 CLI 测试）；同环境 `cargo clippy --locked --offline --all-targets -- -D warnings`、`cargo fmt --check` 通过。当前源码未应用此步，等待用户誊写；新测试文件保留待正式复用。
-- 边界：至少指定一个 ID，没有默认自动启动或 --all 选项；沿用依赖拒绝，不做依赖执行。当前是前台模式，Ctrl-C 停止托管服务；后台客户端离开语义见 [interaction.md](interaction.md)。失败原因逐项打印，最后汇总失败状态；跨命令互斥运行锁、后台、TUI 与日志缓冲仍待实现。清理未知项暂不能再次清理。
-- 下一步：验收多项前台运行后补齐配置运行锁，再推进后台所有权与控制通道；后台全部停止通过状态和完成结果推进，保持控制请求可响应。
+- 阶段：[roadmap.md](roadmap.md) M3；需求：[requirements.md](requirements.md) R02、P01、P04；设计：[DESIGN.md](../DESIGN.md) §4。
+- 目标：同一规范化配置路径同时只有一个前台管理者；取得锁后才登记任务，运行与正常清理期间保持占用；竞争者立即报错而不启动命令。后续后台复用同一锁组件。
+- 改动：新增 run_lock.rs，RunLock 持有 File，用标准库 try_lock 取得 OS 排他锁；锁文件为规范化配置路径追加 .devctl.lock，不截断、不自动删除，避免配置文件原子替换或删除锁文件引起 inode 分裂。main.rs 先规范化路径并完成整批校验，注册信号后取得 guard，再创建 Manager；.gitignore 忽略锁文件。
+- 验收：相对/绝对路径、符号链接别名共用锁；原子替换配置仍互斥；并发启动只有一个赢家；不同配置可各自管理；validate/plan 不争锁；停止宽限期内仍拒绝第二实例，正常清理后可重新取得锁；现存锁文件内容不决定占用；exec 后的服务子进程不继续持有句柄；锁文件打开失败或为符号链接时拒绝运行。
+- 教学代码验证：`/tmp/devctl-run-lock-step.tn880_0q` 的独立 target 中 `cargo test --locked --offline` 82 项通过（75 项基线 + 4 项锁组件测试 + 3 项跨进程测试）；`cargo fmt --check`、`cargo clippy --locked --offline --all-targets -- -D warnings` 通过。共享宿主 target 曾复用旧二进制，不计入锁验收；后续隔离验证必须使用副本独立构建目录。当前源码未应用功能代码，等待用户誊写；锁测试保留待正式复用。
+- 测试准备：本轮已正式落盘独立配置副本辅助代码，保留原项目绝对目录及服务定义，让并行 CLI 测试各自拥有配置；加入锁后无需串行运行整套测试。锁的组件及跨进程测试待下一轮复用。句柄释放测试允许其他并行测试 fork 到 exec 之间的短暂继承，验证执行后的长运行子进程不会持续占用。
+- 边界：使用 Rust 1.89+ 的 File::try_lock，当前宿主为 1.98.1；实现与测试面向当前 Linux 本机文件系统，网络文件系统未验证。配置目录需要创建锁文件的权限；锁文件须保留，存在不代表正在运行。极长配置文件名追加后缀可能触发文件系统长度限制，会在启动前报错。锁随 guard 或进程退出释放，不负责崩溃残留进程恢复；现有清理未知后的安全恢复问题仍待解决，不能据锁已释放宣称残留已清理。
+- 下一步：验收配置锁后推进后台管理者生命周期和启动握手，再接入本地控制通道；全部停止通过状态与完成结果推进，保持控制请求可响应。
 
-## 上一步验收：等待任意任务完成并交付结果
+## 上一步验收：多项前台运行与失败隔离
 
-- 基线：`3a12563`；用户已完成 service_task.rs、manager.rs 与 main.rs 誊写。
-- 审查：poll_wait 在 Pending 时保留句柄，Ready 后清空并分类 JoinError；wait_next 跳过已消费句柄，其他 Pending 句柄注册 waker；取得结果至更新登记之间无 await；finish_wait 统一释放规则。未发现功能性誊写问题，无功能修复。
-- 测试：正式复用上轮隔离副本 4 项测试，覆盖较后 ID 先完成且前项保持运行、取消后停止并接收结果、启动失败/退出码/信号各消费一次、按 ID 与任意等待交叉使用、ID 复用及换一个 Tokio 任务继续等待；保留全部停止与进程组测试。
-- 验证：宿主 `cargo test --locked --offline` 70 项通过；`cargo fmt --check`、`cargo clippy --locked --offline --all-targets -- -D warnings`、`git diff --check` 与本轮文档本地链接检查通过。
-- 限制：当前 CLI 仍只运行一项；None 不代表所有登记已释放，清理未知仍保留 ID。消费后的错误结果不缓存，清理未知项暂无再次清理接口；真实 npm/pnpm 流程、内核实际清理超时和 /proc 权限错误仍待验证。
+- 基线：`a060acd`；用户已完成 cli.rs 与 main.rs 功能代码誊写。
+- 修复：Run 字段仍为 service，而入口匹配 services，导致无法编译；统一为 services，并将函数名改为 run_services、帮助文字改为复数。
+- 审查：先完成去重与整批校验，再登记；登记期间无 await；错误立即显示并记录失败标记，不结束其他任务；信号停止等待整批清理；登记阶段意外失败也等待收尾。更新 README、交互与设计文档，使当前能力和拟定后台接口分清。
+- 测试：上一轮临时副本已不存在，按既有验收重建并正式落盘 5 项 CLI 测试，覆盖参数边界、整批预检、重复 ID、所有自然退出反馈、三项同时运行、两种终端信号清理、失败即时反馈和幸存项继续运行。为 CLI 测试建立独立配置副本，原目录解析和所有进程测试仍保持原验收。
+- 验证：宿主 `cargo test --locked --offline` 75 项通过；`cargo fmt --check`、`cargo clippy --locked --offline --all-targets -- -D warnings`、`git diff --check` 和本轮文档本地链接检查通过。
+- 限制：当前没有跨命令运行锁、后台或 TUI；没有默认启动或 --all，依赖执行仍拒绝。清理未知项暂不能再次清理或安全恢复；真实 npm/pnpm 流程及内核实际清理超时、/proc 权限错误仍待验证。
 
 ## 必要交接
 
