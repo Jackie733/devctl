@@ -2,15 +2,14 @@ mod cli;
 mod config;
 mod plan;
 mod process;
+mod service_task;
 
 use std::{path::Path, process::ExitCode};
 
 use clap::{CommandFactory, Parser};
 use cli::{Cli, Command};
-use tokio::{
-    signal::unix::{SignalKind, signal},
-    sync::oneshot,
-};
+use service_task::ServiceTask;
+use tokio::signal::unix::{SignalKind, signal};
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> ExitCode {
@@ -123,24 +122,19 @@ async fn run_service(path: &Path, id: &str) -> Result<(), String> {
     let mut terminate = signal(SignalKind::terminate())
         .map_err(|error| format!("Failed to register SIGTERM handler: {error}"))?;
 
-    let (stop_sender, stop_request) = oneshot::channel();
-    let service_id = id.to_owned();
-    let mut running =
-        tokio::spawn(async move { process::run(&service_id, &service, stop_request).await });
+    let mut task = ServiceTask::spawn(id.to_owned(), service);
 
-    let result = tokio::select! {
-        result = &mut running => result,
+    let outcome = tokio::select! {
+        result = task.wait() => result?,
         Some(()) = interrupt.recv() => {
-            let _ = stop_sender.send(());
-            running.await
+            task.request_stop();
+            task.wait().await?
         }
         Some(()) = terminate.recv() => {
-            let _ = stop_sender.send(());
-            running.await
+            task.request_stop();
+            task.wait().await?
         }
     };
-
-    let outcome = result.map_err(|error| format!("Service '{id}' task failed: {error}"))??;
 
     match outcome {
         process::RunOutcome::Exited(status) => {
