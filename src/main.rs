@@ -105,11 +105,11 @@ fn print_plan(path: &Path, targets: &[String]) -> Result<(), String> {
 }
 
 async fn run_service(path: &Path, id: &str) -> Result<(), String> {
-    let config = config::load(path)?;
+    let mut config = config::load(path)?;
 
     let service = config
         .services
-        .get(id)
+        .remove(id)
         .ok_or_else(|| format!("Unknown service '{id}'."))?;
 
     if !service.depends_on.is_empty() {
@@ -124,25 +124,58 @@ async fn run_service(path: &Path, id: &str) -> Result<(), String> {
         .map_err(|error| format!("Failed to register SIGTERM handler: {error}"))?;
 
     let (stop_sender, stop_request) = oneshot::channel();
-    let running = process::run(id, service, stop_request);
-    tokio::pin!(running);
+    let service_id = id.to_owned();
+    let mut running =
+        tokio::spawn(async move { process::run(&service_id, &service, stop_request).await });
 
-    let outcome = tokio::select! {
-        result = &mut running => result?,
+    let result = tokio::select! {
+        result = &mut running => result,
         Some(()) = interrupt.recv() => {
             let _ = stop_sender.send(());
-            running.await?
+            running.await
         }
         Some(()) = terminate.recv() => {
             let _ = stop_sender.send(());
-            running.await?
+            running.await
         }
     };
+
+    let outcome = result.map_err(|error| format!("Service '{id}' task failed: {error}"))??;
 
     match outcome {
         process::RunOutcome::Exited(status) => {
             Err(format!("Service '{id}' exited unexpectedly ({status})."))
         }
         process::RunOutcome::Stopped => Ok(()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tokio::{
+        sync::oneshot,
+        time::{Duration, timeout},
+    };
+
+    #[tokio::test]
+    async fn a_stop_queued_before_the_task_runs_is_honored() {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("examples/process.toml");
+        let service = config::load(&path)
+            .unwrap()
+            .services
+            .remove("long_running")
+            .unwrap();
+        let (sender, receiver) = oneshot::channel();
+        let task =
+            tokio::spawn(async move { process::run("long_running", &service, receiver).await });
+
+        sender.send(()).unwrap();
+        let outcome = timeout(Duration::from_secs(8), task)
+            .await
+            .expect("The queued stop must finish within the cleanup budget.")
+            .unwrap()
+            .unwrap();
+        assert!(matches!(outcome, process::RunOutcome::Stopped));
     }
 }
