@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, future::poll_fn, task::Poll};
 
 use crate::{
     config::Service,
@@ -63,11 +63,42 @@ impl Manager {
             .get_mut(id)
             .ok_or_else(|| format!("Service '{id}' has no registered task."))?;
         let result = task.wait().await;
+        self.finish_wait(id, result)
+    }
 
+    pub async fn wait_next(&mut self) -> Option<(String, Result<RunOutcome, String>)> {
+        let (id, result) = poll_fn(|cx| {
+            let mut waiting = false;
+            for (id, task) in &mut self.tasks {
+                if task.is_joined() {
+                    continue;
+                }
+                waiting = true;
+                if let Poll::Ready(result) = task.poll_wait(cx) {
+                    return Poll::Ready(Some((id.clone(), result)));
+                }
+            }
+
+            if waiting {
+                Poll::Pending
+            } else {
+                Poll::Ready(None)
+            }
+        })
+        .await?;
+
+        let result = self.finish_wait(&id, result);
+        Some((id, result))
+    }
+
+    fn finish_wait(
+        &mut self,
+        id: &str,
+        result: Result<RunOutcome, RunError>,
+    ) -> Result<RunOutcome, String> {
         if matches!(&result, Ok(_) | Err(RunError::SafeToRetry(_))) {
             self.tasks.remove(id);
         }
-
         result.map_err(|error| error.to_string())
     }
 }
@@ -403,5 +434,112 @@ mod tests {
             .await
             .unwrap()
             .unwrap();
+    }
+
+    #[tokio::test]
+    async fn wait_next_observes_a_later_id_without_stopping_an_earlier_running_task() {
+        let mut manager = Manager::default();
+        assert!(manager.wait_next().await.is_none());
+        manager
+            .start("a_running".into(), service("long_running"))
+            .unwrap();
+
+        for _ in 0..2 {
+            manager.start("z_hello".into(), service("hello")).unwrap();
+            let (id, result) = timeout(Duration::from_secs(3), manager.wait_next())
+                .await
+                .unwrap()
+                .unwrap();
+            assert_eq!(id, "z_hello");
+            assert!(matches!(result, Ok(RunOutcome::Exited(status)) if status.success()));
+        }
+
+        assert!(
+            timeout(Duration::from_millis(20), manager.wait_next())
+                .await
+                .is_err()
+        );
+        assert!(
+            manager
+                .start("a_running".into(), service("long_running"))
+                .is_err()
+        );
+        manager.request_stop("a_running").unwrap();
+        let (id, result) = timeout(Duration::from_secs(8), manager.wait_next())
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(id, "a_running");
+        assert!(matches!(result, Ok(RunOutcome::Stopped)));
+        assert!(manager.wait_next().await.is_none());
+    }
+
+    #[tokio::test]
+    async fn wait_next_delivers_spawn_failure_exit_code_and_signal_once_each() {
+        let mut manager = Manager::default();
+        manager.start("missing".into(), service("missing")).unwrap();
+        manager.start("failure".into(), service("failure")).unwrap();
+        manager.start("signal".into(), service("signal")).unwrap();
+        let mut seen = std::collections::BTreeSet::new();
+        while let Some((id, result)) = timeout(Duration::from_secs(3), manager.wait_next())
+            .await
+            .unwrap()
+        {
+            assert!(seen.insert(id.clone()));
+            match id.as_str() {
+                "missing" => assert!(
+                    result
+                        .err()
+                        .unwrap()
+                        .contains("Failed to start service 'missing':")
+                ),
+                "failure" => assert!(
+                    matches!(result, Ok(RunOutcome::Exited(status)) if status.code() == Some(7))
+                ),
+                "signal" => {
+                    use std::os::unix::process::ExitStatusExt;
+                    assert!(
+                        matches!(result, Ok(RunOutcome::Exited(status)) if status.signal() == Some(15))
+                    );
+                }
+                _ => panic!("Unexpected completion: {id}"),
+            }
+        }
+        assert_eq!(seen.len(), 3);
+        for id in seen {
+            manager.start(id, service("long_running")).unwrap();
+        }
+        timeout(Duration::from_secs(8), manager.stop_all())
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(manager.wait_next().await.is_none());
+    }
+
+    #[tokio::test]
+    async fn explicit_wait_and_wait_next_share_the_same_completion_ownership() {
+        let mut manager = Manager::default();
+        manager.start("first".into(), service("hello")).unwrap();
+        manager.start("second".into(), service("hello")).unwrap();
+        let result = timeout(Duration::from_secs(3), manager.wait("first"))
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(matches!(result, RunOutcome::Exited(status) if status.success()));
+        let (id, result) = timeout(Duration::from_secs(3), manager.wait_next())
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(id, "second");
+        assert!(matches!(result, Ok(RunOutcome::Exited(status)) if status.success()));
+        assert!(manager.wait_next().await.is_none());
+        manager.start("first".into(), service("hello")).unwrap();
+        let (id, result) = timeout(Duration::from_secs(3), manager.wait_next())
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(id, "first");
+        assert!(result.is_ok());
+        assert!(manager.wait_next().await.is_none());
     }
 }

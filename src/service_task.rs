@@ -1,3 +1,9 @@
+use std::{
+    future::{Future, poll_fn},
+    pin::Pin,
+    task::{Context, Poll, ready},
+};
+
 use tokio::{sync::oneshot, task::JoinHandle};
 
 use crate::{
@@ -31,20 +37,32 @@ impl ServiceTask {
         }
     }
 
-    pub async fn wait(&mut self) -> Result<RunOutcome, RunError> {
-        let running = self.running.as_mut().ok_or_else(|| {
-            RunError::CleanupUnconfirmed(format!(
+    pub fn is_joined(&self) -> bool {
+        self.running.is_none()
+    }
+
+    pub fn poll_wait(&mut self, cx: &mut Context<'_>) -> Poll<Result<RunOutcome, RunError>> {
+        let Some(running) = self.running.as_mut() else {
+            return Poll::Ready(Err(RunError::CleanupUnconfirmed(format!(
                 "Service '{}' task has already been joined.",
                 self.id
-            ))
-        })?;
-        let result = running.await;
+            ))));
+        };
+        let result = ready!(Pin::new(running).poll(cx));
         self.running = None;
         self.stop_sender = None;
 
-        result.map_err(|error| {
-            RunError::CleanupUnconfirmed(format!("Service '{}' task failed: {error}", self.id))
-        })?
+        Poll::Ready(match result {
+            Ok(result) => result,
+            Err(error) => Err(RunError::CleanupUnconfirmed(format!(
+                "Service '{}' task failed: {error}",
+                self.id
+            ))),
+        })
+    }
+
+    pub async fn wait(&mut self) -> Result<RunOutcome, RunError> {
+        poll_fn(|cx| self.poll_wait(cx)).await
     }
 }
 
@@ -205,5 +223,32 @@ mod tests {
             task.wait().await,
             Err(RunError::CleanupUnconfirmed(_))
         ));
+    }
+
+    #[tokio::test]
+    async fn canceling_a_wait_allows_a_different_tokio_task_to_join() {
+        let mut fixture = Fixture::new("moved-waiter");
+        let mut task = ServiceTask::spawn("moved".into(), fixture.service());
+        let pid = fixture.ready().await;
+        assert!(
+            timeout(Duration::from_millis(20), task.wait())
+                .await
+                .is_err()
+        );
+        assert!(!task.is_joined());
+        let waiter = tokio::spawn(async move {
+            task.request_stop();
+            let result = task.wait().await;
+            assert!(task.is_joined());
+            result
+        });
+        let result = timeout(Duration::from_secs(8), waiter)
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
+        assert!(matches!(result, RunOutcome::Stopped));
+        assert_eq!(kill(pid, None), Err(Errno::ESRCH));
+        fixture.pid = None;
     }
 }

@@ -126,8 +126,8 @@ async fn run_service(path: &Path, id: &str) -> Result<(), String> {
     let mut manager = Manager::default();
     manager.start(id.to_owned(), service)?;
 
-    let outcome = tokio::select! {
-        result = manager.wait(id) => result?,
+    let (id, result) = tokio::select! {
+        completion = manager.wait_next() => completion.ok_or_else(|| "No unjoined service task remains.".to_owned())?,
         Some(()) = interrupt.recv() => {
             return manager.stop_all().await;
         }
@@ -136,7 +136,7 @@ async fn run_service(path: &Path, id: &str) -> Result<(), String> {
         }
     };
 
-    match outcome {
+    match result? {
         process::RunOutcome::Exited(status) => {
             Err(format!("Service '{id}' exited unexpectedly ({status})."))
         }
