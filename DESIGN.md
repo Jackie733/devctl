@@ -76,6 +76,8 @@ Manager 用 BTreeMap 按服务 ID 持有 ServiceTask，在创建任务前拒绝�
 
 process 用 RunError 区分 SafeToRetry 与 CleanupUnconfirmed；spawn 前的校验失败、spawn 失败以及已确认清理后的观察错误可安全重试，清理错误和任务 JoinError 不能证明清理完成。ServiceTask 保留错误类型，Manager 判断登记是否释放后才转换为显示文本；可安全重试不触发自动重启。
 
+当前前台收尾通过 stop_all 独占借用 Manager，先对 ID 快照中的全部任务发送停止请求，再逐项等待并汇总带 ID 的错误；某项错误不跳过其他项。独占借用期间不能启动新任务，各运行任务的清理并发推进。此方法用于前台收尾；后续后台管理循环通过完成结果推进停止状态，避免等待期间阻塞控制请求。
+
 ## 4. 进程停止与运行互斥
 
 沿用当前 Linux/Unix 方向，每个命令建立独立进程组。npm/pnpm 启动器及其未脱离组的后代都属于本轮管理范围。

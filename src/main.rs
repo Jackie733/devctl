@@ -129,12 +129,10 @@ async fn run_service(path: &Path, id: &str) -> Result<(), String> {
     let outcome = tokio::select! {
         result = manager.wait(id) => result?,
         Some(()) = interrupt.recv() => {
-            manager.request_stop(id)?;
-            manager.wait(id).await?
+            return manager.stop_all().await;
         }
         Some(()) = terminate.recv() => {
-            manager.request_stop(id)?;
-            manager.wait(id).await?
+            return manager.stop_all().await;
         }
     };
 

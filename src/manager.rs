@@ -36,6 +36,27 @@ impl Manager {
         Ok(())
     }
 
+    pub async fn stop_all(&mut self) -> Result<(), String> {
+        let ids: Vec<String> = self.tasks.keys().cloned().collect();
+
+        for id in &ids {
+            self.request_stop(id)?;
+        }
+
+        let mut errors = Vec::new();
+        for id in ids {
+            if let Err(error) = self.wait(&id).await {
+                errors.push(format!("Service '{id}': {error}"));
+            }
+        }
+
+        if errors.is_empty() {
+            Ok(())
+        } else {
+            Err(errors.join("\n"))
+        }
+    }
+
     pub async fn wait(&mut self, id: &str) -> Result<RunOutcome, String> {
         let task = self
             .tasks
@@ -216,5 +237,171 @@ mod tests {
             .start("retry".into(), service("long_running"))
             .unwrap();
         stopped(&mut manager, "retry").await;
+    }
+
+    #[tokio::test]
+    async fn stop_all_handles_empty_and_not_yet_started_tasks() {
+        let mut manager = Manager::default();
+        manager.stop_all().await.unwrap();
+
+        for _ in 0..2 {
+            manager
+                .start("first".into(), service("long_running"))
+                .unwrap();
+            manager
+                .start("second".into(), service("long_running"))
+                .unwrap();
+            timeout(Duration::from_secs(8), manager.stop_all())
+                .await
+                .unwrap()
+                .unwrap();
+            assert!(manager.request_stop("first").is_err());
+            assert!(manager.request_stop("second").is_err());
+        }
+        manager.stop_all().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn stop_all_reports_each_failure_and_still_joins_other_tasks() {
+        let mut manager = Manager::default();
+        manager
+            .start("a_missing".into(), service("missing"))
+            .unwrap();
+        manager
+            .start("b_missing".into(), service("missing"))
+            .unwrap();
+        manager
+            .start("z_survivor".into(), service("long_running"))
+            .unwrap();
+        let error = timeout(Duration::from_secs(8), manager.stop_all())
+            .await
+            .unwrap()
+            .unwrap_err();
+        assert!(error.contains("Failed to start service 'a_missing':"));
+        assert!(error.contains("Failed to start service 'b_missing':"));
+        for id in ["a_missing", "b_missing", "z_survivor"] {
+            assert!(manager.request_stop(id).is_err());
+            manager.start(id.into(), service("long_running")).unwrap();
+        }
+        timeout(Duration::from_secs(8), manager.stop_all())
+            .await
+            .unwrap()
+            .unwrap();
+    }
+
+    #[cfg(target_os = "linux")]
+    struct StopFixture {
+        dir: std::path::PathBuf,
+        pids: Vec<nix::unistd::Pid>,
+    }
+
+    #[cfg(target_os = "linux")]
+    impl StopFixture {
+        fn new() -> Self {
+            let dir = std::env::temp_dir()
+                .join(format!("devctl-stop-all-contract-{}", std::process::id()));
+            std::fs::create_dir(&dir).unwrap();
+            Self {
+                dir,
+                pids: Vec::new(),
+            }
+        }
+
+        fn service(&self, name: &str, script: &str) -> Service {
+            let mut value = service("long_running");
+            value.cmd = vec![
+                "sh".into(),
+                "-c".into(),
+                script.into(),
+                "sh".into(),
+                self.dir.join(name).to_str().unwrap().into(),
+            ];
+            value
+        }
+
+        async fn ready(&mut self, name: &str) -> nix::unistd::Pid {
+            let path = self.dir.join(name);
+            let pid = timeout(Duration::from_secs(3), async {
+                loop {
+                    if let Ok(value) = std::fs::read_to_string(&path)
+                        && let Ok(pid) = value.trim().parse::<i32>()
+                    {
+                        break nix::unistd::Pid::from_raw(pid);
+                    }
+                    tokio::time::sleep(Duration::from_millis(10)).await;
+                }
+            })
+            .await
+            .unwrap();
+            self.pids.push(pid);
+            pid
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    impl Drop for StopFixture {
+        fn drop(&mut self) {
+            for pid in &self.pids {
+                let _ = nix::sys::signal::killpg(*pid, nix::sys::signal::Signal::SIGKILL);
+            }
+            let _ = std::fs::remove_dir_all(&self.dir);
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    #[tokio::test]
+    async fn stop_all_notifies_every_task_before_waiting_and_survives_cancellation() {
+        use nix::{errno::Errno, sys::signal::kill};
+
+        let mut manager = Manager::default();
+        let mut fixture = StopFixture::new();
+        let slow = fixture.service(
+            "slow",
+            r#"trap '' TERM; printf '%s\n' "$$" > "$1"; exec sleep 60"#,
+        );
+        let fast = fixture.service("fast", r#"printf '%s\n' "$$" > "$1"; exec sleep 60"#);
+        manager.start("a_slow".into(), slow).unwrap();
+        manager.start("z_fast".into(), fast).unwrap();
+        let slow_pid = fixture.ready("slow").await;
+        let fast_pid = fixture.ready("fast").await;
+
+        assert!(
+            timeout(Duration::from_millis(300), manager.stop_all())
+                .await
+                .is_err()
+        );
+        timeout(Duration::from_secs(2), async {
+            while kill(fast_pid, None) != Err(Errno::ESRCH) {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .unwrap();
+        fixture.pids.retain(|pid| *pid != fast_pid);
+        assert_eq!(kill(slow_pid, None), Ok(()));
+        assert!(
+            manager
+                .start("a_slow".into(), service("long_running"))
+                .is_err()
+        );
+        assert!(
+            manager
+                .start("z_fast".into(), service("long_running"))
+                .is_err()
+        );
+
+        timeout(Duration::from_secs(8), manager.stop_all())
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(kill(slow_pid, None), Err(Errno::ESRCH));
+        fixture.pids.clear();
+        for id in ["a_slow", "z_fast"] {
+            manager.start(id.into(), service("long_running")).unwrap();
+        }
+        timeout(Duration::from_secs(8), manager.stop_all())
+            .await
+            .unwrap()
+            .unwrap();
     }
 }
