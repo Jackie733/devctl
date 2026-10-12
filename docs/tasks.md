@@ -2,25 +2,26 @@
 
 这里只保留当前任务与必要交接；历史见 Git，协作规则见 [AGENTS.md](../AGENTS.md)。
 
-## 区分可安全重试与清理未确认的错误：待誊写
+## 全部停止并汇总清理错误：待誊写
 
-- 阶段：[roadmap.md](roadmap.md) M3；需求：[requirements.md](requirements.md) P01、P02、P04；设计：[DESIGN.md](../DESIGN.md) §3、§4。
-- 目标：启动未创建进程或已确认清理时允许释放 ID；清理未确认时保留 ID，错误仍显示原有原因，不影响其他已登记服务。
-- 改动：process.rs 增加 RunError 的 SafeToRetry、CleanupUnconfirmed 两种结果；run、stop 在资源边界分类；ServiceTask 保留类型并将 JoinError 归为清理未确认；Manager 根据类型决定是否释放，最后转换为 String。
-- 验收：命令缺失、工作目录无效及 spawn 失败后可使用同一 ID；非零退出仍保留退出码且清理后可重新启动；取消等待、停止未完成时仍拒绝重复启动；任务 panic 不构成清理完成证据。
-- 教学代码验证：隔离副本 `/tmp/devctl-retry-step.2rsnb361` 中 `cargo test --locked --offline` 63 项通过（调整 1 项登记器测试，新增 3 项测试）；`cargo fmt --check`、`cargo clippy --locked --offline --all-targets -- -D warnings` 通过。当前源码未应用此步，等待用户誊写；隔离副本保留待复用测试。
-- 测试迁移：service_task.rs 的启动失败断言改为检查 `error.to_string()`；manager.rs 原错误保留 ID 测试改为验证启动失败可重试且不影响其他项。用户誊写后复用隔离副本中的工作目录/命令边界、非零退出后复用 ID、任务 panic 测试。
-- 边界：清理超时、读取权限错误和清理成功后的观察错误未做故障注入；清理未知的登记仍不支持主动解除或重新清理。start 成功仅表示任务已登记，不表示子进程已启动；本步不增加自动重试。
-- 下一步：验收错误分类后推进多项完成处理与全部停止；多项 CLI、运行锁、后台与 TUI 尚未实现。
+- 阶段：[roadmap.md](roadmap.md) M3；需求：[requirements.md](requirements.md) P07、P04、P02；设计：[DESIGN.md](../DESIGN.md) §3、§4。
+- 目标：集中停止 Manager 当前登记的全部任务，先通知全部再等待；任一运行或清理错误不阻断其他任务的等待，错误带服务 ID 汇总返回。
+- 改动：manager.rs 增加 stop_all，持有 ID 快照，复用 request_stop 和 wait；main.rs 的两个前台信号分支改为调用 stop_all 后返回。当前 CLI 仍仅运行一项，本步建立多项收尾能力，不新增 --all 命令。
+- 验收：空登记及重复停止成功；未开始执行的任务也收到停止；多个启动错误都报告且其他任务完成清理；慢任务不推迟其他任务收到停止；取消批量等待不丢失未验收的任务，正常任务可继续等待并在完成后复用 ID。
+- 教学代码验证：隔离副本 `/tmp/devctl-stop-all-step.uoikife3` 中 `CARGO_TARGET_DIR=/tmp/devctl-retry-step.2rsnb361/target cargo test --locked --offline` 66 项通过（63 项基线 + 3 项全部停止测试）；同环境 `cargo clippy --locked --offline --all-targets -- -D warnings` 和 `cargo fmt --check` 通过。当前源码未应用此步，等待用户誊写；新增测试保留待正式复用。
+- 故障注入：`/tmp/devctl-stop-all-fault.pwvxk4ih` 同环境运行 `cargo test --locked --offline stop_all_keeps_uncertain_ids_and_joins_other_tasks` 通过；模拟清理确认失败，失败项保留 ID，其他项完成等待并可复用。
+- 边界：独占借用 Manager 期间不接受新 start；每项停止任务并发执行，结果按 ID 顺序等待。取消批量等待后已验收的成功项可能已释放；剩余登记保留，已消费的错误结果尚不缓存。清理未知项不能通过再次 stop_all 重新清理；自动完成事件和后台停止状态后续实现。
+- 下一步：验收全部停止后推进多项完成通知和管理循环，再接入多项 CLI、运行锁与后台；后台循环不能直接长时间等待此收尾方法。
 
-## 上一步验收：按服务 ID 登记任务并阻止重复启动
+## 上一步验收：区分可安全重试与清理未确认的错误
 
-- 基线：`832c5d9`；用户已完成 manager.rs 和 main.rs 誊写。
-- 审查：重复 ID 和不支持的依赖在 spawn 前拒绝；按 ID 停止，等待成功后释放登记；停止请求和取消等待保留任务；单项错误不停止其他项。
-- 修复：main.rs 两个信号分支补上 `manager.request_stop(id)?`，避免忽略 Result；统一 Manager 导入位置。
-- 测试：正式复用上轮隔离副本 3 项登记器测试，覆盖重复启动、重复停止、取消等待、停止及自然退出后复用 ID、未知 ID、依赖拒绝与单项失败隔离。
-- 验证：宿主 `cargo test --locked --offline` 60 项通过；`cargo fmt --check`、`cargo clippy --locked --offline --all-targets -- -D warnings`、`git diff --check` 与本轮文档本地链接检查通过。
-- 限制：当前 String 错误无法判断清理状态，wait 错误一律保留 ID；即使进程未创建也暂时不能复用。CLI 仍只托管一项，真实 npm/pnpm 项目待试用。
+- 基线：`157d187`；用户已完成 process.rs、service_task.rs 与 manager.rs 的功能代码誊写。
+- 审查：spawn 前失败可安全重试；spawn 后无法确认资源状态及 JoinError 保留登记；观察错误仅在清理成功后标记可重试；Manager 保留类型至释放判断完成。
+- 修复：stop 的 kill_and_reap 结果漏写 `?`，可能忽略清理失败并错误报告停止成功，已补上；登记器仍保留旧错误占用 ID 断言，已迁移至失败后安全重试的行为。
+- 测试：正式复用上一轮隔离副本 3 项测试，覆盖无命令、无解析目录、无效目录、非零退出后复用 ID 和任务 panic；保留原有失败隔离、取消等待和进程组测试。
+- 验证：宿主 `cargo test --locked --offline` 63 项通过；`cargo fmt --check`、`cargo clippy --locked --offline --all-targets -- -D warnings`、`git diff --check` 与本轮文档本地链接检查通过。
+- 故障注入：`/tmp/devctl-cleanup-fault.0k8wtidh` 中，使用上述 CARGO_TARGET_DIR 运行 `cargo test --locked --offline cleanup_failure_keeps_the_id_reserved`，修复版本通过；对照移除 `?` 后测试失败并出现 unused Result 警告。注入在实际子进程已清理后返回模拟确认错误，避免测试残留进程。
+- 限制：未模拟内核实际清理超时、/proc 权限错误或清理成功后的观察错误；清理未知项仍保留登记，尚无再次清理接口。真实 npm/pnpm 流程待试用。
 
 ## 必要交接
 

@@ -1,4 +1,5 @@
 use std::{
+    fmt,
     process::{ExitStatus, Stdio},
     time::Duration,
 };
@@ -25,20 +26,35 @@ pub enum RunOutcome {
     Stopped,
 }
 
+#[derive(Debug)]
+pub enum RunError {
+    SafeToRetry(String),
+    CleanupUnconfirmed(String),
+}
+
+impl fmt::Display for RunError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::SafeToRetry(message) | Self::CleanupUnconfirmed(message) => f.write_str(message),
+        }
+    }
+}
+
+impl std::error::Error for RunError {}
+
 pub async fn run(
     id: &str,
     service: &Service,
     stop_request: oneshot::Receiver<()>,
-) -> Result<RunOutcome, String> {
+) -> Result<RunOutcome, RunError> {
     let (program, args) = service
         .cmd
         .split_first()
-        .ok_or_else(|| format!("Service '{id}' has no command."))?;
+        .ok_or_else(|| RunError::SafeToRetry(format!("Service '{id}' has no command.")))?;
 
-    let cwd = service
-        .cwd
-        .as_ref()
-        .ok_or_else(|| format!("Service '{id}' has no resolved working directory."))?;
+    let cwd = service.cwd.as_ref().ok_or_else(|| {
+        RunError::SafeToRetry(format!("Service '{id}' has no resolved working directory."))
+    })?;
 
     let mut child = Command::new(program)
         .args(args)
@@ -49,15 +65,17 @@ pub async fn run(
         .process_group(0)
         .kill_on_drop(true)
         .spawn()
-        .map_err(|error| format!("Failed to start service '{id}': {error}"))?;
+        .map_err(|error| {
+            RunError::SafeToRetry(format!("Failed to start service '{id}': {error}"))
+        })?;
 
-    let pid = child
-        .id()
-        .ok_or_else(|| format!("Service '{id}' has no PID after spawn."))?;
+    let pid = child.id().ok_or_else(|| {
+        RunError::CleanupUnconfirmed(format!("Service '{id}' has no PID after spawn."))
+    })?;
 
-    let pgid = i32::try_from(pid)
-        .map(Pid::from_raw)
-        .map_err(|error| format!("Invalid process group for service '{id}': {error}"))?;
+    let pgid = i32::try_from(pid).map(Pid::from_raw).map_err(|error| {
+        RunError::CleanupUnconfirmed(format!("Invalid process group for service '{id}': {error}"))
+    })?;
 
     println!("Started service '{id}' with PID {pid}.");
 
@@ -66,8 +84,8 @@ pub async fn run(
             stop(id, &mut child, pgid).await
         }
         result = wait_for_exit_without_reaping(id, pgid) => {
-            result?;
-            let status = kill_and_reap(id, &mut child, pgid).await?;
+            result.map_err(RunError::CleanupUnconfirmed)?;
+            let status = kill_and_reap(id, &mut child, pgid).await.map_err(RunError::CleanupUnconfirmed)?;
 
             println!("Service '{id}' exited: {status}");
 
@@ -76,10 +94,10 @@ pub async fn run(
     }
 }
 
-async fn stop(id: &str, child: &mut Child, pgid: Pid) -> Result<RunOutcome, String> {
+async fn stop(id: &str, child: &mut Child, pgid: Pid) -> Result<RunOutcome, RunError> {
     println!("Stopping service '{id}'.");
 
-    signal_group(id, pgid, Signal::SIGTERM)?;
+    signal_group(id, pgid, Signal::SIGTERM).map_err(RunError::CleanupUnconfirmed)?;
 
     let observed = match timeout(
         Duration::from_secs(5),
@@ -94,8 +112,10 @@ async fn stop(id: &str, child: &mut Child, pgid: Pid) -> Result<RunOutcome, Stri
         }
     };
 
-    kill_and_reap(id, child, pgid).await?;
-    observed?;
+    kill_and_reap(id, child, pgid)
+        .await
+        .map_err(RunError::CleanupUnconfirmed)?;
+    observed.map_err(RunError::SafeToRetry)?;
 
     println!("Stopped service '{id}'.");
     Ok(RunOutcome::Stopped)

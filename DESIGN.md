@@ -74,6 +74,8 @@ cmd = ["npm", "run", "dev"]
 
 Manager 用 BTreeMap 按服务 ID 持有 ServiceTask，在创建任务前拒绝重复 ID。停止请求和取消等待均不释放登记；释放 ID 必须以未创建进程或本轮清理已确认的结果为依据，不能依据错误文本。清理无法确认或任务异常结束时保留登记，避免再次启动形成重复实例。
 
+process 用 RunError 区分 SafeToRetry 与 CleanupUnconfirmed；spawn 前的校验失败、spawn 失败以及已确认清理后的观察错误可安全重试，清理错误和任务 JoinError 不能证明清理完成。ServiceTask 保留错误类型，Manager 判断登记是否释放后才转换为显示文本；可安全重试不触发自动重启。
+
 ## 4. 进程停止与运行互斥
 
 沿用当前 Linux/Unix 方向，每个命令建立独立进程组。npm/pnpm 启动器及其未脱离组的后代都属于本轮管理范围。

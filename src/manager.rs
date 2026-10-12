@@ -1,6 +1,10 @@
 use std::collections::BTreeMap;
 
-use crate::{config::Service, process::RunOutcome, service_task::ServiceTask};
+use crate::{
+    config::Service,
+    process::{RunError, RunOutcome},
+    service_task::ServiceTask,
+};
 
 #[derive(Default)]
 pub struct Manager {
@@ -39,12 +43,11 @@ impl Manager {
             .ok_or_else(|| format!("Service '{id}' has no registered task."))?;
         let result = task.wait().await;
 
-        // An error does not prove that the process group was cleaned up.
-        if result.is_ok() {
+        if matches!(&result, Ok(_) | Err(RunError::SafeToRetry(_))) {
             self.tasks.remove(id);
         }
 
-        result
+        result.map_err(|error| error.to_string())
     }
 }
 
@@ -135,7 +138,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn errors_keep_the_id_reserved_and_do_not_stop_other_services() {
+    async fn spawn_errors_release_the_id_and_do_not_stop_other_services() {
         let mut manager = Manager::default();
         assert!(manager.request_stop("unknown").is_err());
         assert!(manager.wait("unknown").await.is_err());
@@ -158,16 +161,60 @@ mod tests {
             Ok(_) => panic!("A missing executable must fail."),
         };
         assert!(error.contains("Failed to start service 'missing':"));
-        assert!(
-            manager
-                .start("missing".into(), service("long_running"))
-                .is_err()
-        );
+        manager
+            .start("missing".into(), service("long_running"))
+            .unwrap();
+        stopped(&mut manager, "missing").await;
         assert!(
             timeout(Duration::from_millis(20), manager.wait("survivor"))
                 .await
                 .is_err()
         );
         stopped(&mut manager, "survivor").await;
+    }
+
+    #[tokio::test]
+    async fn invalid_commands_and_directories_release_the_id() {
+        let mut no_command = service("long_running");
+        no_command.cmd.clear();
+        let mut no_cwd = service("long_running");
+        no_cwd.cwd = None;
+        let mut missing_cwd = service("long_running");
+        missing_cwd.cwd = Some(
+            Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("Cargo.toml")
+                .join("not-a-directory"),
+        );
+        let mut manager = Manager::default();
+
+        for invalid in [no_command, no_cwd, missing_cwd] {
+            manager.start("retry".into(), invalid).unwrap();
+            assert!(
+                timeout(Duration::from_secs(3), manager.wait("retry"))
+                    .await
+                    .unwrap()
+                    .is_err()
+            );
+            assert!(manager.request_stop("retry").is_err());
+            manager
+                .start("retry".into(), service("long_running"))
+                .unwrap();
+            stopped(&mut manager, "retry").await;
+        }
+    }
+
+    #[tokio::test]
+    async fn nonzero_exit_releases_the_id_after_cleanup() {
+        let mut manager = Manager::default();
+        manager.start("retry".into(), service("failure")).unwrap();
+        let outcome = timeout(Duration::from_secs(3), manager.wait("retry"))
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(matches!(outcome, RunOutcome::Exited(status) if status.code() == Some(7)));
+        manager
+            .start("retry".into(), service("long_running"))
+            .unwrap();
+        stopped(&mut manager, "retry").await;
     }
 }

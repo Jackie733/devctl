@@ -2,13 +2,13 @@ use tokio::{sync::oneshot, task::JoinHandle};
 
 use crate::{
     config::Service,
-    process::{self, RunOutcome},
+    process::{self, RunError, RunOutcome},
 };
 
 pub struct ServiceTask {
     id: String,
     stop_sender: Option<oneshot::Sender<()>>,
-    running: Option<JoinHandle<Result<RunOutcome, String>>>,
+    running: Option<JoinHandle<Result<RunOutcome, RunError>>>,
 }
 
 impl ServiceTask {
@@ -31,16 +31,20 @@ impl ServiceTask {
         }
     }
 
-    pub async fn wait(&mut self) -> Result<RunOutcome, String> {
-        let running = self
-            .running
-            .as_mut()
-            .ok_or_else(|| format!("Service '{}' task has already been joined.", self.id))?;
+    pub async fn wait(&mut self) -> Result<RunOutcome, RunError> {
+        let running = self.running.as_mut().ok_or_else(|| {
+            RunError::CleanupUnconfirmed(format!(
+                "Service '{}' task has already been joined.",
+                self.id
+            ))
+        })?;
         let result = running.await;
         self.running = None;
         self.stop_sender = None;
 
-        result.map_err(|error| format!("Service '{}' task failed: {error}", self.id))?
+        result.map_err(|error| {
+            RunError::CleanupUnconfirmed(format!("Service '{}' task failed: {error}", self.id))
+        })?
     }
 }
 
@@ -168,7 +172,11 @@ mod tests {
             Err(error) => error,
             Ok(_) => panic!("A missing executable must fail."),
         };
-        assert!(error.contains("Failed to start service 'missing':"));
+        assert!(
+            error
+                .to_string()
+                .contains("Failed to start service 'missing':")
+        );
         assert_eq!(kill(pid, None), Ok(()));
 
         survivor.request_stop();
@@ -179,5 +187,23 @@ mod tests {
         assert!(matches!(outcome, RunOutcome::Stopped));
         assert_eq!(kill(pid, None), Err(Errno::ESRCH));
         fixture.pid = None;
+    }
+
+    #[tokio::test]
+    async fn a_panicked_task_does_not_confirm_cleanup() {
+        let mut task = ServiceTask {
+            id: "panicked".into(),
+            stop_sender: None,
+            running: Some(tokio::spawn(async {
+                panic!("injected task panic");
+            })),
+        };
+
+        let result = task.wait().await;
+        assert!(matches!(result, Err(RunError::CleanupUnconfirmed(_))));
+        assert!(matches!(
+            task.wait().await,
+            Err(RunError::CleanupUnconfirmed(_))
+        ));
     }
 }
