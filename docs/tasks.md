@@ -2,14 +2,19 @@
 
 这里只保留当前任务与必要交接；历史见 Git，协作规则见 [AGENTS.md](../AGENTS.md)。
 
-## 下一步：后台管理者生命周期与启动握手
+## 后台内部入口与空闲生命周期：待誊写
 
 - 阶段：[roadmap.md](roadmap.md) M4；需求：[requirements.md](requirements.md) P05、R02、P04；设计：[DESIGN.md](../DESIGN.md) §6。
-- 用户本轮授权直接完成任务 1（配置运行锁）和任务 2（多项目控制核心）。任务 3 恢复教学誊写流程，本轮不将后台功能代码写入源码。
-- 下一小步从独立后台进程的生命周期与启动握手开始，再接本地控制通道、实例发现及控制 CLI。具体教学代码待用户继续时给出，不将整个后台阶段当成一个誊写步骤。
-- 后台复用 RunLock 与 Manager：创建不自动启动项目；客户端离开不停止服务。管理循环用 request_stop_all + wait_next 推进停止，不能在处理控制请求时直接等待 stop_all。
+- 上一步代码已提交 `f17120c`，本轮检查没有新的源码改动或待修复内容。任务 3 恢复教学誊写流程，本轮只更新任务记录。
+- 本步目标：增加隐藏内部命令 supervise 和 supervisor::run。规范化配置路径、加载配置、注册 SIGINT/SIGTERM、取得 RunLock，再创建空闲 Manager；不调用 start_all，不因没有运行服务而退出。收到信号后完成收尾并释放锁。
+- 边界：本步内部入口仍以前台方式调试；尚未脱离控制终端、重定向标准流、建立启动握手或绑定控制端点，不宣称后台运行已完成。supervise 不作为新的面向用户的操作入口；后续由客户端启动该内部进程。
+- 教学代码验证：隔离副本 `/tmp/devctl-supervisor-step.xqp3ax44` 使用其独立 target。宿主 `cargo test --manifest-path /tmp/devctl-supervisor-step.xqp3ax44/Cargo.toml --target-dir /tmp/devctl-supervisor-step.xqp3ax44/target --locked --offline` 91 项通过（89 项基线 + 2 项内部入口测试）。副本的 `cargo fmt --check`、`cargo clippy --locked --offline --all-targets -- -D warnings` 通过。
+- 新测试验证：包含 autostart 项时仍不执行命令；空闲持锁；拒绝重复管理者与前台 run；validate/plan 可用；SIGINT/SIGTERM 均成功退出并允许重新取得锁；无效配置在取锁前失败；内部命令不出现在顶层帮助。测试保留在副本 tests/supervisor_cli.rs，下一轮审查誊写时复用，不让用户誊写测试。
+- 环境差异：本轮沙箱内信号退出测试超时，宿主完整测试通过；沙箱结果未计为通过，根因未定位。
+- 下一步：本步誊写验收后，继续进程脱离终端与启动握手；控制端点就绪前不能对客户端报告可用。再接控制通道、实例发现与控制 CLI。
+- 后台复用 RunLock 与 Manager：创建不自动启动项目；客户端离开不停止服务。当前内部入口只等待退出信号，stop_all 仅用于最终收尾；接入控制请求后用 request_stop_all + wait_next 推进停止，避免阻塞控制循环。
 
-## 本轮验收：运行锁与多项目控制核心
+## 上一步验收：运行锁与多项目控制核心
 
 - 关联：M3；R02、P01、P07、P02、P04。基线：`8f63797`；源码与测试由助手直接编写，非待誊写代码。
 - 任务 1：RunLock 使用标准库 File::try_lock，按规范化配置路径追加 .devctl.lock；先完成校验和信号注册，再持锁启动。锁文件不截断、不自动删除，拒绝符号链接与非普通文件；validate/plan 不争锁。
