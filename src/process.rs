@@ -46,6 +46,7 @@ pub async fn run(
     id: &str,
     service: &Service,
     stop_request: oneshot::Receiver<()>,
+    started: Option<oneshot::Sender<()>>,
 ) -> Result<RunOutcome, RunError> {
     let (program, args) = service
         .cmd
@@ -78,6 +79,9 @@ pub async fn run(
     })?;
 
     println!("Started service '{id}' with PID {pid}.");
+    if let Some(started) = started {
+        let _ = started.send(());
+    }
 
     tokio::select! {
         _ = stop_request => {
@@ -335,7 +339,7 @@ mod tests {
             };
 
             let (sender, receiver) = oneshot::channel();
-            let running = run("controlled", &service, receiver);
+            let running = run("controlled", &service, receiver, None);
             tokio::pin!(running);
 
             let ready = async {

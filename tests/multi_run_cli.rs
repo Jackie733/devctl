@@ -171,7 +171,7 @@ impl Drop for Batch {
 }
 
 #[test]
-fn run_requires_explicit_targets_and_help_does_not_load_config() {
+fn run_requires_targets_or_all_and_help_does_not_load_config() {
     let fixture = ConfigFixture::new("process.toml");
     let output = command(&fixture.path, &[]).output().unwrap();
     assert_eq!(output.status.code(), Some(2));
@@ -186,7 +186,7 @@ fn run_requires_explicit_targets_and_help_does_not_load_config() {
     assert!(
         String::from_utf8(output.stdout)
             .unwrap()
-            .contains("<SERVICE>...")
+            .contains("[SERVICE]...")
     );
 }
 
@@ -263,4 +263,32 @@ fn failures_are_reported_immediately_while_other_services_remain_running() {
                 .any(|line| line.contains("One or more services failed."))
         );
     }
+}
+
+#[test]
+fn all_selects_only_autostart_services_and_rejects_explicit_targets() {
+    let fixture = ConfigFixture::new("process.toml");
+    let output = command(&fixture.path, &["--all"]).output().unwrap();
+    assert!(output.status.success());
+    assert_eq!(
+        String::from_utf8(output.stdout).unwrap().trim(),
+        "No services selected."
+    );
+    let output = command(&fixture.path, &["--all", "hello"])
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(2));
+
+    let mut config: toml::Value =
+        toml::from_str(&std::fs::read_to_string(&fixture.path).unwrap()).unwrap();
+    for id in ["hello", "failure"] {
+        config["services"][id]["autostart"] = toml::Value::Boolean(true);
+    }
+    std::fs::write(&fixture.path, toml::to_string(&config).unwrap()).unwrap();
+    let output = command(&fixture.path, &["--all"]).output().unwrap();
+    assert_eq!(output.status.code(), Some(1));
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert_eq!(stdout.matches("Started service '").count(), 2);
+    assert!(stdout.contains("Started service 'hello'"));
+    assert!(stdout.contains("Started service 'failure'"));
 }

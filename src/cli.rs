@@ -33,7 +33,10 @@ pub enum Command {
     /// Run dependency-free services in the foreground.
     Run {
         /// Services to run.
-        #[arg(value_name = "SERVICE", required = true, num_args = 1..)]
+        #[arg(value_name = "SERVICE", required_unless_present = "all", num_args = 1.., conflicts_with = "all")]
         services: Vec<String>,
+        /// Run all autostart services.
+        #[arg(long)]
+        all: bool,
     },
 }

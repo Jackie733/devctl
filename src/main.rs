@@ -3,9 +3,10 @@ mod config;
 mod manager;
 mod plan;
 mod process;
+mod run_lock;
 mod service_task;
 
-use std::{collections::BTreeSet, path::Path, process::ExitCode};
+use std::{path::Path, process::ExitCode};
 
 use clap::{CommandFactory, Parser};
 use cli::{Cli, Command};
@@ -34,7 +35,7 @@ async fn execute(cli: Cli) -> Result<(), String> {
         }
         Some(Command::Validate) => print_validation(&cli.config),
         Some(Command::Plan { targets }) => print_plan(&cli.config, &targets),
-        Some(Command::Run { services }) => run_services(&cli.config, &services).await,
+        Some(Command::Run { services, all }) => run_services(&cli.config, &services, all).await,
     }
 }
 
@@ -104,25 +105,21 @@ fn print_plan(path: &Path, targets: &[String]) -> Result<(), String> {
     Ok(())
 }
 
-async fn run_services(path: &Path, targets: &[String]) -> Result<(), String> {
-    let mut config = config::load(path)?;
-    let mut seen = BTreeSet::new();
-    let mut selected = Vec::new();
-
-    for id in targets {
-        if !seen.insert(id) {
-            continue;
-        }
-        let service = config
-            .services
-            .remove(id)
-            .ok_or_else(|| format!("Unknown service '{id}'."))?;
-        if !service.depends_on.is_empty() {
-            return Err(format!(
-                "Service '{id}' has dependencies. Dependency execution is not supported yet."
-            ));
-        }
-        selected.push((id.clone(), service));
+async fn run_services(path: &Path, targets: &[String], all: bool) -> Result<(), String> {
+    let path = path
+        .canonicalize()
+        .map_err(|error| format!("Failed to resolve config path {}: {error}", path.display()))?;
+    let config = config::load(&path)?;
+    let mut manager = Manager::new(config.services);
+    let selected = if all {
+        manager.default_targets()
+    } else {
+        targets.to_vec()
+    };
+    manager.check_start(&selected)?;
+    if selected.is_empty() {
+        println!("No services selected.");
+        return Ok(());
     }
 
     let mut interrupt = signal(SignalKind::interrupt())
@@ -130,14 +127,17 @@ async fn run_services(path: &Path, targets: &[String]) -> Result<(), String> {
     let mut terminate = signal(SignalKind::terminate())
         .map_err(|error| format!("Failed to register SIGTERM handler: {error}"))?;
 
-    let mut manager = Manager::default();
-    for (id, service) in selected {
-        if let Err(error) = manager.start(id, service) {
-            return match manager.stop_all().await {
-                Ok(()) => Err(error),
-                Err(cleanup) => Err(format!("{error}\n{cleanup}")),
-            };
-        }
+    let _run_lock = run_lock::RunLock::acquire(&path)?;
+    let started = if all {
+        manager.start_all()
+    } else {
+        manager.start_selected(&selected)
+    };
+    if let Err(error) = started {
+        return match manager.stop_all().await {
+            Ok(()) => Err(error),
+            Err(cleanup) => Err(format!("{error}\n{cleanup}")),
+        };
     }
 
     let mut failed = false;
@@ -194,7 +194,9 @@ mod tests {
             .unwrap();
         let (sender, receiver) = oneshot::channel();
         let task =
-            tokio::spawn(async move { process::run("long_running", &service, receiver).await });
+            tokio::spawn(
+                async move { process::run("long_running", &service, receiver, None).await },
+            );
 
         sender.send(()).unwrap();
         let outcome = timeout(Duration::from_secs(8), task)

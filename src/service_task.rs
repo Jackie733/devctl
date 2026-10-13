@@ -15,20 +15,42 @@ pub struct ServiceTask {
     id: String,
     stop_sender: Option<oneshot::Sender<()>>,
     running: Option<JoinHandle<Result<RunOutcome, RunError>>>,
+    started: oneshot::Receiver<()>,
+    has_started: bool,
 }
 
 impl ServiceTask {
+    #[cfg(test)]
+    pub fn failed_for_test(id: &str, error: RunError) -> Self {
+        Self {
+            id: id.into(),
+            stop_sender: None,
+            running: Some(tokio::spawn(async move { Err(error) })),
+            started: oneshot::channel().1,
+            has_started: false,
+        }
+    }
+
     pub fn spawn(id: String, service: Service) -> Self {
         let (stop_sender, stop_request) = oneshot::channel();
+        let (started_sender, started) = oneshot::channel();
         let service_id = id.clone();
-        let running =
-            tokio::spawn(async move { process::run(&service_id, &service, stop_request).await });
+        let running = tokio::spawn(async move {
+            process::run(&service_id, &service, stop_request, Some(started_sender)).await
+        });
 
         Self {
             id,
             stop_sender: Some(stop_sender),
             running: Some(running),
+            started,
+            has_started: false,
         }
+    }
+
+    pub fn has_started(&mut self) -> bool {
+        self.has_started |= self.started.try_recv().is_ok();
+        self.has_started
     }
 
     pub fn request_stop(&mut self) {
@@ -215,6 +237,8 @@ mod tests {
             running: Some(tokio::spawn(async {
                 panic!("injected task panic");
             })),
+            started: oneshot::channel().1,
+            has_started: false,
         };
 
         let result = task.wait().await;

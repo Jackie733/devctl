@@ -31,7 +31,7 @@ pub struct Project {
     pub path: PathBuf,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Service {
     pub project: String,
@@ -49,14 +49,14 @@ fn default_autostart() -> bool {
     true
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Dependency {
     pub service: String,
     pub condition: DependencyCondition,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum DependencyCondition {
     Started,
