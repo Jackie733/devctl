@@ -114,7 +114,25 @@ Linux 清理完成定义为组内没有存活成员，并且直接 Child 已 wai
 
 子进程控制字符不能直接控制 devctl 的终端。日志显示与进程控制分开；终端绘制错误只断开客户端并恢复终端，不停止后台服务。raw mode、光标和 alternate screen 的建立与恢复集中管理。
 
-TUI 在多项目控制稳定后再选用 Ratatui/Crossterm，依赖按需加入。窗口布局和快捷键只在交互文档维护。stdin 交互需求尚未确认，不提前引入 PTY。
+窗口布局和快捷键只在交互文档维护。stdin 交互需求尚未确认，不提前引入 PTY。
+
+### 5.1 TUI 实现草案（待讨论，尚未编码）
+
+对应 U01、P01、P07、P02、P05、L01、L03。建议采用 Ratatui 绘制、Crossterm 处理终端与事件，沿用现有 Tokio current_thread 运行时；使用 EventStream（event-stream feature）及 StreamExt 接入 select，不在异步循环中阻塞 read。具体兼容版本在引入依赖时核对并写入 Cargo.lock。参考 [Ratatui 异步事件教程](https://ratatui.rs/tutorials/counter-async-app/async-event-stream/) 与 [Crossterm EventStream](https://docs.rs/crossterm/latest/crossterm/event/struct.EventStream.html)。
+
+建议从 src/tui/mod.rs、app.rs、view.rs、terminal.rs 四个文件开始：入口协调事件和请求，App 独占界面状态，view 借用状态绘制，terminal 集中建立/恢复终端。App 保存选中 Service ID、后台快照、连接状态、待完成操作、日志窗口及滚动位置，不持有 Manager、Child 或运行锁。界面操作只产生明确的请求意图；实际运行状态以后台为准，受理或等待提示与服务状态分开。无需 Arc<Mutex<App>>、通用组件 trait 或新的服务状态机。
+
+终端事件、刷新计时和请求完成进入同一 UI 循环；网络请求由受跟踪的异步任务执行，结果由 UI 循环应用。状态、当前项目日志、控制操作分别最多一个在途请求；控制操作等待期间仍查询状态和处理按键，重复操作不排成无界队列。初始建议状态每 500 ms 查询、当前项目日志每 200 ms 查询，繁忙时跳过过期 tick；只在内容变化时重绘，最高约 30 帧/秒。这些是待验证的工程参数。
+
+复用现有单连接单事务 IPC。初次进入可用 Status + create=true 创建空闲后台，后续查询与控制使用 create=false；后台消失时只尝试连接现存实例，不由定时刷新自动重建后台。client 当前 Result<Response, String> 会丢弃业务错误响应中的身份等信息，接线前应最小化调整客户端内部接口，保留结构化业务拒绝和传输失败的区别，保持控制 CLI 行为兼容，不通过匹配错误文案分类。传输中断的操作完成情况未知，不自动重发。
+
+查询结果携带本地连接代次与目标 Service ID；切换项目或重新连接后不将旧结果应用到新视图。workspace_id 变化触发统一失效与重新查询，旧在途结果不能切回旧实例；跨实例控制响应只能报告原请求结果，不能覆盖当前快照。断线重连即使 workspace_id 未变，也按 §5 重新取状态与近期日志。查询与控制返回可能乱序，控制完成后重新查询状态，不将其附带快照直接覆盖较新查询。
+
+首版建议只缓存当前项目的日志窗口，切换后重新读取后台尾部；本地也限制为最多 2 MiB 文本及 4096 条。后续按最后实际收到的序号分页，每轮有界，不无限追赶高输出。滚动位置按日志序号锚定，窗口淘汰导致锚点消失时显示提示；底部跟随新输出，向上滚动后保持阅读位置。界面区分后台丢弃/缺口与本地窗口淘汰，保留来源及运行实例，不解析 ANSI 为终端指令。
+
+进入前检查输入/输出 TTY。终端 guard 记录已完成的初始化步骤，部分初始化失败也回滚；正常退出、绘制/输入错误、可处理信号均恢复 raw mode、alternate screen 和光标。panic hook 在打印诊断前尽力恢复，Drop 作为兜底；不承诺 SIGKILL 后恢复。raw mode 下的 Ctrl-C 从按键事件处理，SIGTERM/SIGHUP 等可处理信号只结束客户端。退出回收客户端请求任务，但不撤销后台已受理操作；不向后台发送隐式 stop/shutdown。
+
+验证分三层：App 状态转换测试覆盖选择、操作反馈、断线、过期结果和日志边界；Ratatui TestBackend 检查正常/窄窗口与错误提示；真实 PTY 验证终端恢复、慢停止期间响应、退出后服务保留及重连。按实现影响运行仓库规定的测试、fmt 与 clippy，最后由用户完成三个真实项目流程。
 
 ## 6. 后台生命周期与控制通道
 
