@@ -15,16 +15,18 @@
 - 环境：Unix socket/信号测试需在允许本地 socket 与进程控制的宿主运行；本会话沙箱曾返回 bind Operation not permitted，先前信号超时根因未定位。宿主测试使用 Linux、Rust 1.98.1、sh/sleep/Python 3；没有宣称其他平台或 Rust 最低版本实测通过。
 - 限制：清理未知的管理边界通过错误注入及代码审查验证，未制造真实内核清理超时或 /proc 权限故障；不做 SIGKILL/断电后的孤儿恢复。硬链接配置别名和网络文件系统互斥不在已验证范围；配置目录需可写，过长 Unix socket 路径明确报错。测试通过不代替真实项目试用。
 
-## 当前任务：M5 TUI 技术选型与架构讨论
+## 当前任务：M5 black-prism 独立预览，等待视觉反馈
 
-- 用户已开启 TUI 讨论与计划，本轮只形成设计草案，不写功能代码或添加依赖。方案见 [DESIGN.md](../DESIGN.md) §5.1；交互仍以 [interaction.md](interaction.md) 为准，拟定键位尚未定稿。
-- 建议 Ratatui + Crossterm EventStream + 现有 Tokio；App 独占 UI 状态，网络任务不阻塞输入，沿用单事务 IPC。代码审查发现 client 的字符串错误接口需在接线时区分业务拒绝与传输失败，保留工作区身份。
-- 建议小步：终端建立/恢复（U01）→ 空闲后台与状态列表（U01/P05）→ 单项/全部控制（P01/P07/P02）→ 有界日志与滚动（L01/L03）→ 重连、结束工作区及 PTY 完整验收（P05/U01）。每步保留相关错误路径验证，不将终端恢复延后补做。
-- 本轮验证：仅文档修改；检查 diff、文档本地链接和草案与现有接口的一致性，不重跑功能测试。上面的 129 项结果是上一轮证据，不是本轮重测。
+- 用户选择进入 TUI 时播放 black-prism，本轮授权开启下一步独立预览，对应 U01；没有写正式 Rust TUI 功能代码或添加依赖。技术草案见 [DESIGN.md](../DESIGN.md) §5.1–5.2；交互及待确认参数见 [interaction.md](interaction.md)。
+- 已准备 [examples/splash/preview.mjs](../examples/splash/preview.mjs) 与 [运行说明](../examples/splash/README.md)：默认 2 秒、15 FPS，Node 24 直接运行固定版本上游源码，无需 npm install。本会话源码在 /tmp/devctl-ascii-reference，HEAD 为 a98915a9fa0d0d74c8a2094935a02de4425e9b1d；脚本不下载、不连接后台。该临时目录可能被清理，说明中提供重新准备方法。
+- 实际验证：`node --check examples/splash/preview.mjs`；Python 3 内联 pty/termios/subprocess 验收脚本覆盖 10 个场景（正常结束、Space、Enter、Ctrl-C、SIGTERM、窗口缩放、单色、小窗口、非 TTY、非法时长），检查退出结果、备用屏幕/光标/自动换行恢复序列与终端属性还原，全部通过。正常播放包含源码导入约 2.27 秒。未注入输出错误，未做用户终端视觉验收。
+- `cargo fmt --check`、`cargo clippy --locked --offline --all-targets -- -D warnings`、`git diff --check` 和文档本地链接检查通过。Rust 源码未变，本轮未重跑后台完整测试；上面的 129 项是上一轮证据。
 
-## 下一步：讨论收敛后，从终端生命周期开始逐步教学
+## 下一步：确认预览效果，再开始正式终端生命周期教学
 
-- 本轮未开始 TUI 编码，未加入终端渲染依赖。先做连接/创建空闲后台、项目状态与终端建立/恢复，再接单项/全部操作、近期日志滚动和断开反馈；交互规则只维护在 [interaction.md](interaction.md)。
+- 等用户试播确认清晰度、尺寸、颜色与时长；预览用上游算法实时生成，尚未生成内嵌帧，尚未证明最终 Rust 播放效果或资源体积。正式方案不要求用户安装 Node。
+- 教学小步：终端建立/恢复（U01）→ 空闲后台与状态列表（U01/P05）→ 单项/全部控制（P01/P07/P02）→ 有界日志与滚动（L01/L03）→ 重连、结束工作区及 PTY 完整验收（P05/U01）。在共用终端建立之后接入启动展示，每步保留相关错误路径验证。
+- 建议 Ratatui + Crossterm EventStream + 现有 Tokio；App 独占 UI 状态，网络任务不阻塞输入，沿用单事务 IPC。client 的字符串错误接口需在接线时区分业务拒绝与传输失败，保留工作区身份。
 - TUI 使用现有 client::execute 与 control 请求/响应。初次查询可按需创建空闲后台，但不能隐式发送 Start；状态与日志异步获取，绘制不进入后台管理循环。
 - q/Ctrl-C 离开只恢复终端并断开，服务保留；结束工作区是独立 shutdown。断连显示未知，重连重新取状态和近期日志；workspace_id 改变时丢弃旧缓存，分页取最后实际收到的日志序号，不盲目重放控制操作。
 - 用户确认的真实场景为三个独立项目、每项目一个命令，无需依赖就绪。真实目录、平台及 stdin 交互需求仍待试用核实；M6 再完成 npm/pnpm 的全流程验收。需求 §4 的扩展不提前实现。
