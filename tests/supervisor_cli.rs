@@ -161,3 +161,60 @@ fn internal_entry_is_hidden_and_invalid_configuration_fails_before_locking() {
             .exists()
     );
 }
+
+fn socket_path(config: &Path) -> std::path::PathBuf {
+    let mut name = config.as_os_str().to_os_string();
+    name.push(".devctl");
+    std::path::PathBuf::from(name).join("control.sock")
+}
+
+fn wait_for_socket(owner: &mut Owner, path: &Path) {
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        assert!(owner.0.try_wait().unwrap().is_none());
+        if std::os::unix::net::UnixStream::connect(path).is_ok() {
+            return;
+        }
+        assert!(Instant::now() < deadline, "No bound control socket.");
+        thread::sleep(Duration::from_millis(10));
+    }
+}
+
+#[test]
+fn supervisor_binds_before_waiting_preserves_live_endpoint_and_cleans_up() {
+    use std::os::unix::fs::MetadataExt;
+    for signal in [Signal::SIGINT, Signal::SIGTERM] {
+        let fixture = ConfigFixture::new("process.toml");
+        let path = socket_path(&fixture.path);
+        let mut owner = Owner::launch(&fixture.path);
+        wait_for_socket(&mut owner, &path);
+        let inode = fs::symlink_metadata(&path).unwrap().ino();
+        let output = command(&fixture.path, "supervise").output().unwrap();
+        assert_eq!(output.status.code(), Some(1));
+        assert!(
+            String::from_utf8(output.stderr)
+                .unwrap()
+                .contains("already managed")
+        );
+        assert_eq!(fs::symlink_metadata(&path).unwrap().ino(), inode);
+        assert!(std::os::unix::net::UnixStream::connect(&path).is_ok());
+        owner.stop(signal);
+        assert!(!path.exists());
+    }
+}
+
+#[test]
+fn crash_leaves_a_socket_that_the_next_lock_holder_can_replace() {
+    let fixture = ConfigFixture::new("process.toml");
+    let path = socket_path(&fixture.path);
+    let mut owner = Owner::launch(&fixture.path);
+    wait_for_socket(&mut owner, &path);
+    owner.0.kill().unwrap();
+    owner.0.wait().unwrap();
+    assert!(path.exists());
+    assert!(std::os::unix::net::UnixStream::connect(&path).is_err());
+    let mut successor = Owner::launch(&fixture.path);
+    wait_for_socket(&mut successor, &path);
+    successor.stop(Signal::SIGTERM);
+    assert!(!path.exists());
+}
