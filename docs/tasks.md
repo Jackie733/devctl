@@ -15,19 +15,16 @@
 - 环境：Unix socket/信号测试需在允许本地 socket 与进程控制的宿主运行；本会话沙箱曾返回 bind Operation not permitted，先前信号超时根因未定位。宿主测试使用 Linux、Rust 1.98.1、sh/sleep/Python 3；没有宣称其他平台或 Rust 最低版本实测通过。
 - 限制：清理未知的管理边界通过错误注入及代码审查验证，未制造真实内核清理超时或 /proc 权限故障；不做 SIGKILL/断电后的孤儿恢复。硬链接配置别名和网络文件系统互斥不在已验证范围；配置目录需可写，过长 Unix socket 路径明确报错。测试通过不代替真实项目试用。
 
-## 当前任务：M5 black-prism 像素预览，等待 Kitty 视觉验收
+## 当前任务：M5 TUI 架构与实现起点
 
-- 用户选择进入 TUI 时播放 black-prism，本轮授权开启下一步独立预览，对应 U01；没有写正式 Rust TUI 功能代码或添加依赖。技术草案见 [DESIGN.md](../DESIGN.md) §5.1–5.2；交互及待确认参数见 [interaction.md](interaction.md)。
-- 上一版 [preview.mjs](../examples/splash/preview.mjs) 虽通过终端恢复检查，用户在 Alacritty 上反馈不够清晰、粒子运动和大小变化不可见，视觉验收未通过。根因是上游终端播放器的平滑/缩小/半块绘制丢失圆点形状，不是原始动画时间冻结。说明见 [预览文档](../examples/splash/README.md)。本会话源码在 /tmp/devctl-ascii-reference，固定 HEAD 为 a98915a9fa0d0d74c8a2094935a02de4425e9b1d，文档提供重新准备方法。
-- 用户随后明确优先还原官方效果，本轮准备 [prepare-pixels.mjs](../examples/splash/prepare-pixels.mjs) 和 [preview-pixels.py](../examples/splash/preview-pixels.py)。Firefox 157.0.1 无头执行固定版本原 Canvas 渲染器，生成 target/splash-pixels 的 30 帧 800 × 400 PNG、manifest、reference.html 和上游许可证；PNG 总计 605827 字节，30 帧各不相同，静态检查可见圆点大小及彩虹细节。正式 Rust 源码与依赖未改。
-- 实际命令：`node examples/splash/prepare-pixels.mjs /tmp/devctl-ascii-reference target/splash-pixels` 成功；`node --check examples/splash/prepare-pixels.mjs`、Python AST 语法检查通过；`python3 /tmp/devctl-splash-pixel-check.py` 的 12 个模拟协议 PTY 场景全部通过（见预览说明），传输 PNG 与源 PNG 完全一致，退出恢复 termios/光标/备用屏幕并删除本次图像。
-- `cargo fmt --check`、`cargo clippy --locked --offline --all-targets -- -D warnings`、`git diff --check` 和文档本地链接检查通过。Rust 源码未变，本轮未重跑后台完整测试；上面的 129 项是后台实现阶段的证据。
-- 限制：执行环境无 Kitty、DISPLAY/WAYLAND_DISPLAY，实际显示与性能未验证；模拟响应不是实际终端渲染证据。新预览需用户在 Kitty 中、tmux 外运行；其终端限制不扩大为正式 TUI 的限制。生成素材在 target，cargo clean 后需重新生成；Firefox 生成在允许其运行的宿主环境执行。
+- 用户已取消 black-prism 启动动画；撤下预览工具、项目内生成资源与相关设计，后续进入 TUI 直接显示管理界面。动画探索历史由 Git 保留，不作为待验收或下一步任务。
+- 正式 TUI 尚未编码，未添加终端依赖；技术草案见 [DESIGN.md](../DESIGN.md) §5.1，交互规则见 [interaction.md](interaction.md)。主线仍为 U01、P01、P07、P02、P05、L01、L03。
+- 本轮验证：差异检查、文档本地链接检查和动画引用检查通过；`cargo fmt --check`、`cargo clippy --locked --offline --all-targets -- -D warnings` 通过。Rust 源码与依赖未变，未重跑后台完整测试。
 
-## 下一步：确认预览效果，再开始正式终端生命周期教学
+## 下一步：终端建立与恢复，逐步教学
 
-- 等用户在 Kitty 试播像素版，确认清晰度、圆点大小/运动、时长、尺寸及终端恢复；暂不将预览帧接入正式 Rust 二进制。正式缺少图形动画能力时的反馈尚未定稿。正式方案不要求用户安装生成工具。
-- 教学小步：终端建立/恢复（U01）→ 空闲后台与状态列表（U01/P05）→ 单项/全部控制（P01/P07/P02）→ 有界日志与滚动（L01/L03）→ 重连、结束工作区及 PTY 完整验收（P05/U01）。在共用终端建立之后接入启动展示，每步保留相关错误路径验证。
+- 第一小步对应 U01：检查 TTY，建立终端与最小界面，处理退出及终端恢复；之后再连接后台和绘制项目状态。按约定提供下一步 Rust 代码，由用户学习和誊写。
+- 教学小步：终端建立/恢复（U01）→ 空闲后台与状态列表（U01/P05）→ 单项/全部控制（P01/P07/P02）→ 有界日志与滚动（L01/L03）→ 重连、结束工作区及 PTY 完整验收（P05/U01）。每步保留相关错误路径验证。
 - 建议 Ratatui + Crossterm EventStream + 现有 Tokio；App 独占 UI 状态，网络任务不阻塞输入，沿用单事务 IPC。client 的字符串错误接口需在接线时区分业务拒绝与传输失败，保留工作区身份。
 - TUI 使用现有 client::execute 与 control 请求/响应。初次查询可按需创建空闲后台，但不能隐式发送 Start；状态与日志异步获取，绘制不进入后台管理循环。
 - q/Ctrl-C 离开只恢复终端并断开，服务保留；结束工作区是独立 shutdown。断连显示未知，重连重新取状态和近期日志；workspace_id 改变时丢弃旧缓存，分页取最后实际收到的日志序号，不盲目重放控制操作。
