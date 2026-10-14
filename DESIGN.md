@@ -120,7 +120,7 @@ Linux 清理完成定义为组内没有存活成员，并且直接 Child 已 wai
 
 对应 U01、P01、P07、P02、P05、L01、L03。建议采用 Ratatui 绘制、Crossterm 处理终端与事件，沿用现有 Tokio current_thread 运行时；使用 EventStream（event-stream feature）及 StreamExt 接入 select，不在异步循环中阻塞 read。具体兼容版本在引入依赖时核对并写入 Cargo.lock。参考 [Ratatui 异步事件教程](https://ratatui.rs/tutorials/counter-async-app/async-event-stream/) 与 [Crossterm EventStream](https://docs.rs/crossterm/latest/crossterm/event/struct.EventStream.html)。
 
-2026-10-14 核对官方文档后，建议版本线为 Ratatui 0.30.x + Crossterm 0.29.x；查阅时文档版本分别为 0.30.2 和 0.29.0，尚未下载或编译验证。Ratatui 与直接依赖的 Crossterm 必须选择同一版本线，避免事件类型和全局终端状态分裂。StreamExt 建议来自 futures-util，仅开启所需 feature；Tokio 沿用现有 feature，不直接改成 full。只启用需要的终端后端和控件，不引入完整应用模板。参考 [Ratatui crate 文档](https://docs.rs/ratatui/0.30.2/ratatui/) 与 [Crossterm 事件文档](https://docs.rs/crossterm/0.29.0/crossterm/event/index.html)；EventStream 不与 read/poll 混用。
+2026-10-14 核对官方文档后，建议版本线为 Ratatui 0.30.x + Crossterm 0.29.x；查阅时文档版本分别为 0.30.2 和 0.29.0。主仓库尚未引入这些依赖，第一小步临时教学副本的编译与终端验证见 [任务记录](docs/tasks.md)。Ratatui 与直接依赖的 Crossterm 必须选择同一版本线，避免事件类型和全局终端状态分裂。StreamExt 建议来自 futures-util，仅开启所需 feature；Tokio 沿用现有 feature，不直接改成 full。只启用需要的终端后端和控件，不引入完整应用模板。参考 [Ratatui crate 文档](https://docs.rs/ratatui/0.30.2/ratatui/) 与 [Crossterm 事件文档](https://docs.rs/crossterm/0.29.0/crossterm/event/index.html)；EventStream 不与 read/poll 混用。
 
 建议从 src/tui/mod.rs、app.rs、view.rs、terminal.rs 四个文件开始：入口协调事件和请求，App 独占界面状态，view 借用状态绘制，terminal 集中建立/恢复终端。App 保存选中 Service ID、后台快照、连接状态、待完成操作、日志窗口及滚动位置，不持有 Manager、Child 或运行锁。界面操作只产生明确的请求意图；实际运行状态以后台为准，受理或等待提示与服务状态分开。无需 Arc<Mutex<App>>、通用组件 trait 或新的服务状态机。
 
