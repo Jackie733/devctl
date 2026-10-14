@@ -20,6 +20,10 @@ pub struct Cli {
 
 #[derive(Debug, Subcommand)]
 pub enum Command {
+    /// Internal supervisor entry point.
+    #[command(hide = true)]
+    Supervise,
+
     /// Validate workspace, project, service, and dependency definitions.
     Validate,
 

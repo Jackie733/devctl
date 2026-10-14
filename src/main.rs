@@ -5,6 +5,7 @@ mod plan;
 mod process;
 mod run_lock;
 mod service_task;
+mod supervisor;
 
 use std::{path::Path, process::ExitCode};
 
@@ -33,6 +34,7 @@ async fn execute(cli: Cli) -> Result<(), String> {
             println!();
             Ok(())
         }
+        Some(Command::Supervise) => supervisor::run(&cli.config).await,
         Some(Command::Validate) => print_validation(&cli.config),
         Some(Command::Plan { targets }) => print_plan(&cli.config, &targets),
         Some(Command::Run { services, all }) => run_services(&cli.config, &services, all).await,
