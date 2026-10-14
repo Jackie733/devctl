@@ -3,6 +3,7 @@ mod config;
 mod control_socket;
 mod manager;
 mod plan;
+mod probe;
 mod process;
 mod run_lock;
 mod service_task;

@@ -218,3 +218,93 @@ fn crash_leaves_a_socket_that_the_next_lock_holder_can_replace() {
     successor.stop(Signal::SIGTERM);
     assert!(!path.exists());
 }
+
+fn connect_probe(path: &Path) -> std::os::unix::net::UnixStream {
+    let stream = std::os::unix::net::UnixStream::connect(path).unwrap();
+    stream
+        .set_read_timeout(Some(Duration::from_secs(5)))
+        .unwrap();
+    stream
+        .set_write_timeout(Some(Duration::from_secs(5)))
+        .unwrap();
+    stream
+}
+
+fn read_probe(mut stream: std::os::unix::net::UnixStream, config: &Path) {
+    use std::{
+        io::{Read, Write},
+        os::unix::ffi::OsStrExt,
+    };
+    stream.write_all(b"DEVCTL 1\n").unwrap();
+    let mut header = [0u8; 9];
+    stream.read_exact(&mut header).unwrap();
+    assert_eq!(&header, b"DEVCTL 1\n");
+    let mut length = [0u8; 4];
+    stream.read_exact(&mut length).unwrap();
+    let length = u32::from_be_bytes(length) as usize;
+    assert!(length <= 16 * 1024);
+    let mut identity = vec![0; length];
+    stream.read_exact(&mut identity).unwrap();
+    assert_eq!(
+        identity,
+        config.canonicalize().unwrap().as_os_str().as_bytes()
+    );
+    let mut extra = [0];
+    assert_eq!(stream.read(&mut extra).unwrap(), 0);
+}
+
+#[test]
+fn probe_returns_canonical_identity_through_a_config_alias() {
+    let fixture = ConfigFixture::new("process.toml");
+    let alias = fixture.path.with_file_name("alias.toml");
+    std::os::unix::fs::symlink(&fixture.path, &alias).unwrap();
+    let path = socket_path(&fixture.path);
+    let mut owner = Owner::launch(&alias);
+    wait_for_socket(&mut owner, &path);
+    read_probe(connect_probe(&path), &fixture.path);
+    owner.stop(Signal::SIGTERM);
+}
+
+#[test]
+fn malformed_clients_do_not_prevent_other_clients_from_receiving_a_probe() {
+    use std::io::{Read, Write};
+    let fixture = ConfigFixture::new("process.toml");
+    let path = socket_path(&fixture.path);
+    let mut owner = Owner::launch(&fixture.path);
+    wait_for_socket(&mut owner, &path);
+    let mut silent = connect_probe(&path);
+    let mut invalid = connect_probe(&path);
+    invalid.write_all(b"DEVCTL 2\n").unwrap();
+    let mut reply = [0];
+    assert_eq!(invalid.read(&mut reply).unwrap(), 0);
+    read_probe(connect_probe(&path), &fixture.path);
+    assert!(owner.0.try_wait().unwrap().is_none());
+    owner.stop(Signal::SIGINT);
+    assert!(!path.exists());
+    assert_eq!(silent.read(&mut reply).unwrap(), 0);
+}
+
+#[test]
+fn timeouts_release_capacity_and_signals_do_not_wait_for_silent_clients() {
+    let fixture = ConfigFixture::new("process.toml");
+    let path = socket_path(&fixture.path);
+    let mut owner = Owner::launch(&fixture.path);
+    wait_for_socket(&mut owner, &path);
+    let mut silent = Vec::new();
+    for _ in 0..16 {
+        silent.push(connect_probe(&path));
+    }
+    // This request must succeed after silent clients time out and slots are reclaimed.
+    read_probe(connect_probe(&path), &fixture.path);
+    silent.clear();
+    for _ in 0..16 {
+        silent.push(connect_probe(&path));
+    }
+    let before = Instant::now();
+    owner.stop(Signal::SIGTERM);
+    assert!(
+        before.elapsed() < Duration::from_millis(1500),
+        "Signal shutdown waited for probe deadlines."
+    );
+    assert!(!path.exists());
+}

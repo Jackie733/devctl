@@ -3,23 +3,29 @@ use std::{
     io::ErrorKind,
     os::unix::{
         fs::{DirBuilderExt, FileTypeExt, MetadataExt},
-        net::UnixListener,
+        net::UnixListener as StdUnixListener,
     },
     path::{Path, PathBuf},
 };
 
 use nix::unistd::geteuid;
+use tokio::net::{UnixListener, UnixStream};
 
 use crate::run_lock::RunLock;
 
 pub struct ControlSocket<'a> {
-    _listener: UnixListener,
+    listener: UnixListener,
     path: PathBuf,
     identity: (u64, u64),
     _lock: &'a RunLock,
 }
 
 impl<'a> ControlSocket<'a> {
+    pub async fn accept(&self) -> std::io::Result<UnixStream> {
+        let (stream, _) = self.listener.accept().await?;
+        Ok(stream)
+    }
+
     // The caller must hold the lock for this canonical configuration path.
     pub fn bind(config_path: &Path, lock: &'a RunLock) -> Result<Self, String> {
         let mut name = config_path.as_os_str().to_os_string();
@@ -78,7 +84,7 @@ impl<'a> ControlSocket<'a> {
             }
         }
 
-        let listener = UnixListener::bind(&path).map_err(|error| {
+        let listener = StdUnixListener::bind(&path).map_err(|error| {
             format!("Failed to bind control socket {}: {error}", path.display())
         })?;
         let metadata = fs::symlink_metadata(&path).map_err(|error| {
@@ -88,8 +94,14 @@ impl<'a> ControlSocket<'a> {
             )
         })?;
 
+        listener
+            .set_nonblocking(true)
+            .map_err(|error| format!("Failed to make control socket nonblocking: {error}"))?;
+        let listener = UnixListener::from_std(listener)
+            .map_err(|error| format!("Failed to register control socket: {error}"))?;
+
         Ok(Self {
-            _listener: listener,
+            listener,
             path,
             identity: (metadata.dev(), metadata.ino()),
             _lock: lock,
@@ -176,7 +188,7 @@ mod tests {
     async fn stale_sockets_are_replaced_after_acquiring_the_config_lock() {
         let fixture = Fixture::new();
         fixture.create_runtime();
-        drop(std::os::unix::net::UnixListener::bind(fixture.socket()).unwrap());
+        drop(StdUnixListener::bind(fixture.socket()).unwrap());
         assert!(UnixStream::connect(fixture.socket()).is_err());
         let lock = RunLock::acquire(&fixture.config()).unwrap();
         let _socket = ControlSocket::bind(&fixture.config(), &lock).unwrap();

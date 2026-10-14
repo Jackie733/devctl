@@ -2,15 +2,13 @@
 
 这里只保留当前任务与必要交接；历史见 Git，协作规则见 [AGENTS.md](../AGENTS.md)。
 
-## 版本化身份探测与异步连接处理：待誊写
+## 后台管理、控制 CLI 与有界日志：进行中
 
-- 阶段：[roadmap.md](roadmap.md) M4；需求：[requirements.md](requirements.md) P05、R02；协议、资源预算与取舍：[DESIGN.md](../DESIGN.md) §6。
-- 本步目标：将控制 socket 注册到 Tokio，接受最小版本化探测请求并返回规范化配置身份；有界并发和读写期限防止慢客户端阻塞其他探测及退出信号。不在本步接入服务启停、状态查询或后台启动器。
-- 功能代码仅在教学副本 `/tmp/devctl-probe-step.ahlap5w5`，未应用到项目，等待用户誊写。副本使用独立 target，宿主 `cargo test --manifest-path /tmp/devctl-probe-step.ahlap5w5/Cargo.toml --target-dir /tmp/devctl-probe-step.ahlap5w5/target --locked --offline` 106 项通过（98 项基线 + 5 项探测测试 + 3 项集成测试）；副本 cargo fmt、Clippy 的既有检查命令通过。
-- 教学验证覆盖：分段请求、原始非 UTF-8 身份、版本不兼容、请求不完整和断连、静默客户端超时、身份长度上限；配置别名返回规范身份、坏客户端不影响其他探测、满负载超时释放容量、静默连接不拖延信号退出。
-- 依赖准备：下一步在 Cargo.toml 为 Tokio 启用 net、io-util，需要 Cargo.lock 增加 socket2（副本解析为 0.6.5）。该包已从本机缓存离线解压验证；项目 Cargo.toml/Cargo.lock 尚未应用此改动，誊写后先 cargo check --offline 更新锁文件，再运行 --locked 检查。
-- 现有端点组件测试已使用 Tokio 测试上下文，为下一步注册 I/O 驱动作准备；用户不需改写测试。新探测及集成测试仍保存在副本，下轮验收时正式复用。
-- 下一步验收后继续进程脱离终端和有界启动握手，利用真实探测核对工作区身份；再接实例发现与控制 CLI。服务停止仍用 request_stop_all + wait_next 推进，保持控制循环可响应。
+- 用户授权助手直接完成所有 TUI 之前的编码、测试和逐步提交，到 TUI 实现开始前停止；本轮不再等待誊写。
+- 阶段：M4；需求 P01、P07、P04、P05、R02、L01、L03、P02。顺序：应用身份探测 → 独立后台与控制 CLI → 有界日志与后台验收 → TUI 交接。
+- 身份探测已应用：异步 socket、固定版本探测和规范化路径身份、有界连接、2 秒读写期限。新增 5 项探测测试与 3 项集成测试。宿主 cargo test --locked --offline 106 项通过；cargo fmt --check、cargo clippy --locked --offline --all-targets -- -D warnings 通过。
+- 后续控制请求只串行更新 Manager；停止通过完成事件推进，不在请求处理中等待整批清理。客户端断连不丢弃后台进程所有权；日志通道与控制分开且有界。
+- 最终停在 TUI 前，保留真实项目试用与平台核实限制；测试不能替代用户验收。
 
 ## 上一步验收：本地控制端点绑定与清理
 
