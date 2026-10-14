@@ -15,17 +15,18 @@
 - 环境：Unix socket/信号测试需在允许本地 socket 与进程控制的宿主运行；本会话沙箱曾返回 bind Operation not permitted，先前信号超时根因未定位。宿主测试使用 Linux、Rust 1.98.1、sh/sleep/Python 3；没有宣称其他平台或 Rust 最低版本实测通过。
 - 限制：清理未知的管理边界通过错误注入及代码审查验证，未制造真实内核清理超时或 /proc 权限故障；不做 SIGKILL/断电后的孤儿恢复。硬链接配置别名和网络文件系统互斥不在已验证范围；配置目录需可写，过长 Unix socket 路径明确报错。测试通过不代替真实项目试用。
 
-## 当前任务：M5 black-prism 视觉验收未通过，确认渲染方向
+## 当前任务：M5 black-prism 像素预览，等待 Kitty 视觉验收
 
 - 用户选择进入 TUI 时播放 black-prism，本轮授权开启下一步独立预览，对应 U01；没有写正式 Rust TUI 功能代码或添加依赖。技术草案见 [DESIGN.md](../DESIGN.md) §5.1–5.2；交互及待确认参数见 [interaction.md](interaction.md)。
-- 已准备 [examples/splash/preview.mjs](../examples/splash/preview.mjs) 与 [运行说明](../examples/splash/README.md)：默认 2 秒、15 FPS，Node 24 直接运行固定版本上游源码，无需 npm install。本会话源码在 /tmp/devctl-ascii-reference，HEAD 为 a98915a9fa0d0d74c8a2094935a02de4425e9b1d；脚本不下载、不连接后台。该临时目录可能被清理，说明中提供重新准备方法。
-- 实际验证：`node --check examples/splash/preview.mjs`；Python 3 内联 pty/termios/subprocess 验收脚本覆盖 10 个场景（正常结束、Space、Enter、Ctrl-C、SIGTERM、窗口缩放、单色、小窗口、非 TTY、非法时长），检查退出结果、备用屏幕/光标/自动换行恢复序列与终端属性还原，全部通过。正常播放包含源码导入约 2.27 秒。未注入输出错误，未做用户终端视觉验收。
-- `cargo fmt --check`、`cargo clippy --locked --offline --all-targets -- -D warnings`、`git diff --check` 和文档本地链接检查通过。Rust 源码未变，本轮未重跑后台完整测试；上面的 129 项是上一轮证据。
-- 最新反馈：用户使用 Alacritty，要求对照官方网页；现有半块预览不够清晰，粒子运动与大小变化不可见，视觉验收未通过。源码检查及原始帧对比确认时间推进正常，但终端播放器的平滑/缩小/半块绘制丢失圆点形状，不能仅凭帧变化认定动效达标。证据见 [预览说明](../examples/splash/README.md)。本轮只更新诊断文档，diff 与链接检查通过，未重跑功能测试。
+- 上一版 [preview.mjs](../examples/splash/preview.mjs) 虽通过终端恢复检查，用户在 Alacritty 上反馈不够清晰、粒子运动和大小变化不可见，视觉验收未通过。根因是上游终端播放器的平滑/缩小/半块绘制丢失圆点形状，不是原始动画时间冻结。说明见 [预览文档](../examples/splash/README.md)。本会话源码在 /tmp/devctl-ascii-reference，固定 HEAD 为 a98915a9fa0d0d74c8a2094935a02de4425e9b1d，文档提供重新准备方法。
+- 用户随后明确优先还原官方效果，本轮准备 [prepare-pixels.mjs](../examples/splash/prepare-pixels.mjs) 和 [preview-pixels.py](../examples/splash/preview-pixels.py)。Firefox 157.0.1 无头执行固定版本原 Canvas 渲染器，生成 target/splash-pixels 的 30 帧 800 × 400 PNG、manifest、reference.html 和上游许可证；PNG 总计 605827 字节，30 帧各不相同，静态检查可见圆点大小及彩虹细节。正式 Rust 源码与依赖未改。
+- 实际命令：`node examples/splash/prepare-pixels.mjs /tmp/devctl-ascii-reference target/splash-pixels` 成功；`node --check examples/splash/prepare-pixels.mjs`、Python AST 语法检查通过；`python3 /tmp/devctl-splash-pixel-check.py` 的 12 个模拟协议 PTY 场景全部通过（见预览说明），传输 PNG 与源 PNG 完全一致，退出恢复 termios/光标/备用屏幕并删除本次图像。
+- `cargo fmt --check`、`cargo clippy --locked --offline --all-targets -- -D warnings`、`git diff --check` 和文档本地链接检查通过。Rust 源码未变，本轮未重跑后台完整测试；上面的 129 项是后台实现阶段的证据。
+- 限制：执行环境无 Kitty、DISPLAY/WAYLAND_DISPLAY，实际显示与性能未验证；模拟响应不是实际终端渲染证据。新预览需用户在 Kitty 中、tmux 外运行；其终端限制不扩大为正式 TUI 的限制。生成素材在 target，cargo clean 后需重新生成；Firefox 生成在允许其运行的宿主环境执行。
 
 ## 下一步：确认预览效果，再开始正式终端生命周期教学
 
-- 先明确继续在 Alacritty 上探索圆点字符近似，还是以图像协议支持为条件追求网页级像素细节；暂不定稿预生成资源。未生成内嵌帧，未证明最终 Rust 播放效果或资源体积。正式方案不要求用户安装 Node。
+- 等用户在 Kitty 试播像素版，确认清晰度、圆点大小/运动、时长、尺寸及终端恢复；暂不将预览帧接入正式 Rust 二进制。正式缺少图形动画能力时的反馈尚未定稿。正式方案不要求用户安装生成工具。
 - 教学小步：终端建立/恢复（U01）→ 空闲后台与状态列表（U01/P05）→ 单项/全部控制（P01/P07/P02）→ 有界日志与滚动（L01/L03）→ 重连、结束工作区及 PTY 完整验收（P05/U01）。在共用终端建立之后接入启动展示，每步保留相关错误路径验证。
 - 建议 Ratatui + Crossterm EventStream + 现有 Tokio；App 独占 UI 状态，网络任务不阻塞输入，沿用单事务 IPC。client 的字符串错误接口需在接线时区分业务拒绝与传输失败，保留工作区身份。
 - TUI 使用现有 client::execute 与 control 请求/响应。初次查询可按需创建空闲后台，但不能隐式发送 Start；状态与日志异步获取，绘制不进入后台管理循环。
