@@ -116,21 +116,33 @@ Linux 清理完成定义为组内没有存活成员，并且直接 Child 已 wai
 
 窗口布局和快捷键只在交互文档维护。stdin 交互需求尚未确认，不提前引入 PTY。
 
-### 5.1 TUI 实现草案（待讨论，尚未编码）
+### 5.1 TUI 实现草案（讨论中，尚未编码）
 
 对应 U01、P01、P07、P02、P05、L01、L03。建议采用 Ratatui 绘制、Crossterm 处理终端与事件，沿用现有 Tokio current_thread 运行时；使用 EventStream（event-stream feature）及 StreamExt 接入 select，不在异步循环中阻塞 read。具体兼容版本在引入依赖时核对并写入 Cargo.lock。参考 [Ratatui 异步事件教程](https://ratatui.rs/tutorials/counter-async-app/async-event-stream/) 与 [Crossterm EventStream](https://docs.rs/crossterm/latest/crossterm/event/struct.EventStream.html)。
 
+2026-10-14 核对官方文档后，建议版本线为 Ratatui 0.30.x + Crossterm 0.29.x；查阅时文档版本分别为 0.30.2 和 0.29.0，尚未下载或编译验证。Ratatui 与直接依赖的 Crossterm 必须选择同一版本线，避免事件类型和全局终端状态分裂。StreamExt 建议来自 futures-util，仅开启所需 feature；Tokio 沿用现有 feature，不直接改成 full。只启用需要的终端后端和控件，不引入完整应用模板。参考 [Ratatui crate 文档](https://docs.rs/ratatui/0.30.2/ratatui/) 与 [Crossterm 事件文档](https://docs.rs/crossterm/0.29.0/crossterm/event/index.html)；EventStream 不与 read/poll 混用。
+
 建议从 src/tui/mod.rs、app.rs、view.rs、terminal.rs 四个文件开始：入口协调事件和请求，App 独占界面状态，view 借用状态绘制，terminal 集中建立/恢复终端。App 保存选中 Service ID、后台快照、连接状态、待完成操作、日志窗口及滚动位置，不持有 Manager、Child 或运行锁。界面操作只产生明确的请求意图；实际运行状态以后台为准，受理或等待提示与服务状态分开。无需 Arc<Mutex<App>>、通用组件 trait 或新的服务状态机。
+
+依赖方向为 main/cli → tui 入口 → App 与 view；入口通过 client/control 访问后台，view 不发送请求。选中项使用 Service ID 而非列表下标；项目顺序沿用后台 BTreeMap 顺序，初次成功查询后选择第一项，刷新保留仍存在的选择。项目列表来源于后台快照，连接已有后台时不重新加载磁盘配置来拼接列表。连接状态、服务状态、操作反馈分别保存：收到启动受理不能把项目直接改成 Running，清理未确认的 Failed 必须保留原因和限制。
 
 终端事件、刷新计时和请求完成进入同一 UI 循环；网络请求由受跟踪的异步任务执行，结果由 UI 循环应用。状态、当前项目日志、控制操作分别最多一个在途请求；控制操作等待期间仍查询状态和处理按键，重复操作不排成无界队列。初始建议状态每 500 ms 查询、当前项目日志每 200 ms 查询，繁忙时跳过过期 tick；只在内容变化时重绘，最高约 30 帧/秒。这些是待验证的工程参数。
 
-复用现有单连接单事务 IPC。初次进入可用 Status + create=true 创建空闲后台，后续查询与控制使用 create=false；后台消失时只尝试连接现存实例，不由定时刷新自动重建后台。client 当前 Result<Response, String> 会丢弃业务错误响应中的身份等信息，接线前应最小化调整客户端内部接口，保留结构化业务拒绝和传输失败的区别，保持控制 CLI 行为兼容，不通过匹配错误文案分类。传输中断的操作完成情况未知，不自动重发。
+入口可用现有 Tokio JoinSet 跟踪请求任务，完成值携带请求种类、代次和日志目标，不另建无界结果队列。三个请求槽互相独立，慢 stop 不占用状态查询槽；控制槽繁忙时显示等待反馈，仍允许选择、滚动和离开。渲染每帧仅处理当前可见的日志记录，避免每次刷新克隆整个缓存或构造无界的换行结果。重绘上限只限制绘制，不降低按键处理频率。
+
+复用现有单连接单事务 IPC，保留显式 devctl tui 入口及无参数显示帮助的现有行为。初次进入可用 Status + create=true 创建空闲后台，后续查询与控制使用 create=false；后台消失时只尝试连接现存实例，不由定时刷新自动重建后台。client 当前 Result<Response, String> 会丢弃后台错误响应中的身份等信息，接线前应最小化调整客户端内部接口：增加保留完整 Response 的事务入口，区分本地准备失败与连接/协议/传输失败；现有 execute 作为 CLI 包装保留输出和错误语义。不通过匹配错误文案分类。
+
+收到 Response.error 表示后台报告了问题，不保证请求未受理：当前协议也用该字段报告等待超时、完成情况未知。保留工作区身份不等于获得可重试保证；首版显示原始反馈并重新查询状态，不将所有后台错误统一标记为“操作被拒绝”。传输中断也不自动重发控制请求，不为 TUI 接线预先扩展整个 IPC 协议。
 
 查询结果携带本地连接代次与目标 Service ID；切换项目或重新连接后不将旧结果应用到新视图。workspace_id 变化触发统一失效与重新查询，旧在途结果不能切回旧实例；跨实例控制响应只能报告原请求结果，不能覆盖当前快照。断线重连即使 workspace_id 未变，也按 §5 重新取状态与近期日志。查询与控制返回可能乱序，控制完成后重新查询状态，不将其附带快照直接覆盖较新查询。
+
+重连由状态查询建立当前后台身份；日志/控制响应发现不同身份时触发重新同步，不直接切换当前身份。重连使连接代次失效，项目切换另使日志选择代次失效（含 A → B → A），仅比较目标 ID 不足以拒绝过期日志。控制完成后发起的刷新须晚于该完成事件；此前已经在途的状态查询不能作为本次操作完成后的确认。断连时保留的项目名称或旧快照只用于显示上下文，明确标为未知并禁用控制，成功同步后再恢复。
 
 首版建议只缓存当前项目的日志窗口，切换后重新读取后台尾部；本地也限制为最多 2 MiB 文本及 4096 条。后续按最后实际收到的序号分页，每轮有界，不无限追赶高输出。滚动位置按日志序号锚定，窗口淘汰导致锚点消失时显示提示；底部跟随新输出，向上滚动后保持阅读位置。界面区分后台丢弃/缺口与本地窗口淘汰，保留来源及运行实例，不解析 ANSI 为终端指令。
 
 进入前检查输入/输出 TTY。终端 guard 记录已完成的初始化步骤，部分初始化失败也回滚；正常退出、绘制/输入错误、可处理信号均恢复 raw mode、alternate screen 和光标。panic hook 在打印诊断前尽力恢复，Drop 作为兜底；不承诺 SIGKILL 后恢复。raw mode 下的 Ctrl-C 从按键事件处理，SIGTERM/SIGHUP 等可处理信号只结束客户端。退出回收客户端请求任务，但不撤销后台已受理操作；不向后台发送隐式 stop/shutdown。
+
+Ratatui 的 try_init 提供 raw mode、alternate screen 与 panic hook，但其初始化返回 Err 时仍需调用方回滚已完成步骤；不能只依赖正常返回后创建的 guard。恢复时逐项尽力执行，不因关闭 raw mode 失败就跳过离开 alternate screen 或显示光标；错误诊断在恢复后输出。终端封装只负责这一生命周期，不承载应用或后台状态。参考 [Ratatui 初始化源码](https://docs.rs/ratatui/0.30.2/src/ratatui/init.rs.html)。
 
 验证分三层：App 状态转换测试覆盖选择、操作反馈、断线、过期结果和日志边界；Ratatui TestBackend 检查正常/窄窗口与错误提示；真实 PTY 验证终端恢复、慢停止期间响应、退出后服务保留及重连。按实现影响运行仓库规定的测试、fmt 与 clippy，最后由用户完成三个真实项目流程。
 
