@@ -2,7 +2,7 @@
 
 Rust 开发项目管理工具：在一个终端界面中启动 web、小程序和 Node.js 中台，查看各项目日志、单独或全部启停；离开界面后后台继续运行，结束开发时统一停止。
 
-当前已实现配置校验、依赖计划、配置运行锁，以及显式选择一项/多项或默认组合的前台运行。Manager 已提供运行期间单项/批量控制和状态查询的内部接口；后台控制命令与 TUI 尚未接入。实际验收进度见[开发与学习任务记录](docs/tasks.md)；下列规划文档描述目标能力，不代表全部已经实现。
+当前已实现配置校验、依赖计划、配置运行锁、前台运行，以及独立后台的单项/全部启停、状态查询和有界项目日志。关闭客户端终端后服务继续运行，后续命令连接原后台。TUI 尚未实现。实际验收进度见[开发与学习任务记录](docs/tasks.md)；下列规划文档描述目标能力，不代表全部已经实现。
 
 ## 项目规划
 
@@ -17,12 +17,32 @@ Rust 开发项目管理工具：在一个终端界面中启动 web、小程序�
 
 ## 当前运行方式
 
+后台控制（将配置路径和服务 ID 替换为自己的配置）：
+
+```sh
+cargo run -- --config /path/to/devctl.toml start web
+cargo run -- --config /path/to/devctl.toml start --all
+cargo run -- --config /path/to/devctl.toml status
+cargo run -- --config /path/to/devctl.toml logs web --limit 100
+cargo run -- --config /path/to/devctl.toml stop web
+cargo run -- --config /path/to/devctl.toml stop --all
+cargo run -- --config /path/to/devctl.toml shutdown
+```
+
+只有 `start` 按需创建后台；`stop`、`status`、`logs` 和 `shutdown` 连接已有实例。`start` 返回请求已受理，进程结果通过 `status` 和日志查看。`stop --all` 保留后台，`shutdown` 完成清理后结束后台；清理无法确认时返回错误并保留后台及运行锁供排查。已有后台沿用创建时配置和环境，修改配置后需先结束工作区，再重新创建。
+
+`logs` 返回近期输出快照，区分 stdout/stderr、运行实例和日志序号。可用 `--after <序号>` 分页读取后续记录；游标仅对同一后台实例有效。截断、缓存淘汰、队列丢弃或读取不完整会提示。日志只保存在后台的有界内存中，结束后台后不保留历史。
+
+保留前台运行：
+
 ```sh
 cargo run -- --config /path/to/devctl.toml run web
 cargo run -- --config /path/to/devctl.toml run web weapp middle
 cargo run -- --config /path/to/devctl.toml run --all
 ```
 
-`--all` 选择 `autostart = true` 的服务，与显式 ID 互斥；默认组合为空时正常退出。前台的选择、停止与退出规则见[交互方案](docs/interaction.md)。当前仍用 Ctrl-C/SIGTERM 停止前台管理的整批服务，独立 `start`、`stop`、`shutdown` 命令将在后台阶段接入。
+启动的 `--all` 选择 `autostart = true` 的默认组合，与显式 ID 互斥。前台用 Ctrl-C/SIGTERM 清理所选服务；前后台共享同一运行锁，不能同时托管同一配置。操作规则见[交互方案](docs/interaction.md)。
 
-运行锁使用 Rust 1.89+ 的标准库文件锁，目前在 Linux 本机文件系统验证。配置目录需可创建锁文件；`配置文件名.devctl.lock` 会保留，运行期间不要删除它，文件存在不代表锁被占用。详细机制见[设计 §4](DESIGN.md#4-进程停止与运行互斥)。
+运行锁使用 Rust 1.89+ 的标准库文件锁，目前在 Linux 本机文件系统验证。配置目录需可创建锁文件和私有运行目录；运行期间不要删除 `.devctl.lock` 或 `.devctl/`。锁文件存在不代表被占用。详细机制与限制见[设计](DESIGN.md)。
+
+验证命令：`cargo test --locked --offline`、`cargo fmt --check`、`cargo clippy --locked --offline --all-targets -- -D warnings`。进程与 Unix socket 测试需要允许创建本地 socket 和发送信号的 Linux 环境，测试还使用 `sh`、`sleep` 与 Python 3 构造受控场景。真实 npm/pnpm 项目流程仍待用户试用。

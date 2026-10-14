@@ -3,6 +3,7 @@ mod client;
 mod config;
 mod control;
 mod control_socket;
+mod logs;
 mod manager;
 mod plan;
 mod probe;
@@ -74,6 +75,49 @@ async fn execute(cli: Cli) -> Result<(), String> {
                 if let Some(error) = status.error {
                     println!("  {error}");
                 }
+            }
+            Ok(())
+        }
+        Some(Command::Logs {
+            service,
+            limit,
+            after,
+        }) => {
+            let response = client::execute(
+                &cli.config,
+                &control::Request::Logs {
+                    service: service.clone(),
+                    limit: usize::from(limit),
+                    after,
+                },
+                false,
+            )
+            .await?;
+            let logs = response
+                .logs
+                .ok_or_else(|| "Missing log response.".to_owned())?;
+            if logs.dropped > 0 {
+                eprintln!(
+                    "Warning: {} log records were dropped or evicted.",
+                    logs.dropped
+                );
+            }
+            if logs.incomplete {
+                eprintln!("Warning: log capture ended early; output may be incomplete.");
+            }
+            if logs.gap {
+                eprintln!("Warning: requested log cursor precedes retained output.");
+            }
+            for record in logs.records {
+                let source = match record.source {
+                    logs::Source::Stdout => "stdout",
+                    logs::Source::Stderr => "stderr",
+                };
+                let marker = if record.truncated { " [truncated]" } else { "" };
+                println!(
+                    "[{service}#{} {source} seq={}] {}{marker}",
+                    record.instance, record.sequence, record.text
+                );
             }
             Ok(())
         }
@@ -242,10 +286,9 @@ mod tests {
             .remove("long_running")
             .unwrap();
         let (sender, receiver) = oneshot::channel();
-        let task =
-            tokio::spawn(
-                async move { process::run("long_running", &service, receiver, None).await },
-            );
+        let task = tokio::spawn(async move {
+            process::run("long_running", &service, receiver, None, None).await
+        });
 
         sender.send(()).unwrap();
         let outcome = timeout(Duration::from_secs(8), task)

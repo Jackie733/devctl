@@ -8,7 +8,7 @@ use tokio::{
     time::timeout,
 };
 
-use crate::{manager::ServiceStatus, probe};
+use crate::{logs::Batch, manager::ServiceStatus, probe};
 
 pub const CONTROL_HEADER: &[u8; 9] = b"CONTROL1\n";
 pub const MAX_REQUEST: usize = 64 * 1024;
@@ -18,18 +18,33 @@ pub const MAX_RESPONSE: usize = 1024 * 1024;
 #[serde(tag = "action", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Request {
     Status {},
-    Start { targets: Vec<String>, all: bool },
-    Stop { targets: Vec<String>, all: bool },
+    Start {
+        targets: Vec<String>,
+        all: bool,
+    },
+    Stop {
+        targets: Vec<String>,
+        all: bool,
+    },
     Shutdown {},
+    Logs {
+        service: String,
+        limit: usize,
+        after: Option<u64>,
+    },
 }
 
 #[derive(Debug, Default, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Response {
+    #[serde(default)]
+    pub workspace_id: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
     #[serde(default)]
     pub services: BTreeMap<String, ServiceStatus>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub logs: Option<Batch>,
 }
 
 impl Response {
@@ -101,6 +116,7 @@ pub async fn connection(
     mut stream: UnixStream,
     config: &Path,
     commands: mpsc::Sender<Command>,
+    workspace_id: &str,
 ) -> io::Result<()> {
     let request = timeout(Duration::from_secs(2), async {
         let mut header = [0; 9];
@@ -123,7 +139,7 @@ pub async fn connection(
         return Ok(());
     };
     let (reply, response) = oneshot::channel();
-    let response = match commands.try_send(Command { request, reply }) {
+    let mut response = match commands.try_send(Command { request, reply }) {
         Ok(()) => match timeout(Duration::from_secs(10), response).await {
             Ok(Ok(response)) => response,
             Ok(Err(_)) => {
@@ -135,9 +151,13 @@ pub async fn connection(
         },
         Err(_) => Response::failed("Workspace is busy or shutting down; request was not accepted."),
     };
+    response.workspace_id = workspace_id.to_owned();
     timeout(Duration::from_secs(2), async {
         let response = if toml::to_string(&response).map_err(invalid)?.len() > MAX_RESPONSE {
-            Response::failed("Response exceeds size limit.")
+            Response {
+                workspace_id: workspace_id.to_owned(),
+                ..Response::failed("Response exceeds size limit.")
+            }
         } else {
             response
         };

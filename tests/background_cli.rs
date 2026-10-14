@@ -120,6 +120,18 @@ fn run(path: &Path, args: &[&str]) -> Output {
         .stderr(Stdio::piped())
         .spawn()
         .unwrap();
+    let mut out_pipe = child.stdout.take().unwrap();
+    let out_reader = thread::spawn(move || {
+        let mut bytes = Vec::new();
+        out_pipe.read_to_end(&mut bytes).unwrap();
+        bytes
+    });
+    let mut err_pipe = child.stderr.take().unwrap();
+    let err_reader = thread::spawn(move || {
+        let mut bytes = Vec::new();
+        err_pipe.read_to_end(&mut bytes).unwrap();
+        bytes
+    });
     let deadline = Instant::now() + Duration::from_secs(20);
     let status = loop {
         if let Some(status) = child.try_wait().unwrap() {
@@ -132,20 +144,8 @@ fn run(path: &Path, args: &[&str]) -> Output {
         }
         thread::sleep(Duration::from_millis(10));
     };
-    let mut stdout = Vec::new();
-    let mut stderr = Vec::new();
-    child
-        .stdout
-        .take()
-        .unwrap()
-        .read_to_end(&mut stdout)
-        .unwrap();
-    child
-        .stderr
-        .take()
-        .unwrap()
-        .read_to_end(&mut stderr)
-        .unwrap();
+    let stdout = out_reader.join().unwrap();
+    let stderr = err_reader.join().unwrap();
     Output {
         status,
         stdout,
@@ -203,6 +203,7 @@ fn cold_invalid_requests_and_read_only_commands_do_not_create_a_supervisor() {
         vec!["start", "web", "unknown"],
         vec!["stop", "--all"],
         vec!["status"],
+        vec!["logs", "web"],
         vec!["shutdown"],
     ] {
         assert!(!workspace.run(&args).status.success());
@@ -382,4 +383,228 @@ print(pid)
     assert!(workspace.ok(&["status"]).contains("web: Running"));
     workspace.ok(&["shutdown"]);
     workspace.stopped(web);
+}
+
+#[test]
+fn recent_logs_survive_client_exit_label_sources_and_distinguish_service_instances() {
+    let mut workspace = Workspace::new();
+    workspace.edit(|config| {
+        config["services"]["web"]["cmd"][2] = toml::Value::String(
+            "printf '%s\\n' \"$$\" >> \"$1\"; printf 'hello-out\\n'; printf 'hello-err\\n' >&2; trap 'printf last-line\\n; exit 0' TERM; while :; do sleep 1; done".into());
+    });
+    workspace.ok(&["start", "web"]);
+    let first = workspace.pid("web");
+    let deadline = Instant::now() + Duration::from_secs(3);
+    let before = loop {
+        let logs = workspace.ok(&["logs", "web"]);
+        if logs.contains("hello-out") && logs.contains("hello-err") {
+            break logs;
+        }
+        assert!(Instant::now() < deadline);
+    };
+    assert!(before.contains("web#1 stdout") && before.contains("web#1 stderr"));
+    let cursor = before
+        .lines()
+        .filter_map(|line| {
+            line.split_once("seq=")
+                .and_then(|(_, suffix)| suffix.split_once(']'))
+                .and_then(|(value, _)| value.parse::<u64>().ok())
+        })
+        .max()
+        .unwrap();
+    workspace.ok(&["stop", "web"]);
+    workspace.stopped(first);
+    assert!(workspace.ok(&["logs", "web"]).contains("last-line"));
+    let page = workspace.ok(&["logs", "web", "--after", &cursor.to_string()]);
+    assert!(page.contains("last-line"));
+    assert!(!page.contains("hello-out") && !page.contains("hello-err"));
+    workspace.ok(&["start", "web"]);
+    let second = workspace.pid("web");
+    let deadline = Instant::now() + Duration::from_secs(3);
+    loop {
+        let logs = workspace.ok(&["logs", "web"]);
+        if logs.contains("web#2 stdout") {
+            assert!(logs.contains("web#1 stdout"));
+            break;
+        }
+        assert!(Instant::now() < deadline);
+    }
+    assert!(!workspace.run(&["logs", "unknown"]).status.success());
+    assert_eq!(
+        workspace
+            .run(&["logs", "web", "--limit", "501"])
+            .status
+            .code(),
+        Some(2)
+    );
+    workspace.ok(&["shutdown"]);
+    workspace.stopped(second);
+}
+
+#[test]
+fn excessive_output_is_bounded_sanitized_and_does_not_block_control() {
+    let mut workspace = Workspace::new();
+    let marker = workspace.config.path.with_file_name("web");
+    workspace.edit(|config| {
+        config["services"]["web"]["cmd"] = toml::Value::Array([
+            "python3".to_owned(), "-c".into(),
+            "import os,sys,time\nfor _ in range(15000): os.write(1,b'x'*256+b'\\n')\ntime.sleep(.3)\nos.write(1,b'\\x1b[31mred\\x1b[0m\\nbad-\\xff\\n'+b'L'*40000+b'\\n')\nos.write(2,b'from-stderr\\n')\nopen(sys.argv[1],'w').write(str(os.getpid())+'\\n')\ntime.sleep(60)".into(),
+            marker.to_str().unwrap().into(),
+        ].into_iter().map(toml::Value::String).collect());
+    });
+    workspace.ok(&["start", "web"]);
+    let web = workspace.pid("web");
+    let deadline = Instant::now() + Duration::from_secs(3);
+    let output = loop {
+        let output = workspace.run(&["logs", "web", "--limit", "500"]);
+        assert!(output.status.success());
+        if String::from_utf8_lossy(&output.stdout).contains("from-stderr") {
+            break output;
+        }
+        assert!(Instant::now() < deadline);
+    };
+    let text = String::from_utf8(output.stdout).unwrap();
+    assert!(!text.contains('\x1b'));
+    assert!(text.contains('�') && text.contains("red") && text.contains("[truncated]"));
+    assert!(text.len() < 100_000);
+    assert!(String::from_utf8_lossy(&output.stderr).contains("dropped or evicted"));
+    let before = Instant::now();
+    assert!(workspace.ok(&["status"]).contains("web: Running"));
+    assert!(before.elapsed() < Duration::from_secs(1));
+    workspace.ok(&["stop", "--all"]);
+    workspace.stopped(web);
+    workspace.ok(&["shutdown"]);
+}
+
+#[test]
+fn a_client_disconnect_does_not_cancel_an_accepted_stop() {
+    use std::{io::Write, net::Shutdown, os::unix::net::UnixStream};
+    let mut workspace = Workspace::new();
+    workspace.edit(|config| {
+        config["services"]["web"]["cmd"][2] = toml::Value::String(
+            "trap '' TERM; printf '%s\\n' \"$$\" >> \"$1\"; exec sleep 60".into(),
+        );
+    });
+    workspace.ok(&["start", "web"]);
+    let web = workspace.pid("web");
+    let mut client = UnixStream::connect(workspace.socket()).unwrap();
+    client
+        .set_read_timeout(Some(Duration::from_secs(2)))
+        .unwrap();
+    client.write_all(b"CONTROL1\n").unwrap();
+    let mut header = [0; 9];
+    client.read_exact(&mut header).unwrap();
+    let mut length = [0; 4];
+    client.read_exact(&mut length).unwrap();
+    let mut identity = vec![0; u32::from_be_bytes(length) as usize];
+    client.read_exact(&mut identity).unwrap();
+    let body = b"action='stop'\ntargets=['web']\nall=false\n";
+    client
+        .write_all(&(body.len() as u32).to_be_bytes())
+        .unwrap();
+    client.write_all(body).unwrap();
+    client.shutdown(Shutdown::Write).unwrap();
+    drop(client);
+    let deadline = Instant::now() + Duration::from_secs(8);
+    loop {
+        let status = workspace.ok(&["status"]);
+        if status.contains("web: Stopped") {
+            break;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "Disconnected client canceled cleanup."
+        );
+        thread::sleep(Duration::from_millis(20));
+    }
+    workspace.stopped(web);
+    workspace.ok(&["shutdown"]);
+}
+
+#[test]
+fn continuous_stdout_and_stderr_do_not_starve_status_or_stop() {
+    let mut workspace = Workspace::new();
+    let marker = workspace.config.path.with_file_name("web");
+    workspace.edit(|config| {
+        config["services"]["web"]["cmd"] = toml::Value::Array([
+            "python3".to_owned(), "-c".into(),
+            "import os,sys\nopen(sys.argv[1],'w').write(str(os.getpid())+'\\n')\nwhile True:\n os.write(1,(b'out '+b'x'*128+b'\\n')*128)\n os.write(2,(b'err '+b'y'*128+b'\\n')*128)".into(),
+            marker.to_str().unwrap().into(),
+        ].into_iter().map(toml::Value::String).collect());
+    });
+    workspace.ok(&["start", "web"]);
+    let web = workspace.pid("web");
+    for _ in 0..3 {
+        let before = Instant::now();
+        assert!(workspace.ok(&["status"]).contains("web: Running"));
+        assert!(before.elapsed() < Duration::from_secs(2));
+    }
+    assert!(!workspace.ok(&["logs", "web", "--limit", "5"]).is_empty());
+    let before = Instant::now();
+    workspace.ok(&["stop", "--all"]);
+    assert!(before.elapsed() < Duration::from_secs(3));
+    workspace.stopped(web);
+    workspace.ok(&["shutdown"]);
+}
+
+fn workspace_identity(path: &Path) -> String {
+    use std::{io::Write, os::unix::net::UnixStream};
+    let mut stream = UnixStream::connect(path).unwrap();
+    stream
+        .set_read_timeout(Some(Duration::from_secs(3)))
+        .unwrap();
+    stream.write_all(b"CONTROL1\n").unwrap();
+    let mut header = [0; 9];
+    stream.read_exact(&mut header).unwrap();
+    let mut length = [0; 4];
+    stream.read_exact(&mut length).unwrap();
+    let mut identity = vec![0; u32::from_be_bytes(length) as usize];
+    stream.read_exact(&mut identity).unwrap();
+    let request = b"action='status'\n";
+    stream
+        .write_all(&(request.len() as u32).to_be_bytes())
+        .unwrap();
+    stream.write_all(request).unwrap();
+    stream.read_exact(&mut length).unwrap();
+    let mut response = vec![0; u32::from_be_bytes(length) as usize];
+    stream.read_exact(&mut response).unwrap();
+    let response: toml::Value = toml::from_str(std::str::from_utf8(&response).unwrap()).unwrap();
+    let identity = response["workspace_id"].as_str().unwrap();
+    assert_eq!(identity.len(), 32);
+    identity.into()
+}
+
+#[test]
+fn workspace_instance_identity_survives_service_restarts_and_changes_on_manager_recreation() {
+    let mut workspace = Workspace::new();
+    workspace.ok(&["start", "web"]);
+    let web = workspace.pid("web");
+    let original = workspace_identity(&workspace.socket());
+    workspace.ok(&["stop", "--all"]);
+    workspace.stopped(web);
+    assert_eq!(workspace_identity(&workspace.socket()), original);
+    workspace.ok(&["shutdown"]);
+    workspace.ok(&["start", "web"]);
+    let web = workspace.pid("web");
+    assert_ne!(workspace_identity(&workspace.socket()), original);
+    workspace.ok(&["shutdown"]);
+    workspace.stopped(web);
+}
+
+#[test]
+fn startup_failure_is_reported_without_overwriting_an_unrelated_endpoint_file() {
+    use std::os::unix::fs::DirBuilderExt;
+    let workspace = Workspace::new();
+    fs::DirBuilder::new()
+        .mode(0o700)
+        .create(workspace.socket().parent().unwrap())
+        .unwrap();
+    fs::write(workspace.socket(), "keep me").unwrap();
+    let before = Instant::now();
+    let output = workspace.run(&["start", "web"]);
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("Refusing to replace non-socket"));
+    assert!(before.elapsed() < Duration::from_secs(3));
+    assert_eq!(fs::read_to_string(workspace.socket()).unwrap(), "keep me");
+    assert!(!workspace.config.path.with_file_name("web").exists());
 }

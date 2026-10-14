@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     config::Service,
+    logs::Sink,
     process::{RunError, RunOutcome},
     service_task::ServiceTask,
 };
@@ -26,6 +27,8 @@ pub enum ServiceState {
 pub struct ServiceStatus {
     pub state: ServiceState,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub instance: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
     pub cleanup_confirmed: bool,
 }
@@ -34,6 +37,7 @@ impl Default for ServiceStatus {
     fn default() -> Self {
         Self {
             state: ServiceState::Stopped,
+            instance: None,
             error: None,
             cleanup_confirmed: true,
         }
@@ -46,6 +50,8 @@ pub struct Manager {
     tasks: BTreeMap<String, ServiceTask>,
     statuses: BTreeMap<String, ServiceStatus>,
     stopping_all: BTreeSet<String>,
+    logs: BTreeMap<String, Sink>,
+    next_instance: u64,
 }
 
 impl Manager {
@@ -61,12 +67,25 @@ impl Manager {
         }
     }
 
+    pub fn with_logs(services: BTreeMap<String, Service>, logs: BTreeMap<String, Sink>) -> Self {
+        Self {
+            logs,
+            ..Self::new(services)
+        }
+    }
+
     pub fn all_ids(&self) -> Vec<String> {
         self.services.keys().cloned().collect()
     }
 
     pub fn is_pending(&self, id: &str) -> bool {
         self.tasks.get(id).is_some_and(|task| !task.is_joined())
+    }
+
+    pub fn has_unconfirmed_cleanup(&self) -> bool {
+        self.statuses
+            .values()
+            .any(|status| status.state == ServiceState::Failed && !status.cleanup_confirmed)
     }
 
     pub fn has_pending_tasks(&self) -> bool {
@@ -125,7 +144,7 @@ impl Manager {
         self.start_selected(&self.default_targets())
     }
 
-    // Queried by the future control channel. Each task owns a one-shot startup report.
+    // Each task owns a one-shot startup report, sampled by state queries.
     pub fn statuses(&mut self) -> &BTreeMap<String, ServiceStatus> {
         self.refresh_started();
         &self.statuses
@@ -188,11 +207,18 @@ impl Manager {
             ));
         }
 
-        let task = ServiceTask::spawn(id.clone(), service);
+        self.next_instance = self
+            .next_instance
+            .checked_add(1)
+            .ok_or_else(|| "Service instance counter exhausted.".to_owned())?;
+        let instance = self.next_instance;
+        let logs = self.logs.get(&id).map(|sink| sink.with_instance(instance));
+        let task = ServiceTask::spawn(id.clone(), service, logs);
         self.statuses.insert(
             id.clone(),
             ServiceStatus {
                 state: ServiceState::Starting,
+                instance: Some(instance),
                 error: None,
                 cleanup_confirmed: false,
             },
@@ -293,9 +319,11 @@ impl Manager {
             }
             Err(error) => Some(error.to_string()),
         };
+        let instance = self.statuses.get(id).and_then(|status| status.instance);
         self.statuses.insert(
             id.into(),
             ServiceStatus {
+                instance,
                 state: if error.is_some() {
                     ServiceState::Failed
                 } else {
@@ -519,6 +547,7 @@ mod tests {
         assert_eq!(result.err().unwrap(), "injected cleanup failure");
         assert_eq!(manager.statuses()["first"].state, ServiceState::Failed);
         assert!(!manager.statuses()["first"].cleanup_confirmed);
+        assert!(manager.has_unconfirmed_cleanup());
         for _ in 0..2 {
             assert_eq!(
                 manager.start_selected(&ids(&["first"])).unwrap_err(),

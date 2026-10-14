@@ -8,6 +8,7 @@ use tokio::{sync::oneshot, task::JoinHandle};
 
 use crate::{
     config::Service,
+    logs::Sink,
     process::{self, RunError, RunOutcome},
 };
 
@@ -31,12 +32,19 @@ impl ServiceTask {
         }
     }
 
-    pub fn spawn(id: String, service: Service) -> Self {
+    pub fn spawn(id: String, service: Service, logs: Option<Sink>) -> Self {
         let (stop_sender, stop_request) = oneshot::channel();
         let (started_sender, started) = oneshot::channel();
         let service_id = id.clone();
         let running = tokio::spawn(async move {
-            process::run(&service_id, &service, stop_request, Some(started_sender)).await
+            process::run(
+                &service_id,
+                &service,
+                stop_request,
+                Some(started_sender),
+                logs,
+            )
+            .await
         });
 
         Self {
@@ -164,8 +172,8 @@ mod tests {
     async fn stopping_one_task_and_canceling_a_wait_preserves_the_other() {
         let mut first_fixture = Fixture::new("first");
         let mut second_fixture = Fixture::new("second");
-        let mut first = ServiceTask::spawn("first".into(), first_fixture.service());
-        let mut second = ServiceTask::spawn("second".into(), second_fixture.service());
+        let mut first = ServiceTask::spawn("first".into(), first_fixture.service(), None);
+        let mut second = ServiceTask::spawn("second".into(), second_fixture.service(), None);
         let first_pid = first_fixture.ready().await;
         let second_pid = second_fixture.ready().await;
 
@@ -200,11 +208,11 @@ mod tests {
     #[tokio::test]
     async fn a_spawn_error_does_not_stop_another_task() {
         let mut fixture = Fixture::new("survivor");
-        let mut survivor = ServiceTask::spawn("survivor".into(), fixture.service());
+        let mut survivor = ServiceTask::spawn("survivor".into(), fixture.service(), None);
         let pid = fixture.ready().await;
         let mut missing_service = fixture.service();
         missing_service.cmd = vec!["devctl-command-that-does-not-exist".into()];
-        let mut missing = ServiceTask::spawn("missing".into(), missing_service);
+        let mut missing = ServiceTask::spawn("missing".into(), missing_service, None);
         let error = match timeout(Duration::from_secs(3), missing.wait())
             .await
             .unwrap()
@@ -252,7 +260,7 @@ mod tests {
     #[tokio::test]
     async fn canceling_a_wait_allows_a_different_tokio_task_to_join() {
         let mut fixture = Fixture::new("moved-waiter");
-        let mut task = ServiceTask::spawn("moved".into(), fixture.service());
+        let mut task = ServiceTask::spawn("moved".into(), fixture.service(), None);
         let pid = fixture.ready().await;
         assert!(
             timeout(Duration::from_millis(20), task.wait())

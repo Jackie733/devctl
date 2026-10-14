@@ -19,7 +19,10 @@ use tokio::{
     time::{sleep, timeout},
 };
 
-use crate::config::Service;
+use crate::{
+    config::Service,
+    logs::{Readers, Sink},
+};
 
 pub enum RunOutcome {
     Exited(ExitStatus),
@@ -47,6 +50,7 @@ pub async fn run(
     service: &Service,
     stop_request: oneshot::Receiver<()>,
     started: Option<oneshot::Sender<()>>,
+    logs: Option<Sink>,
 ) -> Result<RunOutcome, RunError> {
     let (program, args) = service
         .cmd
@@ -61,8 +65,16 @@ pub async fn run(
         .args(args)
         .current_dir(cwd)
         .stdin(Stdio::null())
-        .stdout(Stdio::inherit())
-        .stderr(Stdio::inherit())
+        .stdout(if logs.is_some() {
+            Stdio::piped()
+        } else {
+            Stdio::inherit()
+        })
+        .stderr(if logs.is_some() {
+            Stdio::piped()
+        } else {
+            Stdio::inherit()
+        })
         .process_group(0)
         .kill_on_drop(true)
         .spawn()
@@ -78,24 +90,30 @@ pub async fn run(
         RunError::CleanupUnconfirmed(format!("Invalid process group for service '{id}': {error}"))
     })?;
 
+    let readers = logs.map(|sink| Readers::start(&mut child, sink));
+
     println!("Started service '{id}' with PID {pid}.");
     if let Some(started) = started {
         let _ = started.send(());
     }
 
-    tokio::select! {
-        _ = stop_request => {
-            stop(id, &mut child, pgid).await
-        }
-        result = wait_for_exit_without_reaping(id, pgid) => {
-            result.map_err(RunError::CleanupUnconfirmed)?;
-            let status = kill_and_reap(id, &mut child, pgid).await.map_err(RunError::CleanupUnconfirmed)?;
-
-            println!("Service '{id}' exited: {status}");
-
-            Ok(RunOutcome::Exited(status))
+    let outcome = async {
+        tokio::select! {
+            _ = stop_request => stop(id, &mut child, pgid).await,
+            result = wait_for_exit_without_reaping(id, pgid) => {
+                result.map_err(RunError::CleanupUnconfirmed)?;
+                let status = kill_and_reap(id, &mut child, pgid).await
+                    .map_err(RunError::CleanupUnconfirmed)?;
+                println!("Service '{id}' exited: {status}");
+                Ok(RunOutcome::Exited(status))
+            }
         }
     }
+    .await;
+    if let Some(readers) = readers {
+        readers.finish().await;
+    }
+    outcome
 }
 
 async fn stop(id: &str, child: &mut Child, pgid: Pid) -> Result<RunOutcome, RunError> {
@@ -339,7 +357,7 @@ mod tests {
             };
 
             let (sender, receiver) = oneshot::channel();
-            let running = run("controlled", &service, receiver, None);
+            let running = run("controlled", &service, receiver, None, None);
             tokio::pin!(running);
 
             let ready = async {

@@ -43,6 +43,15 @@ pub enum Command {
     },
     /// Show current background service states.
     Status,
+    /// Read bounded recent output from a background service.
+    Logs {
+        #[arg(value_name = "SERVICE")]
+        service: String,
+        #[arg(long, default_value_t = 100, value_parser = clap::value_parser!(u16).range(1..=500))]
+        limit: u16,
+        #[arg(long)]
+        after: Option<u64>,
+    },
     /// Stop all services and end the background workspace.
     Shutdown,
 

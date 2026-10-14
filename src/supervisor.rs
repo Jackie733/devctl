@@ -1,16 +1,17 @@
-use std::{path::Path, time::Duration};
+use std::{io::Read, path::Path, time::Duration};
 
 use tokio::{
     signal::unix::{SignalKind, signal},
     sync::{mpsc, oneshot},
     task::JoinSet,
-    time::timeout,
+    time::{Instant, sleep_until, timeout},
 };
 
 use crate::{
     config,
     control::{self, Command, Request, Response},
     control_socket::ControlSocket,
+    logs::{self, Store},
     manager::{Manager, ServiceState},
     run_lock::RunLock,
     startup,
@@ -28,6 +29,7 @@ fn snapshot(manager: &mut Manager, error: Option<String>) -> Response {
     Response {
         services: manager.statuses().clone(),
         error,
+        ..Response::default()
     }
 }
 
@@ -43,9 +45,24 @@ fn dispatch(
     manager: &mut Manager,
     pending: &mut Vec<PendingStop>,
     shutting_down: &mut bool,
+    logs: &Store,
 ) {
     let Command { request, reply } = command;
     match request {
+        Request::Logs {
+            service,
+            limit,
+            after,
+        } => {
+            let response = match logs.query(&service, limit, after) {
+                Ok(logs) => Response {
+                    logs: Some(logs),
+                    ..Response::default()
+                },
+                Err(error) => Response::failed(error),
+            };
+            let _ = reply.send(response);
+        }
         Request::Status {} => {
             let _ = reply.send(snapshot(manager, None));
         }
@@ -122,6 +139,14 @@ fn complete_stops(manager: &mut Manager, pending: &mut Vec<PendingStop>) {
     }
 }
 
+fn workspace_identity() -> Result<String, String> {
+    let mut bytes = [0; 16];
+    std::fs::File::open("/dev/urandom")
+        .and_then(|mut file| file.read_exact(&mut bytes))
+        .map_err(|error| format!("Failed to create workspace instance identity: {error}"))?;
+    Ok(bytes.iter().map(|byte| format!("{byte:02x}")).collect())
+}
+
 pub async fn run(path: &Path, detached: bool) -> Result<(), String> {
     let result = run_inner(path, detached).await;
     if detached && let Err(error) = &result {
@@ -138,6 +163,7 @@ async fn run_inner(path: &Path, detached: bool) -> Result<(), String> {
         .canonicalize()
         .map_err(|error| format!("Failed to resolve config path {}: {error}", path.display()))?;
     let config = config::load(&path)?;
+    let workspace_id = workspace_identity()?;
     let mut interrupt = signal(SignalKind::interrupt())
         .map_err(|error| format!("Failed to register SIGINT handler: {error}"))?;
     let mut terminate = signal(SignalKind::terminate())
@@ -152,7 +178,8 @@ async fn run_inner(path: &Path, detached: bool) -> Result<(), String> {
         }
     };
     let socket = ControlSocket::bind(&path, &_run_lock)?;
-    let mut manager = Manager::new(config.services);
+    let (sinks, mut output, mut logs) = logs::channel(config.services.keys().cloned());
+    let mut manager = Manager::with_logs(config.services, sinks);
     let (commands, mut incoming) = mpsc::channel(32);
     let mut clients = JoinSet::new();
     let mut pending = Vec::<PendingStop>::new();
@@ -162,7 +189,9 @@ async fn run_inner(path: &Path, detached: bool) -> Result<(), String> {
         startup::ready()?;
     }
 
-    let outcome = loop {
+    let mut accept_after = Instant::now();
+    loop {
+        let accepting = Instant::now() >= accept_after;
         tokio::select! {
             _ = interrupt.recv(), if !shutting_down => {
                 shutting_down = true;
@@ -172,22 +201,32 @@ async fn run_inner(path: &Path, detached: bool) -> Result<(), String> {
                 shutting_down = true;
                 manager.request_stop_all();
             }
-            accepted = socket.accept(), if clients.len() < MAX_CLIENTS => {
+            accepted = socket.accept(), if accepting && clients.len() < MAX_CLIENTS => {
                 match accepted {
                     Ok(stream) => {
                         let config_path = path.clone();
                         let commands = commands.clone();
-                        clients.spawn(async move { control::connection(stream, &config_path, commands).await });
+                        let workspace_id = workspace_id.clone();
+                        clients.spawn(async move { control::connection(stream, &config_path, commands, &workspace_id).await });
                     }
-                    Err(error) => break Err(format!("Failed to accept control connection: {error}")),
+                    Err(error) => {
+                        eprintln!("Failed to accept control connection: {error}");
+                        accept_after = Instant::now() + Duration::from_millis(100);
+                    }
                 }
             }
+            _ = sleep_until(accept_after), if !accepting => {}
             Some(command) = incoming.recv() => {
                 let shutdown_request = matches!(&command.request, Request::Shutdown {});
-                dispatch(command, &mut manager, &mut pending, &mut shutting_down);
+                dispatch(command, &mut manager, &mut pending, &mut shutting_down, &logs);
                 reply_on_shutdown |= shutdown_request && shutting_down;
             }
+            Some(event) = output.recv() => logs.push(event),
             completion = manager.wait_next(), if manager.has_pending_tasks() => {
+                // Drain at most one queue capacity before acknowledging completed stops.
+                for _ in 0..logs::QUEUE_CAPACITY {
+                    match output.try_recv() { Ok(event) => logs.push(event), Err(_) => break }
+                }
                 if let Some((id, Err(error))) = completion {
                     for command in &mut pending {
                         if command.ids.contains(&id) { command.errors.push(format!("Service '{id}': {error}")); }
@@ -198,9 +237,15 @@ async fn run_inner(path: &Path, detached: bool) -> Result<(), String> {
         }
         complete_stops(&mut manager, &mut pending);
         if shutting_down && !manager.has_pending_tasks() {
-            break Ok(());
+            if manager.has_unconfirmed_cleanup() {
+                // Keep the ownership lock and diagnostics when safe exit cannot be proved.
+                shutting_down = false;
+                reply_on_shutdown = false;
+            } else {
+                break;
+            }
         }
-    };
+    }
 
     drop(incoming);
     if !reply_on_shutdown
@@ -212,9 +257,5 @@ async fn run_inner(path: &Path, detached: bool) -> Result<(), String> {
     {
         clients.shutdown().await;
     }
-    match (outcome, manager.stop_all().await) {
-        (Ok(()), Ok(())) => Ok(()),
-        (Err(error), Ok(())) | (Ok(()), Err(error)) => Err(error),
-        (Err(error), Err(cleanup)) => Err(format!("{error}\n{cleanup}")),
-    }
+    manager.stop_all().await
 }
