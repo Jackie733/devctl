@@ -13,6 +13,14 @@ impl RunLock {
         let config_path = path.canonicalize().map_err(|error| {
             format!("Failed to resolve config path {}: {error}", path.display())
         })?;
+        Self::try_acquire(&config_path)?
+            .ok_or_else(|| format!("Config '{}' is already managed.", config_path.display()))
+    }
+
+    pub fn try_acquire(path: &Path) -> Result<Option<Self>, String> {
+        let config_path = path.canonicalize().map_err(|error| {
+            format!("Failed to resolve config path {}: {error}", path.display())
+        })?;
         let mut name = config_path.as_os_str().to_os_string();
         name.push(".devctl.lock");
         let lock_path = PathBuf::from(name);
@@ -37,18 +45,14 @@ impl RunLock {
                 lock_path.display()
             ));
         }
-        file.try_lock().map_err(|error| match error {
-            TryLockError::WouldBlock => {
-                format!("Config '{}' is already managed.", config_path.display())
-            }
-            TryLockError::Error(error) => {
-                format!(
-                    "Failed to acquire run lock {}: {error}",
-                    lock_path.display()
-                )
-            }
-        })?;
-        Ok(Self { _file: file })
+        match file.try_lock() {
+            Ok(()) => Ok(Some(Self { _file: file })),
+            Err(TryLockError::WouldBlock) => Ok(None),
+            Err(TryLockError::Error(error)) => Err(format!(
+                "Failed to acquire run lock {}: {error}",
+                lock_path.display()
+            )),
+        }
     }
 }
 
@@ -114,6 +118,7 @@ mod tests {
         let sidecar = fixture.0.join("config.toml.devctl.lock");
         fs::write(&sidecar, "stale marker").unwrap();
         let guard = RunLock::acquire(&path).unwrap();
+        assert!(RunLock::try_acquire(&path).unwrap().is_none());
         assert!(
             RunLock::acquire(&path)
                 .err()

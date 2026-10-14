@@ -4,13 +4,16 @@ use std::{
     task::Poll,
 };
 
+use serde::{Deserialize, Serialize};
+
 use crate::{
     config::Service,
     process::{RunError, RunOutcome},
     service_task::ServiceTask,
 };
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum ServiceState {
     Stopped,
     Starting,
@@ -19,9 +22,10 @@ pub enum ServiceState {
     Failed,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ServiceStatus {
     pub state: ServiceState,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
     pub cleanup_confirmed: bool,
 }
@@ -55,6 +59,18 @@ impl Manager {
             statuses,
             ..Self::default()
         }
+    }
+
+    pub fn all_ids(&self) -> Vec<String> {
+        self.services.keys().cloned().collect()
+    }
+
+    pub fn is_pending(&self, id: &str) -> bool {
+        self.tasks.get(id).is_some_and(|task| !task.is_joined())
+    }
+
+    pub fn has_pending_tasks(&self) -> bool {
+        self.tasks.values().any(|task| !task.is_joined())
     }
 
     pub fn default_targets(&self) -> Vec<String> {
@@ -110,13 +126,6 @@ impl Manager {
     }
 
     // Queried by the future control channel. Each task owns a one-shot startup report.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "state queries await the background control channel"
-        )
-    )]
     pub fn statuses(&mut self) -> &BTreeMap<String, ServiceStatus> {
         self.refresh_started();
         &self.statuses
@@ -136,13 +145,6 @@ impl Manager {
         }
     }
 
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "individual controls await the background control channel"
-        )
-    )]
     pub fn stop_selected(&mut self, targets: &[String]) -> Result<(), String> {
         for id in targets {
             let status = self

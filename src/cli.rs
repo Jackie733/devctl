@@ -22,7 +22,29 @@ pub struct Cli {
 pub enum Command {
     /// Internal supervisor entry point.
     #[command(hide = true)]
-    Supervise,
+    Supervise {
+        #[arg(long, hide = true)]
+        detached: bool,
+    },
+
+    /// Start selected services in a background workspace.
+    Start {
+        #[arg(value_name = "SERVICE", required_unless_present = "all", num_args = 1.., conflicts_with = "all")]
+        services: Vec<String>,
+        #[arg(long)]
+        all: bool,
+    },
+    /// Stop selected services, keeping the workspace available.
+    Stop {
+        #[arg(value_name = "SERVICE", required_unless_present = "all", num_args = 1.., conflicts_with = "all")]
+        services: Vec<String>,
+        #[arg(long)]
+        all: bool,
+    },
+    /// Show current background service states.
+    Status,
+    /// Stop all services and end the background workspace.
+    Shutdown,
 
     /// Validate workspace, project, service, and dependency definitions.
     Validate,

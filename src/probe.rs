@@ -2,18 +2,19 @@ use std::{
     io::{self, ErrorKind},
     os::unix::ffi::OsStrExt,
     path::Path,
-    time::Duration,
 };
 
-use tokio::{
-    io::{AsyncReadExt, AsyncWriteExt},
-    net::UnixStream,
-    time::timeout,
-};
+use tokio::{io::AsyncWriteExt, net::UnixStream};
+
+#[cfg(test)]
+use std::time::Duration;
+#[cfg(test)]
+use tokio::{io::AsyncReadExt, time::timeout};
 
 const HEADER: &[u8; 9] = b"DEVCTL 1\n";
 const MAX_IDENTITY_BYTES: usize = 16 * 1024;
 
+#[cfg(test)]
 pub async fn respond(mut stream: UnixStream, config_path: &Path) -> io::Result<()> {
     let identity = config_path.as_os_str().as_bytes();
     if identity.len() > MAX_IDENTITY_BYTES {
@@ -33,15 +34,26 @@ pub async fn respond(mut stream: UnixStream, config_path: &Path) -> io::Result<(
             ));
         }
 
-        stream.write_all(HEADER).await?;
-        stream
-            .write_all(&(identity.len() as u32).to_be_bytes())
-            .await?;
-        stream.write_all(identity).await?;
+        write_identity(&mut stream, config_path).await?;
         stream.shutdown().await
     })
     .await
     .map_err(|_| io::Error::new(ErrorKind::TimedOut, "Probe timed out."))?
+}
+
+pub async fn write_identity(stream: &mut UnixStream, config_path: &Path) -> io::Result<()> {
+    let identity = config_path.as_os_str().as_bytes();
+    if identity.len() > MAX_IDENTITY_BYTES {
+        return Err(io::Error::new(
+            ErrorKind::InvalidData,
+            "Config identity is too long.",
+        ));
+    }
+    stream.write_all(HEADER).await?;
+    stream
+        .write_all(&(identity.len() as u32).to_be_bytes())
+        .await?;
+    stream.write_all(identity).await
 }
 
 #[cfg(test)]

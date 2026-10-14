@@ -1,5 +1,7 @@
 mod cli;
+mod client;
 mod config;
+mod control;
 mod control_socket;
 mod manager;
 mod plan;
@@ -7,6 +9,7 @@ mod probe;
 mod process;
 mod run_lock;
 mod service_task;
+mod startup;
 mod supervisor;
 
 use std::{path::Path, process::ExitCode};
@@ -36,7 +39,49 @@ async fn execute(cli: Cli) -> Result<(), String> {
             println!();
             Ok(())
         }
-        Some(Command::Supervise) => supervisor::run(&cli.config).await,
+        Some(Command::Supervise { detached }) => supervisor::run(&cli.config, detached).await,
+        Some(Command::Start { services, all }) => {
+            client::execute(
+                &cli.config,
+                &control::Request::Start {
+                    targets: services,
+                    all,
+                },
+                true,
+            )
+            .await?;
+            println!("Start request accepted; query status for process state.");
+            Ok(())
+        }
+        Some(Command::Stop { services, all }) => {
+            client::execute(
+                &cli.config,
+                &control::Request::Stop {
+                    targets: services,
+                    all,
+                },
+                false,
+            )
+            .await?;
+            println!("Selected services stopped.");
+            Ok(())
+        }
+        Some(Command::Status) => {
+            let response =
+                client::execute(&cli.config, &control::Request::Status {}, false).await?;
+            for (id, status) in response.services {
+                println!("{id}: {:?}", status.state);
+                if let Some(error) = status.error {
+                    println!("  {error}");
+                }
+            }
+            Ok(())
+        }
+        Some(Command::Shutdown) => {
+            client::execute(&cli.config, &control::Request::Shutdown {}, false).await?;
+            println!("Workspace shut down.");
+            Ok(())
+        }
         Some(Command::Validate) => print_validation(&cli.config),
         Some(Command::Plan { targets }) => print_plan(&cli.config, &targets),
         Some(Command::Run { services, all }) => run_services(&cli.config, &services, all).await,
