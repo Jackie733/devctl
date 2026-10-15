@@ -46,6 +46,8 @@ cargo +stable install --path . --locked
 "$HOME/.cargo/bin/devctl" --version
 ```
 
+当前功能版本为 0.2.0，安装后版本输出应为 `devctl 0.2.0`。
+
 `cargo install` 默认使用 release 优化构建并安装；通常安装到 `~/.cargo/bin/devctl`，无需先单独运行 `cargo build --release`。`--locked` 使用仓库已有 Cargo.lock；首次安装不加 `--offline`，允许下载依赖。若设置了 CARGO_HOME、CARGO_INSTALL_ROOT 或 Cargo 安装配置，安装目录按其设置变化，以 Cargo 输出为准。参考 [Cargo install 文档](https://doc.rust-lang.org/cargo/commands/cargo-install.html)。
 
 若 `devctl --version` 提示找不到命令，但绝对路径可以运行，在当前终端执行：
@@ -211,7 +213,7 @@ git log -5 --oneline
 whence -va devctl
 ```
 
-Zsh 的 whence 会显示别名、函数及 PATH 中的各个安装位置。特别注意 ~/.local/bin/devctl 优先于 ~/.cargo/bin/devctl：cargo install 只更新 Cargo 安装位置，可能没有更新实际启动的文件。当前 --version 仍可能都显示 0.1.0，不能仅凭版本字符串确认构建已更新。
+Zsh 的 whence 会显示别名、函数及 PATH 中的各个安装位置。特别注意 ~/.local/bin/devctl 优先于 ~/.cargo/bin/devctl：cargo install 只更新 Cargo 安装位置，可能没有更新实际启动的文件。历史构建曾共用 0.1.0，本次功能版已升至 0.2.0；版本字符串能区分这两个功能版本，同一版本下的不同构建仍需结合源码或文件校验值核对。
 
 确认源码包含上述提交后，可用显式源码运行隔离安装路径问题：`cargo +stable run --locked -- --config "$HOME/.config/devctl/devctl.toml" tui`。它会按需编译当前源码；若此时底部为两行，再更新实际安装位置。布局由客户端绘制，结束后台本身不会更新旧客户端；后台升级规则仍按本节前文执行。
 
