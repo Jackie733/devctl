@@ -4,6 +4,7 @@ import fcntl
 import hashlib
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import tempfile
 import unittest
@@ -161,6 +162,37 @@ class InstallScripts(unittest.TestCase):
         self.assertIn(PATH_LINE, (custom / ".zshrc").read_text())
         self.run_script("setup-path.sh", "fish", ok=False)
         self.assertFalse((self.home / ".bashrc").exists())
+
+    @unittest.skipUnless(shutil.which("zsh"), "Zsh is required for startup checks")
+    def test_documented_zsh_setup_and_new_shells_load_the_correct_startup_file(self):
+        self.install_version("first")
+        self.env["TEST_SETUP_PATH"] = str(SCRIPTS / "setup-path.sh")
+        for custom in (False, True):
+            with self.subTest(custom_zdotdir=custom):
+                rc_dir = self.home / "zsh config" if custom else self.home
+                rc_dir.mkdir(exist_ok=True)
+                prefix = 'ZDOTDIR="$HOME/zsh config"\n' if custom else ""
+                commands = prefix + (
+                    'ZDOTDIR="${ZDOTDIR:-$HOME}" bash "$TEST_SETUP_PATH" zsh\n'
+                    + PATH_LINE + '\nrehash\ncommand -v devctl\n'
+                )
+                result = subprocess.run(
+                    ["zsh", "-f", "-c", commands], env=self.env,
+                    capture_output=True, text=True, timeout=10,
+                )
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(result.stdout.splitlines()[-1], str(self.target))
+                self.assertIn(PATH_LINE, (rc_dir / ".zshrc").read_text())
+                self.assertFalse((self.home / ".bashrc").exists())
+                if custom:
+                    (self.home / ".zshenv").write_text(prefix)
+                for flags in ("-ic", "-lic"):
+                    result = subprocess.run(
+                        ["zsh", flags, "command -v devctl"], env=self.env,
+                        capture_output=True, text=True, timeout=10,
+                    )
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertEqual(result.stdout.strip(), str(self.target))
 
 
 if __name__ == "__main__":

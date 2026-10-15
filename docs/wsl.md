@@ -59,19 +59,21 @@ devctl --version
 
 ### 一次性持久化 PATH
 
-在目标 WSL 的源码目录执行 [PATH 设置脚本](../scripts/setup-path.sh)，无需 sudo。Bash 用户运行：
+目标交互 shell 已确认是 Zsh。在目标 WSL 的源码目录执行 [PATH 设置脚本](../scripts/setup-path.sh)，无需 sudo：
 
 ```sh
-bash scripts/setup-path.sh bash
+ZDOTDIR="${ZDOTDIR:-$HOME}" bash scripts/setup-path.sh zsh
 export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
-hash -r
+rehash
 command -v devctl
 devctl --version
 ```
 
-Zsh 用户将第一行最后的 `bash` 改为 `zsh`；其余命令相同。脚本向 `~/.bashrc` 或 `${ZDOTDIR:-$HOME}/.zshrc` 追加 PATH，保留已有内容，相同配置不重复追加。第二行使当前终端立即生效；后续新开的交互终端读取启动文件，无需每次执行 export。`~/.local/bin` 优先于 `~/.cargo/bin`，方便下节使用独立更新器；自定义 Cargo 安装目录需自行加入 PATH。
+第一行中的 `bash` 是脚本解释器，最后的 `zsh` 指定写入 Zsh 启动文件；不要改成 `zsh scripts/setup-path.sh`。显式传递 ZDOTDIR 可以处理它只在当前 Zsh 中设置、尚未导出的情况。脚本向 `${ZDOTDIR:-$HOME}/.zshrc` 追加 PATH，保留已有内容，相同配置不重复追加；未设置 ZDOTDIR 时对应 `~/.zshrc`。
 
-Bash 登录 shell 的加载规则不同；若自定义 `~/.bash_profile` / `~/.bash_login`，需确认实际加载的登录文件会读取 `~/.bashrc`。脚本不改登录文件；非交互任务也应显式设置 PATH 或使用绝对路径。参考 [Bash 启动文件说明](https://www.gnu.org/software/bash/manual/html_node/Bash-Startup-Files.html)。设置后重新打开一个 WSL 终端，用 `command -v devctl` 再核对一次。
+第二行使当前终端立即生效，rehash 刷新命令缓存；后续新开的交互 Zsh 会读取 .zshrc，无需每次执行 export。参考 [Zsh 启动文件说明](https://zsh.sourceforge.io/Doc/Release/Files.html)。设置后重新打开一个 WSL 终端，用 `command -v devctl` 再核对一次。若此前误执行了 `bash scripts/setup-path.sh bash`，再执行上述 Zsh 命令即可，不需要删除已有 .bashrc。
+
+`~/.local/bin` 优先于 `~/.cargo/bin`，方便下节使用独立更新器；自定义 Cargo 安装目录需自行加入 PATH。Bash 用户可改用 `bash scripts/setup-path.sh bash` 和 `hash -r`，其启动文件规则见 [Bash 说明](https://www.gnu.org/software/bash/manual/html_node/Bash-Startup-Files.html)。非交互任务应显式设置 PATH 或使用绝对路径。
 
 这里持久化的是可执行文件搜索路径，不是项目业务变量或 Node 版本管理器的初始化；后两者仍按项目约定配置，并在新环境中重建 devctl 后台。
 

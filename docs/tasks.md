@@ -2,16 +2,17 @@
 
 这里只保留当前任务与必要交接；历史见 Git，协作规则见 [AGENTS.md](../AGENTS.md)。
 
-## 当前任务：WSL 试用待验收，公开发布已列入 MVP 后计划
+## 当前任务：修正 Zsh 安装指引，继续 WSL 试用
 
-- 本轮起点 8831bd5，工作区干净。用户确认公开发布与 devctl update 在 MVP 后实现；本轮仅更新计划，不实现新命令或配置发布流程。
-- 新增后续需求 X03，范围、前提与验收统一维护在 [requirements.md](requirements.md) §4.1；[roadmap.md](roadmap.md) §4 只记录阶段顺序与需求映射。X03 已确认后续实施，具体排期在 M1–M6 验收后确定，不属于待定是否实现的候选功能。
-- 当前主线仍为 M6、X01 及首版真实项目验收；X03 不阻塞 MVP，已有安装脚本也不代表 X03 已完成。
+- 本轮起点 07395c2，工作区干净。用户确认交互 shell 为 Zsh，原主示例的 bash 目标会写入错误的启动文件；关联 M6、X01，修正 [wsl.md](wsl.md) §2 为明确的 Zsh 命令。
+- 设置脚本仍由 Bash 解释，目标参数使用 zsh；从调用方显式传递 ZDOTDIR，使用 rehash 刷新当前终端缓存。保留错误写入 .bashrc 后的修正说明；已有脚本已支持 Zsh，本轮无需修改脚本或 Rust 源码。
+- 公开发布与 devctl update 的 X03 已确认在 MVP 后实施，范围见 [requirements.md](requirements.md) §4.1，阶段顺序见 [roadmap.md](roadmap.md) §4；当前主线仍为 WSL 真实项目验收。
 
 ## 本轮验证
 
-- 纯文档改动：Python 3 检查三份修改文档的本地链接与代码围栏，核对 X03 的范围、状态及阶段引用；git diff --check 通过，已审查差异。
-- 未改功能代码，未运行 Rust 或安装脚本测试；上一轮结果仅作为交接证据，不计为本轮验证。
+- python3 tests/support/install_scripts.py：10 项通过。新增实际 Zsh 5.9 检查文档命令可在当前终端生效，新交互/登录终端可加载配置；覆盖默认目录和未导出的自定义 ZDOTDIR，确认没有误写 .bashrc。全部使用临时 HOME，未修改真实用户环境。
+- Python 3 检查修改文档的本地链接和代码围栏；git diff --check 通过，已审查差异。仅修改文档与检查脚本，未运行 Rust 测试、fmt 或 clippy。
+- 上述为当前 Linux 宿主验证，目标 WSL 的真实启动文件、插件加载及新终端体验仍待用户核对。
 
 ## 必要交接与下一步
 
