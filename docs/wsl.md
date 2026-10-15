@@ -125,6 +125,23 @@ fi
 
 三个路径由用户确认；命令沿用此前确认的开发方式。当前会话宿主没有这三个目录，尚未检查其 package.json、依赖安装或运行结果。`autostart = true` 让 `a` / `start --all` 选择这些项目，进入 TUI 本身仍不启动服务。配置格式与路径解析的主要说明见 [DESIGN.md](../DESIGN.md) §2。
 
+### 只读检查启动脚本与工具链
+
+在目标 WSL 的普通 Zsh 终端执行以下命令，记录输出；可从任意目录运行。这些命令只读取版本、项目元数据和 devctl 配置，不安装依赖或启动项目。
+
+```sh
+node --version
+npm --version
+command -v node npm pnpm
+npm --prefix "$HOME/code/deepmdt-frontend-pc" pkg get scripts engines packageManager
+npm --prefix "$HOME/code/deepmdt-miniprogram-pro" pkg get scripts engines packageManager
+npm --prefix "$HOME/code/rtc-middleware/api-proxy" pkg get scripts engines packageManager
+devctl --config "$HOME/.config/devctl/devctl.toml" validate
+devctl --config "$HOME/.config/devctl/devctl.toml" plan
+```
+
+核对 web、中台的 dev 与小程序的 dev:weapp 脚本，并检查相关 pre/post 脚本、是否间接安装依赖、调用 pnpm 或要求交互输入；Node 版本与包管理器遵循各项目约定。未声明 engines 或 packageManager 不代表检查失败，缺少 pnpm 也只有在实际脚本需要它时才需处理。这一步不证明依赖已安装或项目可正常运行，后续仍需逐项启动验证。此前 pnpm 错误的排查见 §5。
+
 ## 4. 校验与进入
 
 ```sh
