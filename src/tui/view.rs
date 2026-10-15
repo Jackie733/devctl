@@ -289,7 +289,8 @@ pub fn render(frame: &mut Frame, app: &App) {
         .take(8)
         .collect();
     let mut header = vec![Line::from(format!(
-        "devctl | {connection} | workspace {identity}"
+        "devctl {} | {connection} | workspace {identity}",
+        env!("CARGO_PKG_VERSION")
     ))];
     if screen.header.height > 1 {
         header.push(Line::from(format!("{} | 1/0 panel", selected_summary(app))));
@@ -905,6 +906,11 @@ mod tests {
                 assert_eq!(log_height(area, &app), usize::from(screen.logs.height - 3));
                 assert!(log_height(area, &app) >= if width >= 80 && height >= 12 { 4 } else { 1 });
                 let text = draw(&app, width, height);
+                assert!(text.starts_with(concat!(
+                    "devctl ",
+                    env!("CARGO_PKG_VERSION"),
+                    " | Connected"
+                )));
                 assert!(text.contains("q leave") && text.contains("? help"));
                 assert!(text.contains(if focus == Focus::Projects {
                     "Projects · ACTIVE"

@@ -121,7 +121,7 @@
 宽屏示意（内容为虚构示例；实际列表沿用 Service ID 排序，界面标签先沿用现有英文）：
 
 ```text
-devctl | Connected | workspace 8f12ab34
+devctl 0.2.0 | Connected | workspace 8f12ab34
 ┌ [1] Projects · ACTIVE ───┐┌ [0] Logs · FAILED: web | #6 ─────────────────────┐
 │   middle   Stopped       ││ FAILED | Process ended; retained logs.           │
 │   weapp    Running       ││ [stdout #6 seq=148] Starting dev server          │
@@ -134,7 +134,7 @@ ERROR web: exit code 1 | cleanup confirmed
 s/x web  j/k select  Enter logs  a default  X stop ALL       ? help  q leave
 ```
 
-- 顶栏一行：连接状态与后台工作区身份。没有来源可靠的工作区名称时沿用短 ID，不把 ID 伪装成名称；初次连接中与连接失败分开表达。
+- 顶栏一行：devctl 客户端版本号（与 --version 一致）、连接状态与后台工作区身份。没有来源可靠的工作区名称时沿用短 ID，不把 ID 伪装成名称；初次连接中与连接失败分开表达。
 - 主体：左侧项目列表、选中项目简要诊断；右侧日志。宽屏项目栏约占 30%，限制在 24–32 列；其余给日志。不额外添加占用整行高度的重复选择摘要。
 - 项目列表每行显示 ID 与状态；选中项尽量完整，过长时截断，完整 ID 保留在帮助详情。固定保留状态列，状态包含 Stopped、Starting、Running、Stopping、Failed，断连时全部 Unknown。失败状态不依赖选中才能看到。
 - 日志上边框在项目 ID 前明确标出服务状态（STOPPED、STARTING、RUNNING、STOPPING、FAILED、UNKNOWN），随后显示后台已知实例号。正文顶部固定一行状态说明：停止后显示 `STOPPED | Retained logs`，明确旧的 ready/URL 输出属于保留日志；这行不随滚动或横移，不参与选中与复制。各状态都保留同一行高度，状态切换不会改变正文高度。
