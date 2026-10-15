@@ -257,12 +257,18 @@ def lifecycle():
         w.wait_starts('weapp', 1)
         assert w.starts('web') == first
         ui.choose('weapp')
+        ui.wait('weapp-line-')
         ui.send(b'x')
         w.states(weapp='Stopped', web='Running', middle='Running')
         ui.wait('weapp: stopped; cleanup confirmed.')
+        ui.wait('Logs · STOPPED: weapp')
+        ui.wait('STOPPED | Retained logs')
+        assert 'weapp-line-' in ui.screen.text(), 'Stopping cleared retained logs'
         ui.send(b's')
         w.states(weapp='Running')
         w.wait_starts('weapp', 2)
+        ui.wait('Logs · RUNNING: weapp')
+        ui.wait(lambda text: re.search(r'#[0-9]+ old seq=', text) is not None)
         assert len(w.starts('weapp')) == 2
         ui.choose('web')
         ui.pump(.5)
@@ -312,6 +318,7 @@ def reconnect():
         ui.wait('web-line-')
         w.cli('shutdown')
         ui.wait('state unknown')
+        ui.wait('Logs · UNKNOWN: web')
         ui.pump(.7)
         assert w.cli('status', success=False).returncode != 0, 'Refresh recreated a workspace'
         ui.send(b's')

@@ -189,8 +189,54 @@ pub fn layout(area: Rect, app: &App) -> ScreenLayout {
     }
 }
 
+fn log_areas(area: Rect) -> [Rect; 2] {
+    Layout::vertical([Constraint::Length(1), Constraint::Min(0)])
+        .areas(Block::bordered().inner(area))
+}
+
 pub fn log_height(area: Rect, app: &App) -> usize {
-    usize::from(layout(area, app).logs.height.saturating_sub(2)).max(1)
+    usize::from(log_areas(layout(area, app).logs)[1].height).max(1)
+}
+
+fn log_notice(app: &App) -> (&'static str, &'static str, Color) {
+    if !app.connected {
+        return (
+            "UNKNOWN",
+            "Current state unverified; r sync.",
+            Color::Yellow,
+        );
+    }
+    let Some(status) = app.selected.as_ref().and_then(|id| app.services.get(id)) else {
+        return ("NO PROJECT", "Choose a project.", Color::DarkGray);
+    };
+    match status.state {
+        ServiceState::Stopped => ("STOPPED", "Retained logs; process stopped.", Color::Yellow),
+        ServiceState::Starting => (
+            "STARTING",
+            "Waiting for process state; earlier logs may remain.",
+            Color::Yellow,
+        ),
+        ServiceState::Running => (
+            "RUNNING",
+            "Process alive; earlier runs are marked old.",
+            Color::Green,
+        ),
+        ServiceState::Stopping => (
+            "STOPPING",
+            "Cleanup in progress; logs may still arrive.",
+            Color::Yellow,
+        ),
+        ServiceState::Failed if !status.cleanup_confirmed => (
+            "FAILED",
+            "Cleanup UNCONFIRMED; check ? details.",
+            Color::LightRed,
+        ),
+        ServiceState::Failed => (
+            "FAILED",
+            "Process ended; retained logs. ? details.",
+            Color::LightRed,
+        ),
+    }
 }
 
 fn state(app: &App, id: &str) -> (&'static str, Color) {
@@ -354,7 +400,8 @@ fn projects_view(frame: &mut Frame, area: Rect, app: &App, show_details: bool) {
 }
 
 fn logs_view(frame: &mut Frame, area: Rect, app: &App) {
-    let height = usize::from(area.height.saturating_sub(2)).max(1);
+    let [notice_area, content] = log_areas(area);
+    let height = usize::from(content.height).max(1);
     let start = app.logs.start(height);
     let position = if let Some(selection) = app.logs.selection {
         let count = app
@@ -379,8 +426,17 @@ fn logs_view(frame: &mut Frame, area: Rect, app: &App) {
     } else {
         format!(" | col +{}", app.logs.horizontal)
     };
+    let (status, notice, color) = log_notice(app);
+    let instance = app
+        .selected
+        .as_ref()
+        .and_then(|id| app.services.get(id))
+        .and_then(|status| status.instance);
+    let instance_label = instance
+        .map(|instance| format!(" | #{instance}"))
+        .unwrap_or_default();
     let title = format!(
-        "[0] Logs{}: {} | {position}{offset}",
+        "[0] Logs{} · {status}: {}{instance_label}",
         if app.focus == Focus::Logs {
             " · ACTIVE"
         } else {
@@ -388,7 +444,15 @@ fn logs_view(frame: &mut Frame, area: Rect, app: &App) {
         },
         clean(app.selected.as_deref().unwrap_or("(none)")),
     );
-    let block = panel(title, app.focus == Focus::Logs);
+    let block = panel(title, app.focus == Focus::Logs).title_bottom(format!("{position}{offset}"));
+    frame.render_widget(block, area);
+    frame.render_widget(
+        Paragraph::new(Line::styled(
+            format!("{status} | {notice}"),
+            Style::default().fg(color).add_modifier(Modifier::BOLD),
+        )),
+        notice_area,
+    );
     if app.logs.records.is_empty() {
         let empty = if !app.connected {
             "Disconnected; state unknown. Reconnecting to the existing workspace.".into()
@@ -407,7 +471,7 @@ fn logs_view(frame: &mut Frame, area: Rect, app: &App) {
         } else {
             "No recent output; project is not running.".into()
         };
-        frame.render_widget(Paragraph::new(empty).block(block), area);
+        frame.render_widget(Paragraph::new(empty), content);
         return;
     }
     let lines: Vec<_> = app
@@ -436,6 +500,12 @@ fn logs_view(frame: &mut Frame, area: Rect, app: &App) {
             } else {
                 Style::default()
             };
+            let history =
+                if app.connected && instance.is_some_and(|current| record.instance < current) {
+                    " old"
+                } else {
+                    ""
+                };
             let pointer = if app.logs.selection.is_some() {
                 if head { "> " } else { "  " }
             } else {
@@ -444,7 +514,7 @@ fn logs_view(frame: &mut Frame, area: Rect, app: &App) {
             Line::from(vec![
                 Span::styled(
                     format!(
-                        "{pointer}[{source} #{} seq={}] ",
+                        "{pointer}[{source} #{}{history} seq={}] ",
                         record.instance, record.sequence
                     ),
                     if selected {
@@ -470,10 +540,8 @@ fn logs_view(frame: &mut Frame, area: Rect, app: &App) {
         })
         .collect();
     frame.render_widget(
-        Paragraph::new(lines)
-            .scroll((0, app.logs.horizontal))
-            .block(block),
-        area,
+        Paragraph::new(lines).scroll((0, app.logs.horizontal)),
+        content,
     );
 }
 
@@ -571,6 +639,8 @@ fn help_lines(app: &App) -> Vec<Line<'static>> {
         "Copy uses terminal clipboard (OSC 52); terminal support required.",
         "Clipboard delivery cannot be acknowledged; verify by pasting.",
         "Selected logs stay anchored; eviction cancels selection.",
+        "Log header/banner shows service state; FOLLOW/READ is only scrolling.",
+        "STOPPED/FAILED logs are retained history; old marks an earlier run.",
         "Running means process alive, not business readiness.",
         "Logs are bounded; gaps and losses are reported.",
         "",
@@ -650,6 +720,111 @@ mod tests {
     }
 
     #[test]
+    fn log_state_uses_status_instead_of_ready_text_and_survives_scrolling() {
+        let mut app = App::new();
+        app.apply_status(Response {
+            workspace_id: "one".into(),
+            services: [(
+                "web".into(),
+                ServiceStatus {
+                    instance: Some(5),
+                    ..ServiceStatus::default()
+                },
+            )]
+            .into(),
+            ..Response::default()
+        });
+        app.apply_logs(crate::logs::Batch {
+            records: [3, 5, 6]
+                .into_iter()
+                .enumerate()
+                .map(|(index, instance)| crate::logs::Record {
+                    sequence: index as u64 + 1,
+                    instance,
+                    source: Source::Stdout,
+                    text: "VITE ready at http://localhost:3050".into(),
+                    truncated: false,
+                })
+                .collect(),
+            ..crate::logs::Batch::default()
+        });
+        let stopped = draw(&app, 120, 30);
+        assert!(stopped.contains("Logs · STOPPED: web | #5"));
+        assert!(stopped.contains("STOPPED | Retained logs"));
+        assert!(stopped.contains("#3 old seq=1"));
+        assert!(!stopped.contains("#5 old") && !stopped.contains("#6 old"));
+        assert!(stopped.contains("VITE ready") && stopped.contains("FOLLOW"));
+        for (status, label, message) in [
+            (
+                ServiceState::Starting,
+                "STARTING",
+                "Waiting for process state",
+            ),
+            (ServiceState::Running, "RUNNING", "Process alive"),
+            (ServiceState::Stopping, "STOPPING", "Cleanup in progress"),
+            (ServiceState::Failed, "FAILED", "Process ended"),
+        ] {
+            app.services.get_mut("web").unwrap().state = status;
+            let text = draw(&app, 120, 30);
+            assert!(text.contains(&format!("Logs · {label}: web")) && text.contains(message));
+            assert!(text.contains("VITE ready"));
+        }
+        app.services.get_mut("web").unwrap().cleanup_confirmed = false;
+        assert!(draw(&app, 120, 30).contains("FAILED | Cleanup UNCONFIRMED"));
+        // The notice belongs to the view, not the selectable log records.
+        app.focus(Focus::Logs);
+        app.logs.begin_selection(20);
+        app.logs.move_selection(1, 20);
+        assert_eq!(
+            app.logs.selected_text().unwrap().0,
+            "VITE ready at http://localhost:3050\nVITE ready at http://localhost:3050\n"
+        );
+        app.logs.horizontal = 20;
+        assert!(draw(&app, 36, 10).contains("FAILED | Cleanup UNCONFIRMED"));
+        app.disconnect("lost".into());
+        assert!(draw(&app, 120, 30).contains("Logs · ACTIVE · UNKNOWN"));
+        assert!(!draw(&app, 120, 30).contains("Process ended"));
+    }
+
+    #[test]
+    fn notice_is_fixed_while_text_scrolls_and_does_not_use_log_rows() {
+        let mut app = App::new();
+        app.apply_status(Response {
+            workspace_id: "one".into(),
+            services: [("web".into(), ServiceStatus::default())].into(),
+            ..Response::default()
+        });
+        app.apply_logs(crate::logs::Batch {
+            records: (1..=100)
+                .map(|sequence| crate::logs::Record {
+                    sequence,
+                    instance: 1,
+                    source: Source::Stdout,
+                    text: format!("log {sequence}"),
+                    truncated: false,
+                })
+                .collect(),
+            ..crate::logs::Batch::default()
+        });
+        for (width, height) in [(120, 30), (80, 12), (36, 10)] {
+            app.focus(Focus::Logs);
+            let area = Rect::new(0, 0, width, height);
+            let page = log_height(area, &app);
+            let log_area = layout(area, &app).logs;
+            let [notice, content] = log_areas(log_area);
+            assert_eq!(usize::from(content.height), page);
+            assert_eq!(notice.height, 1);
+            app.logs.follow();
+            app.logs.scroll(-(page as isize), page);
+            let text = draw(&app, width, height);
+            assert!(text.contains("STOPPED | Retained logs"));
+            assert!(text.contains("READ"));
+            app.logs.begin_selection(page);
+            assert_eq!(app.logs.selected_text().unwrap().1, 1);
+        }
+    }
+
+    #[test]
     fn bottom_uses_two_rows_even_with_errors_and_selection_is_visible() {
         let mut app = App::new();
         app.apply_status(Response {
@@ -683,9 +858,9 @@ mod tests {
         terminal.draw(|frame| render(frame, &app)).unwrap();
         let log_area = layout(Rect::new(0, 0, 120, 30), &app).logs;
         let buffer = terminal.backend().buffer();
-        assert_eq!(buffer[(log_area.x + 1, log_area.y + 1)].bg, Color::DarkGray);
-        assert_eq!(buffer[(log_area.x + 1, log_area.y + 2)].bg, Color::Blue);
-        assert_ne!(buffer[(log_area.x + 1, log_area.y + 3)].bg, Color::Blue);
+        assert_eq!(buffer[(log_area.x + 1, log_area.y + 2)].bg, Color::DarkGray);
+        assert_eq!(buffer[(log_area.x + 1, log_area.y + 3)].bg, Color::Blue);
+        assert_ne!(buffer[(log_area.x + 1, log_area.y + 4)].bg, Color::Blue);
         let narrow = draw(&app, 36, 10);
         assert!(narrow.contains("V-LINE") && narrow.contains("y copy") && narrow.contains("Esc"));
     }
@@ -704,7 +879,7 @@ mod tests {
                 app.focus(focus);
                 let screen = layout(area, &app);
                 assert!(screen.usable);
-                assert_eq!(log_height(area, &app), usize::from(screen.logs.height - 2));
+                assert_eq!(log_height(area, &app), usize::from(screen.logs.height - 3));
                 assert!(log_height(area, &app) >= if width >= 80 && height >= 12 { 4 } else { 1 });
                 let text = draw(&app, width, height);
                 assert!(text.contains("q leave") && text.contains("? help"));
@@ -813,7 +988,7 @@ mod tests {
                 .iter()
                 .any(|line| line.to_string().contains("GAP"))
         );
-        assert_eq!(log_height(area, &app), 7);
+        assert_eq!(log_height(area, &app), 6);
         assert!(can_confirm(area, &app));
         assert!(!can_confirm(Rect::new(0, 0, 20, 6), &app));
     }
