@@ -55,7 +55,25 @@ export PATH="$HOME/.cargo/bin:$PATH"
 devctl --version
 ```
 
-需要长期保留时，将该 PATH 配置加入所用 shell 的启动文件。安装完成后直接使用 devctl，不再需要 cargo run。只需要构建文件时，可用 `cargo +stable build --release --locked`，产物为 `target/release/devctl`。
+需要长期保留时，按下节运行一次 PATH 设置脚本。安装完成后直接使用 devctl，不再需要 cargo run。只需要构建文件时，可用 `cargo +stable build --release --locked`，产物为 `target/release/devctl`。
+
+### 一次性持久化 PATH
+
+在目标 WSL 的源码目录执行 [PATH 设置脚本](../scripts/setup-path.sh)，无需 sudo。Bash 用户运行：
+
+```sh
+bash scripts/setup-path.sh bash
+export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
+hash -r
+command -v devctl
+devctl --version
+```
+
+Zsh 用户将第一行最后的 `bash` 改为 `zsh`；其余命令相同。脚本向 `~/.bashrc` 或 `${ZDOTDIR:-$HOME}/.zshrc` 追加 PATH，保留已有内容，相同配置不重复追加。第二行使当前终端立即生效；后续新开的交互终端读取启动文件，无需每次执行 export。`~/.local/bin` 优先于 `~/.cargo/bin`，方便下节使用独立更新器；自定义 Cargo 安装目录需自行加入 PATH。
+
+Bash 登录 shell 的加载规则不同；若自定义 `~/.bash_profile` / `~/.bash_login`，需确认实际加载的登录文件会读取 `~/.bashrc`。脚本不改登录文件；非交互任务也应显式设置 PATH 或使用绝对路径。参考 [Bash 启动文件说明](https://www.gnu.org/software/bash/manual/html_node/Bash-Startup-Files.html)。设置后重新打开一个 WSL 终端，用 `command -v devctl` 再核对一次。
+
+这里持久化的是可执行文件搜索路径，不是项目业务变量或 Node 版本管理器的初始化；后两者仍按项目约定配置，并在新环境中重建 devctl 后台。
 
 ## 3. 写入三个真实项目的配置
 
@@ -117,13 +135,68 @@ devctl tui
 
 ## 5. 更新与排查
 
-更新 devctl 二进制或变更配置/Node 环境前，先结束使用该配置的后台；新客户端不会替换仍在运行的旧后台或重新加载其配置和环境。
+更新 devctl 二进制或变更配置/Node 环境前，先结束使用该配置的后台；新客户端不会替换仍在运行的旧后台或重新加载其配置和环境。如果管理多个配置，需要逐一结束对应后台。shutdown 会停止该工作区的服务并丢弃后台内存日志，安排在方便重启的时候进行；`q` 和 `stop --all` 都不会结束后台。
 
 ```sh
 devctl --config "$HOME/.config/devctl/devctl.toml" shutdown
 ```
 
-更新源码后，在源码目录重新执行 `cargo +stable install --path . --locked`，再校验并进入 TUI。后台本就不存在时，shutdown 报无法连接；以当前状态为准，不据此创建后台。
+后台本就不存在时，shutdown 报无法连接；以当前状态为准，不据此创建后台。清理失败或状态不确定时先排查，不忽略错误继续更新。
+
+### 安装外部更新器
+
+按 §2 设置 PATH 后，在目标 WSL 的源码目录安装一次 [外部更新器](../scripts/devctl-update)：
+
+```sh
+install -m 755 scripts/devctl-update "$HOME/.local/bin/devctl-update"
+devctl-update --help
+```
+
+之后更新器可独立于源码运行。它支持本地 Linux 二进制或 HTTPS 下载地址，安装到 `~/.local/bin/devctl`；不会修改工作区配置，也不会自动停止后台或重启项目。它不支持压缩包、Windows exe 或需要登录认证的下载流程。
+
+### 准备二进制与校验值
+
+目前仓库没有自动发布流程，不能直接假设某个 Release 地址已存在。可先在与目标 WSL 架构、系统库兼容的 Linux 环境中构建：
+
+```sh
+cargo +stable build --release --locked
+sha256sum target/release/devctl
+```
+
+将 `target/release/devctl` 传到目标 WSL，例如保存为 `~/Downloads/devctl`，同时从构建方取得输出中的 64 位 SHA-256。WSL 收到预编译程序后无需 Rust 或 Cargo。目标架构可用 `uname -m` 核对；仅架构相同仍不足以保证系统库兼容，需要实际运行验证。后续发布系统提供二进制和校验值后，直接使用其 HTTPS 地址。
+
+SHA-256 用于核对文件是否符合预期；程序与预期校验值应来自可信的构建或发布来源。更新器会在执行候选程序前比较校验值。
+
+### 更新与回退
+
+确认上面的 shutdown 成功、旧 TUI 已退出后运行。将第二个参数替换为实际校验值，示例占位符不能直接使用：
+
+```sh
+devctl-update "$HOME/Downloads/devctl" '<64位SHA-256>'
+hash -r
+command -v devctl
+devctl --version
+devctl --config "$HOME/.config/devctl/devctl.toml" validate
+devctl --config "$HOME/.config/devctl/devctl.toml" tui
+```
+
+有正式下载地址后，第一行可改成 `devctl-update 'https://实际发布地址/devctl' '<64位SHA-256>'`。下载与重定向均限定 HTTPS。版本与架构由下载来源选择，更新器不自动猜测或追踪 latest；当前 `--version` 仍是 Cargo 包版本，具体构建可通过 SHA-256 区分。
+
+更新器在安装目录暂存文件，核对 SHA-256 并限时执行 `--version`，成功后才通过同一文件系统的 rename 替换程序。校验或下载失败时已安装程序保持原样；重复安装相同内容不会覆盖备份。同时运行两个更新器时第二个会失败。`--version` 检查不代替完整项目试用。
+
+每次替换前将原 `~/.local/bin/devctl` 保存为 `~/.local/bin/devctl.previous`。需要回退时，先结束当前版本启动的各后台，再执行：
+
+```sh
+devctl-update --rollback
+hash -r
+devctl --version
+devctl --config "$HOME/.config/devctl/devctl.toml" validate
+devctl --config "$HOME/.config/devctl/devctl.toml" tui
+```
+
+回退会交换当前版与上一版，仅保留一个备份。首次从 Cargo 迁移时，尚无 `devctl.previous`；原安装保留在 `~/.cargo/bin/devctl`，可通过该绝对路径使用。若安装目标或备份是符号链接，脚本拒绝覆盖，需先检查已有安装方式。
+
+继续使用源码安装也可以：在更新后的源码目录执行 `cargo +stable install --path . --locked`。若已安装 `~/.local/bin/devctl`，它会优先于 Cargo 版本；不要混用两套更新入口后仅凭版本字符串判断实际执行位置。
 
 ### 修改 web 命令后仍出现 pnpm 日志
 

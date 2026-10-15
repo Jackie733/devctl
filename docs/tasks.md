@@ -2,25 +2,26 @@
 
 这里只保留当前任务与必要交接；历史见 Git，协作规则见 [AGENTS.md](../AGENTS.md)。
 
-## 当前任务：日志面板区分停止状态与保留输出，待用户审核
+## 当前任务：WSL PATH 持久化与外部更新器，待目标环境试用
 
-- 起点 143dce2，工作区干净。用户截图显示左侧 Stopped，但右侧只有 FOLLOW 和旧 VITE ready/URL，难以判断停止状态；截图还包含 #3、#5 两轮输出。关联 M5、U01、P01、P02、P04、P05、L01。
-- 右侧上边框明确显示后台状态及实例号；正文顶部固定一行状态说明，停止后提示 STOPPED / Retained logs。FOLLOW、READ、V-LINE 和横移位置移到下边框，只表达视口/选择状态。底部仍固定两行。
-- 停止中、清理未确认、失败、断连各自明确表达，不用 ready/URL 判断状态。只给早于快照实例号的记录加 old 标记，不把先到的新轮日志误标旧轮。保留正文和正常对比度，方便诊断与复制。
-- 状态说明是视图元素，不进入日志缓存或复制正文；滚动与选择共用扣除该行后的真实内容区高度，状态变化不改变正文高度。未改后台协议、启停或日志保留机制。
-- 规则见 [interaction.md](interaction.md) §2.4–§2.5；机制见 [DESIGN.md](../DESIGN.md) §5.2。需求 L01 与 README 同步区分状态和保留输出。
+- 起点 054665a，工作区干净。用户要求具体实现 PATH 持久化与外部更新脚本；关联 M6、X01，沿用 W02 已有配置发现行为，不新增 Rust 子命令或自动发布配置。
+- [setup-path.sh](../scripts/setup-path.sh) 为目标 WSL 的 Bash / Zsh 追加一次 PATH，优先使用 ~/.local/bin，其次 ~/.cargo/bin；保留现有启动文件。脚本需由用户在 WSL 执行，本机会话未修改真实 shell 配置。
+- [devctl-update](../scripts/devctl-update) 支持本地 Linux 二进制或 HTTPS URL + 明确的 SHA-256。暂存、核对后限时检查 --version，通过后同文件系统替换，保留一个 previous 文件并支持 --rollback；重复安装相同内容不覆盖备份，拒绝并发更新和覆盖自定义符号链接。
+- 更新器不修改工作区配置、不自动结束后台或重启项目。用户需在切换或回退前逐一结束相关后台并退出旧 TUI；具体安装、准备二进制、切换与回退步骤统一维护在 [wsl.md](wsl.md) §2、§5。
+- 当前没有正式发布附件或自动构建流程，需要先从可信构建方取得与目标架构、系统库兼容的二进制及校验值。更新器本身不消除发布方的编译工作；目标 WSL 可直接安装预编译文件。
 
 ## 本轮验证
 
-- cargo test --locked --offline --bin devctl tui::：33 项通过，含新增的状态/ready 文本隔离、早晚实例区分、清理未知/断连、固定说明与真实视口、复制隔离场景。
-- cargo test --locked --offline --test tui_cli（沙箱外）：7 项通过；在既有生命周期和重连场景中核对停止后保留输出、重启后 old 标记、断连 UNKNOWN，同时复用导航、选行/复制、终端恢复和高输出验收。
-- cargo fmt --check、cargo clippy --locked --offline --all-targets -- -D warnings 均通过；Python 3 检查 5 份 Markdown 的 32 个本地链接、代码围栏及 PTY 脚本语法通过，git diff --check 通过，已审查差异。
-- 临时受控服务输出模拟 VITE ready 后停止，在 80×16、36×10 检查 STOPPED 与保留正文同时可见，READ 独立在下边框。窄屏检查等待窗口完成重绘后再切换面板。状态说明不随横移/选择进入复制正文；用户真实项目的体验仍待审核。
-- 上一轮完整回归为 143dce2 的 178 项通过，本轮仅改视图和对应受控断言，按影响验证 TUI；不把历史全量结果当作本轮已重跑。
+- python3 tests/support/install_scripts.py：9 项通过。临时 HOME 覆盖安装、连续更新、重复安装、回退、配置保留、错误校验值不执行候选程序、候选程序失败、无备份/无效参数/HTTP、并发互斥、自定义符号链接、模拟下载成功/失败及 Bash PATH 优先级、Zsh 自定义启动目录。
+- bash -n scripts/setup-path.sh scripts/devctl-update、cargo fmt --check、cargo clippy --locked --offline --all-targets -- -D warnings 均通过。未改 Rust 源码，未重跑全量 Rust 测试。
+- 使用现有 target/debug/devctl 在临时 HOME 安装，--version 和显式指定 examples/process.toml 的 validate 成功；未启动真实项目或停止现存后台。
+- 两份修改文档的 10 个本地链接与代码围栏检查通过，git diff --check 通过，已审查脚本、测试及文档差异。
+- HTTPS 路径使用受控 curl 替身验证调用参数与失败保留行为，未连接真实发布服务器；Zsh 启动文件写入已测，未实际启动 Zsh。目标 WSL 的新终端加载、架构/系统库兼容性和完整更新流程仍需用户试用。
 
 ## 必要交接与下一步
 
-- 用户在真实项目停止后，核对右侧状态说明与旧 ready 文本是否足够清楚；继续保留三项目 WSL2 M6 验收。
-- V → j/k → y 的系统剪贴板仍待目标终端粘贴核对；发送命令测试不能证明终端已接收。Linux 受控验证不代表 macOS 平台或其他终端已实测。
-- WSL 交接不变：web 为 npm run dev，旧后台沿用创建时配置，按 [wsl.md](wsl.md) 结束旧后台后重建。实例 #6 的 pnpm install / ERR_PNPM_IGNORED_BUILDS 尚无新运行证据；目标发行版、架构、实际脚本/依赖和 stdin 需求仍待核实。
+- 同步本步脚本至 WSL，按 wsl.md 一次性设置 PATH 并安装更新器。没有自动推送，远程拉取不一定包含当前本地提交；先以实际同步文件为准。
+- 在方便重启时结束工作区，用可信预编译文件试用更新和回退，核对 command -v devctl 指向 ~/.local/bin/devctl，配置保持原样。首次从 Cargo 迁移没有 previous 备份，旧 Cargo 安装仍可通过其绝对路径使用。
+- 上一轮 054665a 已完成日志面板 STOPPED / Retained logs 与 old 标记实现及受控验证；真实项目停止后的状态辨识、V → j/k → y 的目标终端粘贴体验仍待用户审核，继续保留三个真实项目的 WSL2 M6 验收。
+- web 为 npm run dev；旧后台沿用创建时配置与环境。实例 #6 的 pnpm install / ERR_PNPM_IGNORED_BUILDS 尚无新运行证据，发行版、架构、实际脚本/依赖和 stdin 需求仍待核实。
 - 助手直接实现与验证，用户最后审核；仅提交本步，不自动推送，不提前实现其他候选功能。
