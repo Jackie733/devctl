@@ -18,6 +18,20 @@ use crate::{
     run_lock::RunLock,
 };
 
+#[derive(Debug)]
+pub enum ClientError {
+    Preparation(String),
+    Connection(String),
+}
+
+impl std::fmt::Display for ClientError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Preparation(message) | Self::Connection(message) => formatter.write_str(message),
+        }
+    }
+}
+
 enum ConnectError {
     Missing(String),
     Other(String),
@@ -130,16 +144,36 @@ async fn launch(config: &Path) -> Result<UnixStream, String> {
 }
 
 pub async fn execute(path: &Path, request: &Request, create: bool) -> Result<Response, String> {
-    let config = path
-        .canonicalize()
-        .map_err(|error| format!("Failed to resolve config path {}: {error}", path.display()))?;
+    let response = transact(path, request, create)
+        .await
+        .map_err(|error| error.to_string())?;
+    if let Some(error) = &response.error {
+        return Err(error.clone());
+    }
+    Ok(response)
+}
+
+/// Preserve server feedback and workspace identity for interactive clients.
+pub async fn transact(
+    path: &Path,
+    request: &Request,
+    create: bool,
+) -> Result<Response, ClientError> {
+    use ClientError::{Connection, Preparation};
+
+    let config = path.canonicalize().map_err(|error| {
+        Preparation(format!(
+            "Failed to resolve config path {}: {error}",
+            path.display()
+        ))
+    })?;
     let mut stream = match connect(&config).await {
         Ok(stream) => stream,
         Err(ConnectError::Missing(_)) if create => {
-            preflight(&config, request)?;
-            launch(&config).await?
+            preflight(&config, request).map_err(Preparation)?;
+            launch(&config).await.map_err(Connection)?
         }
-        Err(error) => return Err(error.message()),
+        Err(error) => return Err(Connection(error.message())),
     };
     let response: Response = timeout(Duration::from_secs(15), async {
         control::write_frame(&mut stream, request, control::MAX_REQUEST).await?;
@@ -147,13 +181,21 @@ pub async fn execute(path: &Path, request: &Request, create: bool) -> Result<Res
     })
     .await
     .map_err(|_| {
-        "Request timed out; completion is unknown. Query status before retrying.".to_owned()
+        Connection(
+            "Request timed out; completion is unknown. Query status before retrying.".to_owned(),
+        )
     })?
-    .map_err(|error| format!("Control connection failed; completion is unknown: {error}"))?;
-    if let Some(error) = &response.error {
-        return Err(error.clone());
+    .map_err(|error| {
+        Connection(format!(
+            "Control connection failed; completion is unknown: {error}"
+        ))
+    })?;
+    if response.workspace_id.is_empty() {
+        return Err(Connection(
+            "Control response is missing its workspace identity.".into(),
+        ));
     }
-    if matches!(request, Request::Shutdown {}) {
+    if response.error.is_none() && matches!(request, Request::Shutdown {}) {
         let deadline = Instant::now() + Duration::from_secs(5);
         loop {
             match RunLock::try_acquire(&config) {
@@ -165,15 +207,106 @@ pub async fn execute(path: &Path, request: &Request, create: bool) -> Result<Res
                     sleep(Duration::from_millis(20)).await;
                 }
                 Ok(None) => {
-                    return Err("Cleanup completed but workspace lock is still held.".into());
+                    return Err(Connection(
+                        "Cleanup completed but workspace lock is still held.".into(),
+                    ));
                 }
                 Err(error) => {
-                    return Err(format!(
+                    return Err(Connection(format!(
                         "Cleanup completed but workspace release is unconfirmed: {error}"
-                    ));
+                    )));
                 }
             }
         }
     }
     Ok(response)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::{
+        fs,
+        sync::atomic::{AtomicU64, Ordering},
+    };
+    use tokio::net::UnixListener;
+
+    static NEXT: AtomicU64 = AtomicU64::new(0);
+
+    struct Endpoint(PathBuf);
+    impl Endpoint {
+        fn new() -> (Self, PathBuf, UnixListener) {
+            let root = std::env::temp_dir().join(format!(
+                "devctl-client-{}-{}",
+                std::process::id(),
+                NEXT.fetch_add(1, Ordering::Relaxed)
+            ));
+            fs::create_dir(&root).unwrap();
+            let config = root.join("config.toml");
+            fs::write(&config, "Existing instances do not reload configuration.").unwrap();
+            let config = config.canonicalize().unwrap();
+            let socket = socket_path(&config);
+            fs::create_dir(socket.parent().unwrap()).unwrap();
+            let listener = UnixListener::bind(socket).unwrap();
+            (Self(root), config, listener)
+        }
+    }
+    impl Drop for Endpoint {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+
+    #[tokio::test]
+    async fn transaction_preserves_server_error_identity_and_cli_wrapper_preserves_error_text() {
+        let (_endpoint, config, listener) = Endpoint::new();
+        let identity = config.clone();
+        let server = tokio::spawn(async move {
+            for _ in 0..2 {
+                let (mut stream, _) = listener.accept().await.unwrap();
+                let mut header = [0; 9];
+                stream.read_exact(&mut header).await.unwrap();
+                assert_eq!(&header, control::CONTROL_HEADER);
+                crate::probe::write_identity(&mut stream, &identity)
+                    .await
+                    .unwrap();
+                let _: Request = control::read_frame(&mut stream, control::MAX_REQUEST)
+                    .await
+                    .unwrap();
+                let response = Response {
+                    workspace_id: "one".into(),
+                    ..Response::failed("Completion unknown; query status.")
+                };
+                control::write_frame(&mut stream, &response, control::MAX_RESPONSE)
+                    .await
+                    .unwrap();
+            }
+        });
+        let response = transact(&config, &Request::Status {}, false).await.unwrap();
+        assert_eq!(response.workspace_id, "one");
+        assert_eq!(
+            response.error.as_deref(),
+            Some("Completion unknown; query status.")
+        );
+        let error = execute(&config, &Request::Status {}, false)
+            .await
+            .unwrap_err();
+        assert_eq!(error, "Completion unknown; query status.");
+        server.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn preparation_failure_is_distinct_from_a_missing_existing_workspace() {
+        let (_endpoint, config, listener) = Endpoint::new();
+        drop(listener);
+        assert!(matches!(
+            transact(&config, &Request::Status {}, false).await,
+            Err(ClientError::Connection(_))
+        ));
+        fs::remove_file(&config).unwrap();
+        assert!(matches!(
+            transact(&config, &Request::Status {}, false).await,
+            Err(ClientError::Preparation(_))
+        ));
+    }
 }
