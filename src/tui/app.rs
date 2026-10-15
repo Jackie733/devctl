@@ -59,6 +59,18 @@ impl Operation {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct LineSelection {
+    pub anchor: u64,
+    pub head: u64,
+}
+
+impl LineSelection {
+    pub fn contains(self, sequence: u64) -> bool {
+        (self.anchor.min(self.head)..=self.anchor.max(self.head)).contains(&sequence)
+    }
+}
+
 #[derive(Default)]
 pub struct LogWindow {
     pub records: VecDeque<Record>,
@@ -71,6 +83,8 @@ pub struct LogWindow {
     pub gap: bool,
     pub local_evicted: u64,
     pub anchor_lost: bool,
+    pub selection: Option<LineSelection>,
+    pub selection_lost: bool,
 }
 
 impl LogWindow {
@@ -103,7 +117,90 @@ impl LogWindow {
             self.top = self.records.front().map(|record| record.sequence);
             self.anchor_lost = true;
         }
+        if self.selection.is_some_and(|selection| {
+            !self
+                .records
+                .iter()
+                .any(|record| record.sequence == selection.anchor)
+                || !self
+                    .records
+                    .iter()
+                    .any(|record| record.sequence == selection.head)
+        }) {
+            self.selection = None;
+            self.selection_lost = true;
+            changed = true;
+        }
         changed
+    }
+
+    pub fn begin_selection(&mut self, height: usize) -> bool {
+        let Some(record) = self.records.get(self.start(height)) else {
+            return false;
+        };
+        let sequence = record.sequence;
+        self.top = Some(sequence);
+        self.selection = Some(LineSelection {
+            anchor: sequence,
+            head: sequence,
+        });
+        self.selection_lost = false;
+        true
+    }
+
+    pub fn move_selection(&mut self, amount: isize, height: usize) {
+        let Some(selection) = self.selection.as_mut() else {
+            return;
+        };
+        let Some(current) = self
+            .records
+            .iter()
+            .position(|record| record.sequence == selection.head)
+        else {
+            return;
+        };
+        let next = current
+            .saturating_add_signed(amount)
+            .min(self.records.len().saturating_sub(1));
+        selection.head = self.records[next].sequence;
+        let start = self.start(height);
+        if next < start {
+            self.top = Some(self.records[next].sequence);
+        } else if next >= start.saturating_add(height) {
+            self.top = Some(self.records[next.saturating_sub(height.saturating_sub(1))].sequence);
+        }
+    }
+
+    pub fn selected_text(&self) -> Result<(String, usize), &'static str> {
+        let selection = self.selection.ok_or("No log lines selected.")?;
+        if !self
+            .records
+            .iter()
+            .any(|record| record.sequence == selection.anchor)
+            || !self
+                .records
+                .iter()
+                .any(|record| record.sequence == selection.head)
+        {
+            return Err("Selected logs were evicted; select again.");
+        }
+        let mut text = String::new();
+        let mut count = 0;
+        for record in self
+            .records
+            .iter()
+            .filter(|record| selection.contains(record.sequence))
+        {
+            let marker = if record.truncated { " [truncated]" } else { "" };
+            if text.len() + record.text.len() + marker.len() + 1 > 64 * 1024 {
+                return Err("Selection exceeds 64 KiB; select fewer log lines.");
+            }
+            text.push_str(&record.text);
+            text.push_str(marker);
+            text.push('\n');
+            count += 1;
+        }
+        Ok((text, count))
     }
 
     pub fn start(&self, height: usize) -> usize {
@@ -131,6 +228,7 @@ impl LogWindow {
     }
 
     pub fn follow(&mut self) {
+        self.selection = None;
         self.top = None;
         self.anchor_lost = false;
     }
@@ -182,6 +280,9 @@ impl App {
     pub fn focus(&mut self, focus: Focus) {
         self.focus = focus;
         self.goto_top = false;
+        if focus == Focus::Projects {
+            self.logs.selection = None;
+        }
     }
 
     fn reset_logs(&mut self) {
@@ -355,6 +456,76 @@ mod tests {
             gap: false,
             latest: 100_000,
         }
+    }
+
+    #[test]
+    fn line_selection_extends_both_ways_without_following_new_output() {
+        let mut logs = LogWindow::default();
+        let mut page = batch(1..=20, 1);
+        for record in &mut page.records {
+            record.text = record.sequence.to_string();
+        }
+        logs.append(page);
+        assert!(logs.begin_selection(5));
+        assert_eq!(logs.top, Some(16));
+        logs.move_selection(2, 5);
+        assert_eq!(logs.selected_text().unwrap(), ("16\n17\n18\n".into(), 3));
+        logs.append(batch(21..=25, 1));
+        assert_eq!(logs.top, Some(16));
+        assert_eq!(logs.selection.unwrap().head, 18);
+        logs.move_selection(-4, 5);
+        assert_eq!(logs.selection.unwrap().head, 14);
+        assert_eq!(logs.top, Some(14));
+        assert_eq!(logs.selected_text().unwrap(), ("14\n15\n16\n".into(), 3));
+        logs.move_selection(isize::MIN, 5);
+        assert_eq!(logs.selection.unwrap().head, 1);
+        logs.move_selection(isize::MAX, 5);
+        assert_eq!(logs.selection.unwrap().head, 25);
+        assert_eq!(logs.top, Some(21));
+    }
+
+    #[test]
+    fn copy_uses_full_cached_body_including_unicode_and_marks_truncation() {
+        let mut logs = LogWindow::default();
+        let mut page = batch(1..=3, 1);
+        page.records[0].text = "中文\tlog".into();
+        page.records[1].text = "second line".into();
+        page.records[1].truncated = true;
+        logs.append(page);
+        logs.horizontal = 100;
+        logs.begin_selection(5);
+        logs.move_selection(1, 5);
+        assert_eq!(
+            logs.selected_text().unwrap(),
+            ("中文\tlog\nsecond line [truncated]\n".into(), 2)
+        );
+        assert!(!logs.selected_text().unwrap().0.contains("seq="));
+    }
+
+    #[test]
+    fn evicted_selection_is_canceled_and_oversize_copy_is_rejected() {
+        let mut logs = LogWindow::default();
+        assert!(!logs.begin_selection(5));
+        assert!(logs.selected_text().is_err());
+        logs.append(batch(1..=5, 1));
+        logs.begin_selection(5);
+        logs.append(batch(6..=4100, 1));
+        assert!(logs.selection.is_none() && logs.selection_lost);
+        assert!(logs.selected_text().is_err());
+        logs.begin_selection(5);
+        assert!(!logs.selection_lost);
+        let mut logs = LogWindow::default();
+        logs.append(batch(1..=5, 16 * 1024));
+        logs.begin_selection(5);
+        logs.move_selection(isize::MAX, 5);
+        assert!(logs.selected_text().unwrap_err().contains("64 KiB"));
+        assert!(logs.selection.is_some());
+        let mut logs = LogWindow::default();
+        logs.append(batch(1..=4, 16 * 1024 - 1));
+        logs.begin_selection(4);
+        logs.move_selection(isize::MAX, 4);
+        let (text, count) = logs.selected_text().unwrap();
+        assert_eq!((text.len(), count), (64 * 1024, 4));
     }
 
     #[test]

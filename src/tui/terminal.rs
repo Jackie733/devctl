@@ -1,6 +1,7 @@
-use std::io::{self, IsTerminal, stdout};
+use std::io::{self, IsTerminal, Write, stdout};
 
 use crossterm::{
+    clipboard::CopyToClipboard,
     cursor::{Hide, Show},
     execute,
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
@@ -82,5 +83,38 @@ impl TerminalGuard {
 impl Drop for TerminalGuard {
     fn drop(&mut self) {
         let _ = self.restore();
+    }
+}
+
+// OSC 52 targets the terminal host clipboard, including a local host over SSH.
+// A successful write only confirms delivery to the terminal, not clipboard acceptance.
+pub fn copy_logs(writer: &mut impl Write, text: &str) -> io::Result<()> {
+    execute!(writer, CopyToClipboard::to_clipboard_from(text))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn copying_encodes_text_as_a_clipboard_command_and_reports_write_failure() {
+        let mut output = Vec::new();
+        copy_logs(&mut output, "hello\n").unwrap();
+        assert_eq!(output, b"\x1b]52;c;aGVsbG8K\x1b\\");
+        struct Broken;
+        impl Write for Broken {
+            fn write(&mut self, _: &[u8]) -> io::Result<usize> {
+                Err(io::Error::other("closed terminal"))
+            }
+            fn flush(&mut self) -> io::Result<()> {
+                Ok(())
+            }
+        }
+        assert!(
+            copy_logs(&mut Broken, "hello")
+                .unwrap_err()
+                .to_string()
+                .contains("closed terminal")
+        );
     }
 }

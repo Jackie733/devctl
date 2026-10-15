@@ -1,5 +1,6 @@
 """Black-box TUI checks. Only Python's standard library and a real PTY are used."""
 import codecs
+import base64
 import fcntl
 import json
 import os
@@ -24,6 +25,8 @@ class Screen:
         self.resize(width, height)
         self.decoder = codecs.getincrementaldecoder('utf-8')('replace')
         self.pending = ''
+        self.clipboard = None
+        self.clipboard_requests = 0
 
     def resize(self, width, height):
         self.width, self.height = width, height
@@ -33,6 +36,15 @@ class Screen:
     def feed(self, data):
         self.pending += self.decoder.decode(data)
         while self.pending:
+            if self.pending.startswith('\x1b]'):
+                match = re.match(r'\x1b\]52;c;([A-Za-z0-9+/=]*)(?:\x07|\x1b\\)', self.pending)
+                if not match:
+                    assert len(self.pending) < 100000, 'Clipboard command exceeded its budget'
+                    return
+                self.clipboard = base64.b64decode(match.group(1), validate=True).decode('utf-8')
+                self.clipboard_requests += 1
+                self.pending = self.pending[match.end():]
+                continue
             if self.pending.startswith('\x1b['):
                 match = re.match(r'\x1b\[([0-9;?]*)([ -/]*)([@-~])', self.pending)
                 if not match:
@@ -428,6 +440,51 @@ def navigation():
     finally: w.close()
 
 
+def copying():
+    probe = Screen()
+    # PTY reads may split a clipboard command at any byte, including its prefix.
+    for byte in b'\x1b]52;c;aGVsbG8K\x1b\\':
+        probe.feed(bytes([byte]))
+    assert probe.clipboard == 'hello\n' and probe.clipboard_requests == 1
+    w = Workspace()
+    try:
+        ui = Tui(w)
+        ui.choose('web')
+        ui.send(b's')
+        w.states(web='Running', weapp='Stopped', middle='Stopped')
+        ui.wait('web-line-')
+        ui.pump(.6)
+        ui.send(b'0V')
+        ui.wait('V-LINE')
+        bodies = re.findall(r'\[(?:stdout|stderr) #\d+ seq=\d+\] ([^│\n]*)', ui.screen.text())
+        assert len(bodies) >= 2
+        expected = '\n'.join(body.rstrip() for body in bodies[:2]) + '\n'
+        ui.send(b'jsxaXQy')
+        ui.wait(lambda _: ui.screen.clipboard_requests == 1)
+        assert ui.screen.clipboard == expected, (repr(ui.screen.clipboard), repr(expected))
+        assert 'seq=' not in ui.screen.clipboard
+        ui.wait('Sent 2 lines to terminal clipboard')
+        w.states(web='Running', weapp='Stopped', middle='Stopped')
+        ui.send(b'y')
+        ui.pump(.1)
+        assert ui.screen.clipboard_requests == 1, 'Normal mode y copied without a selection'
+        ui.send(b'V?jy')
+        ui.wait('Help |')
+        ui.pump(.1)
+        assert ui.screen.clipboard_requests == 1, 'Help leaked copy key'
+        ui.send(b'\x1b')
+        ui.wait('V-LINE')
+        ui.resize(36, 10)
+        ui.wait('y copy')
+        ui.send(b'\x1b')
+        ui.wait(lambda text: 'V-LINE' not in text and 'Logs · ACTIVE' in text)
+        ui.send(b'V')
+        ui.wait('V-LINE')
+        ui.exit()
+        w.states(web='Running')
+    finally: w.close()
+
+
 def config_discovery():
     w = Workspace()
     try:
@@ -460,5 +517,5 @@ def config_discovery():
 
 
 {'lifecycle': lifecycle, 'reconnect': reconnect, 'slow': slow_stop_and_failure, 'high': high_output,
- 'discovery': config_discovery, 'navigation': navigation}[sys.argv[2]]()
+ 'discovery': config_discovery, 'navigation': navigation, 'copying': copying}[sys.argv[2]]()
 print('PASS:', sys.argv[2])

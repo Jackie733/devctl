@@ -86,6 +86,7 @@ enum Action {
     Selection,
     Reconnect,
     Control(Operation),
+    Copy,
     Quit,
 }
 
@@ -168,6 +169,42 @@ fn handle_key(app: &mut App, key: KeyEvent, area: ratatui::layout::Rect) -> Acti
         return Action::Redraw;
     }
     let height = view::log_height(area, app);
+    if app.logs.selection.is_some() {
+        match key.code {
+            KeyCode::Esc | KeyCode::Char('V') => app.logs.selection = None,
+            KeyCode::Char('y') => return Action::Copy,
+            KeyCode::Char('?') => {
+                app.help = true;
+                app.help_scroll = 0;
+            }
+            KeyCode::Char('g') if top => app.logs.move_selection(isize::MIN, height),
+            KeyCode::Char('G') => app.logs.move_selection(isize::MAX, height),
+            KeyCode::Char('j') | KeyCode::Down => app.logs.move_selection(1, height),
+            KeyCode::Char('k') | KeyCode::Up => app.logs.move_selection(-1, height),
+            KeyCode::Char('u') if half_page => app
+                .logs
+                .move_selection(-((height / 2).max(1) as isize), height),
+            KeyCode::Char('d') if half_page => app
+                .logs
+                .move_selection((height / 2).max(1) as isize, height),
+            KeyCode::Home => app.logs.move_selection(isize::MIN, height),
+            KeyCode::End => app.logs.move_selection(isize::MAX, height),
+            KeyCode::PageUp => app
+                .logs
+                .move_selection(-(height.saturating_sub(1).max(1) as isize), height),
+            KeyCode::PageDown => app
+                .logs
+                .move_selection(height.saturating_sub(1).max(1) as isize, height),
+            KeyCode::Left | KeyCode::Char('H') => {
+                app.logs.horizontal = app.logs.horizontal.saturating_sub(8)
+            }
+            KeyCode::Right | KeyCode::Char('L') => {
+                app.logs.horizontal = app.logs.horizontal.saturating_add(8)
+            }
+            _ => {}
+        }
+        return Action::Redraw;
+    }
     if half_page {
         let direction = if key.code == KeyCode::Char('u') {
             -1
@@ -221,6 +258,11 @@ fn handle_key(app: &mut App, key: KeyEvent, area: ratatui::layout::Rect) -> Acti
         }
         KeyCode::Right | KeyCode::Char('L') => {
             app.logs.horizontal = app.logs.horizontal.saturating_add(8)
+        }
+        KeyCode::Char('V') if app.focus == Focus::Logs => {
+            if !app.logs.begin_selection(height) {
+                app.feedback = "No cached output to select.".into();
+            }
         }
         KeyCode::Char('r') => return Action::Reconnect,
         KeyCode::Char('?') => {
@@ -310,6 +352,19 @@ pub async fn run(path: &Path) -> Result<(), String> {
                                     status_due = true;
                                     dirty = true;
                                 }
+                                Action::Copy => {
+                                    match app.logs.selected_text() {
+                                        Ok((text, count)) => match terminal::copy_logs(&mut stdout(), &text) {
+                                            Ok(()) => {
+                                                app.logs.selection = None;
+                                                app.feedback = format!("Sent {count} lines to terminal clipboard; verify paste.");
+                                            }
+                                            Err(error) => app.feedback = format!("Clipboard write failed: {error}; selection retained."),
+                                        },
+                                        Err(error) => app.feedback = error.into(),
+                                    }
+                                    dirty = true;
+                                }
                                 Action::Control(operation) => {
                                     if app.begin(operation.clone()) {
                                         requests.spawn(&path, Context::Control { operation: operation.clone(), workspace: app.workspace_id.clone().expect("Connected workspace has an identity.") }, operation.request(), false);
@@ -318,7 +373,12 @@ pub async fn run(path: &Path) -> Result<(), String> {
                                 }
                             }
                         }
-                        Event::Resize(_, _) => dirty = true,
+                        Event::Resize(width, height) => {
+                            let area = ratatui::layout::Rect::new(0, 0, width, height);
+                            let height = view::log_height(area, &app);
+                            app.logs.move_selection(0, height);
+                            dirty = true;
+                        },
                         _ => {}
                     }
                 }
@@ -632,6 +692,45 @@ mod tests {
         assert!(!matches!(
             handle_key(&mut empty, key(KeyCode::Char('s')), area()),
             Action::Control(_)
+        ));
+    }
+
+    #[test]
+    fn visual_line_mode_is_modal_and_escape_stays_in_logs() {
+        let mut app = connected();
+        app.focus(Focus::Logs);
+        handle_key(&mut app, key(KeyCode::Char('V')), area());
+        let anchor = app.logs.selection.unwrap().anchor;
+        handle_key(&mut app, key(KeyCode::Char('j')), area());
+        assert_eq!(app.logs.selection.unwrap().head, anchor + 1);
+        for code in ['s', 'x', 'a', 'X', 'Q', 'r', 'h', '1'] {
+            assert!(matches!(
+                handle_key(&mut app, key(KeyCode::Char(code)), area()),
+                Action::Redraw
+            ));
+        }
+        assert_eq!(app.focus, Focus::Logs);
+        assert!(!app.confirm_shutdown);
+        assert!(matches!(
+            handle_key(&mut app, key(KeyCode::Char('y')), area()),
+            Action::Copy
+        ));
+        handle_key(&mut app, key(KeyCode::Char('?')), area());
+        assert!(matches!(
+            handle_key(&mut app, key(KeyCode::Char('y')), area()),
+            Action::Redraw
+        ));
+        handle_key(&mut app, key(KeyCode::Esc), area());
+        assert!(app.logs.selection.is_some());
+        handle_key(&mut app, key(KeyCode::Esc), area());
+        assert!(app.logs.selection.is_none());
+        assert_eq!(app.focus, Focus::Logs);
+        assert!(app.logs.top.is_some());
+        handle_key(&mut app, key(KeyCode::Esc), area());
+        assert_eq!(app.focus, Focus::Projects);
+        assert!(!matches!(
+            handle_key(&mut app, key(KeyCode::Char('y')), area()),
+            Action::Copy
         ));
     }
 

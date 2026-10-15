@@ -75,7 +75,6 @@ fn diagnostics(app: &App) -> Vec<Line<'static>> {
             Style::default().fg(Color::LightRed),
         ));
     }
-    lines.push(Line::from(clean(&app.feedback)));
     let mut warnings = Vec::new();
     if app.logs.dropped > 0 {
         warnings.push(format!("backend lost/evicted={}", app.logs.dropped));
@@ -89,6 +88,9 @@ fn diagnostics(app: &App) -> Vec<Line<'static>> {
     if app.logs.incomplete {
         warnings.push("CAPTURE INCOMPLETE".into());
     }
+    if app.logs.selection_lost {
+        warnings.push("SELECTION EVICTED: select again".into());
+    }
     if app.logs.anchor_lost {
         warnings.push("READ POSITION EVICTED".into());
     }
@@ -101,7 +103,59 @@ fn diagnostics(app: &App) -> Vec<Line<'static>> {
             Style::default().fg(Color::Yellow),
         ));
     }
+    lines.push(Line::from(clean(&app.feedback)));
     lines
+}
+
+fn status_line(app: &App) -> Line<'static> {
+    let mut flags = Vec::new();
+    let selected = app.selected.as_ref().and_then(|id| app.services.get(id));
+    let cleanup_unknown = selected
+        .is_some_and(|status| status.state == ServiceState::Failed && !status.cleanup_confirmed);
+    if !app.connected && (app.workspace_id.is_some() || app.connection_error.is_some()) {
+        flags.push("Disconnected / state unknown");
+    }
+    if cleanup_unknown {
+        flags.push("Cleanup UNCONFIRMED");
+    }
+    if app.logs.selection_lost {
+        flags.push("SELECTION EVICTED");
+    }
+    if app.logs.gap {
+        flags.push("GAP");
+    }
+    if app.logs.incomplete {
+        flags.push("CAPTURE INCOMPLETE");
+    }
+    if app.logs.anchor_lost {
+        flags.push("READ POSITION EVICTED");
+    }
+    if app.logs.dropped > 0 || app.logs.local_evicted > 0 {
+        flags.push("LOG LOSS");
+    }
+    if app.logs_error.is_some() {
+        flags.push("LOG READ FAILED");
+    }
+    if app.connected && selected.is_some_and(|status| status.state == ServiceState::Failed) {
+        flags.push("PROJECT FAILED");
+    }
+    let style = if cleanup_unknown || !app.connected && app.connection_error.is_some() {
+        Style::default().fg(Color::LightRed)
+    } else if !flags.is_empty() {
+        Style::default().fg(Color::Yellow)
+    } else {
+        Style::default()
+    };
+    let mut text = flags.join(" | ");
+    if !text.is_empty() {
+        text.push_str(" | ");
+    }
+    if let Some(error) = selected.and_then(|status| status.error.as_deref()) {
+        text.push_str(&clean(error));
+        text.push_str(" | ");
+    }
+    text.push_str(&clean(&app.feedback));
+    Line::styled(text, style)
 }
 
 pub fn layout(area: Rect, app: &App) -> ScreenLayout {
@@ -109,8 +163,8 @@ pub fn layout(area: Rect, app: &App) -> ScreenLayout {
     let [header, body, details, footer] = Layout::vertical([
         Constraint::Length(if wide { 1 } else { 2 }),
         Constraint::Min(0),
-        Constraint::Length(diagnostics(app).len() as u16),
-        Constraint::Length(2),
+        Constraint::Length(1),
+        Constraint::Length(1),
     ])
     .areas(area);
     let (projects, logs) = if wide {
@@ -201,31 +255,30 @@ pub fn render(frame: &mut Frame, app: &App) {
     if screen.wide || app.focus == Focus::Logs {
         logs_view(frame, screen.logs, app);
     }
-    frame.render_widget(Paragraph::new(diagnostics(app)), screen.details);
-    let id = clean(app.selected.as_deref().unwrap_or("(none)"));
+    // Full diagnostics stay in Help; the main view reserves exactly two bottom rows.
+    frame.render_widget(Paragraph::new(status_line(app)), screen.details);
     let context = if app.goto_top {
-        "g ... | g: top | Esc: cancel".into()
-    } else if app.focus == Focus::Projects && area.width < 80 {
-        format!("s/x {id} | j/k select | Enter logs")
+        "g ... | g top | Esc cancel".into()
+    } else if app.logs.selection.is_some() && area.width < 60 {
+        "V j/k y copy Esc".into()
+    } else if app.logs.selection.is_some() {
+        "V-LINE | j/k extend | y copy | Esc cancel".into()
     } else if app.focus == Focus::Projects {
-        format!("j/k select | Enter logs | s start {id} | x stop {id} | Tab panel")
-    } else if area.width >= 80 {
-        "j/k scroll | gg oldest | G follow | Ctrl-u/d half page | H/L pan | Esc projects".into()
+        let id = clean(app.selected.as_deref().unwrap_or("(none)"));
+        if area.width < 60 {
+            format!("s/x {id} j/k Enter")
+        } else {
+            format!("s/x {id} | j/k select | Enter logs | a default | X stop ALL | Q end")
+        }
+    } else if area.width < 60 {
+        "j/k V G Esc".into()
     } else {
-        "j/k scroll | G follow | Esc projects".into()
+        "j/k scroll | V select | G follow | Esc projects".into()
     };
-    // Put escape and help first so they survive even the smallest usable width.
-    let global = if area.width >= 100 {
-        "q leave (keep running) | ? help | a start default | X stop ALL | Q end | r sync"
-    } else if area.width >= 60 {
-        "q leave | ? help | a default | X stop ALL | Q end | r sync"
-    } else {
-        "q leave | ? help | Q end | a default"
-    };
-    frame.render_widget(
-        Paragraph::new(vec![Line::from(context), Line::from(global)]),
-        screen.footer,
-    );
+    let [context_area, global] =
+        Layout::horizontal([Constraint::Min(0), Constraint::Length(17)]).areas(screen.footer);
+    frame.render_widget(Paragraph::new(context), context_area);
+    frame.render_widget(Paragraph::new("? help | q leave"), global);
     overlay(frame, app);
 }
 
@@ -303,7 +356,15 @@ fn projects_view(frame: &mut Frame, area: Rect, app: &App, show_details: bool) {
 fn logs_view(frame: &mut Frame, area: Rect, app: &App) {
     let height = usize::from(area.height.saturating_sub(2)).max(1);
     let start = app.logs.start(height);
-    let position = if app.logs.top.is_none() {
+    let position = if let Some(selection) = app.logs.selection {
+        let count = app
+            .logs
+            .records
+            .iter()
+            .filter(|record| selection.contains(record.sequence))
+            .count();
+        format!("V-LINE {count} selected")
+    } else if app.logs.top.is_none() {
         "FOLLOW".into()
     } else {
         format!(
@@ -360,17 +421,52 @@ fn logs_view(frame: &mut Frame, area: Rect, app: &App) {
                 Source::Stdout => ("stdout", Color::Reset),
                 Source::Stderr => ("stderr", Color::LightRed),
             };
+            let selected = app
+                .logs
+                .selection
+                .is_some_and(|selection| selection.contains(record.sequence));
+            let head = app
+                .logs
+                .selection
+                .is_some_and(|selection| selection.head == record.sequence);
+            let row_style = if selected {
+                Style::default()
+                    .bg(if head { Color::Blue } else { Color::DarkGray })
+                    .fg(Color::White)
+            } else {
+                Style::default()
+            };
+            let pointer = if app.logs.selection.is_some() {
+                if head { "> " } else { "  " }
+            } else {
+                ""
+            };
             Line::from(vec![
                 Span::styled(
-                    format!("[{source} #{} seq={}] ", record.instance, record.sequence),
-                    Style::default().fg(Color::DarkGray),
+                    format!(
+                        "{pointer}[{source} #{} seq={}] ",
+                        record.instance, record.sequence
+                    ),
+                    if selected {
+                        row_style
+                    } else {
+                        Style::default().fg(Color::DarkGray)
+                    },
                 ),
-                Span::styled(clean(&record.text), Style::default().fg(color)),
+                Span::styled(
+                    clean(&record.text),
+                    if selected {
+                        row_style
+                    } else {
+                        Style::default().fg(color)
+                    },
+                ),
                 Span::styled(
                     if record.truncated { " [truncated]" } else { "" },
                     Style::default().fg(Color::Yellow),
                 ),
             ])
+            .style(row_style)
         })
         .collect();
     frame.render_widget(
@@ -442,14 +538,23 @@ pub fn can_confirm(area: Rect, app: &App) -> bool {
 }
 
 fn help_lines(app: &App) -> Vec<Line<'static>> {
-    let context = match app.focus {
-        Focus::Projects => "j/k or Up/Down: select | gg/G: first/last | Enter: logs",
-        Focus::Logs => "j/k or Up/Down: scroll | gg: oldest | G: follow | Esc: projects",
+    let context = if app.logs.selection.is_some() {
+        "V-LINE: j/k extend | y copy | Esc cancel | gg/G first/last"
+    } else {
+        match app.focus {
+            Focus::Projects => "j/k or Up/Down: select | gg/G: first/last | Enter: logs",
+            Focus::Logs => "j/k or Up/Down: scroll | gg: oldest | G: follow | Esc: projects",
+        }
+    };
+    let panels = if app.logs.selection.is_some() {
+        "Cancel selection (Esc) before panel or service controls."
+    } else {
+        "h/l, Tab/Shift-Tab: focus panel | 1 Projects / 0 Logs"
     };
     let mut lines: Vec<Line<'static>> = vec![
         "CURRENT PANEL",
         context,
-        "h/l, Tab/Shift-Tab: focus panel | 1 Projects / 0 Logs",
+        panels,
         "",
         "SELECTED PROJECT",
         "s: start selected | x: stop selected",
@@ -461,6 +566,11 @@ fn help_lines(app: &App) -> Vec<Line<'static>> {
         "LOGS",
         "Ctrl-u/d: half page | PageUp/PageDown: page",
         "Home: oldest cached | End: follow | H/L or Left/Right: pan",
+        "V: select first visible log line; j/k: extend; gg/G: first/last",
+        "In V-LINE: y copies log text; Esc cancels and stays in logs.",
+        "Copy uses terminal clipboard (OSC 52); terminal support required.",
+        "Clipboard delivery cannot be acknowledged; verify by pasting.",
+        "Selected logs stay anchored; eviction cancels selection.",
         "Running means process alive, not business readiness.",
         "Logs are bounded; gaps and losses are reported.",
         "",
@@ -537,6 +647,47 @@ mod tests {
             .iter()
             .map(|cell| cell.symbol())
             .collect()
+    }
+
+    #[test]
+    fn bottom_uses_two_rows_even_with_errors_and_selection_is_visible() {
+        let mut app = App::new();
+        app.apply_status(Response {
+            workspace_id: "one".into(),
+            services: [("web".into(), ServiceStatus::default())].into(),
+            ..Response::default()
+        });
+        app.apply_logs(crate::logs::Batch {
+            records: (1..=3)
+                .map(|sequence| crate::logs::Record {
+                    sequence,
+                    instance: 1,
+                    source: Source::Stdout,
+                    text: format!("body {sequence}"),
+                    truncated: false,
+                })
+                .collect(),
+            gap: true,
+            ..crate::logs::Batch::default()
+        });
+        app.connection_error = Some("connection issue".into());
+        for (width, height) in [(120, 30), (80, 12), (36, 10)] {
+            let screen = layout(Rect::new(0, 0, width, height), &app);
+            assert_eq!(screen.details.height + screen.footer.height, 2);
+        }
+        app.connection_error = None;
+        app.focus(Focus::Logs);
+        app.logs.begin_selection(20);
+        app.logs.move_selection(1, 20);
+        let mut terminal = Terminal::new(TestBackend::new(120, 30)).unwrap();
+        terminal.draw(|frame| render(frame, &app)).unwrap();
+        let log_area = layout(Rect::new(0, 0, 120, 30), &app).logs;
+        let buffer = terminal.backend().buffer();
+        assert_eq!(buffer[(log_area.x + 1, log_area.y + 1)].bg, Color::DarkGray);
+        assert_eq!(buffer[(log_area.x + 1, log_area.y + 2)].bg, Color::Blue);
+        assert_ne!(buffer[(log_area.x + 1, log_area.y + 3)].bg, Color::Blue);
+        let narrow = draw(&app, 36, 10);
+        assert!(narrow.contains("V-LINE") && narrow.contains("y copy") && narrow.contains("Esc"));
     }
 
     #[test]
@@ -657,8 +808,12 @@ mod tests {
         app.logs.gap = true;
         let area = Rect::new(0, 0, 80, 12);
         assert!(draw(&app, 80, 12).contains("Cleanup UNCONFIRMED"));
-        assert!(draw(&app, 80, 12).contains("GAP"));
-        assert_eq!(log_height(area, &app), 4);
+        assert!(
+            diagnostics(&app)
+                .iter()
+                .any(|line| line.to_string().contains("GAP"))
+        );
+        assert_eq!(log_height(area, &app), 7);
         assert!(can_confirm(area, &app));
         assert!(!can_confirm(Rect::new(0, 0, 20, 6), &app));
     }

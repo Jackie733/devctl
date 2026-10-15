@@ -47,3 +47,8 @@ fn tui_discovers_both_home_configs_and_explicit_clients_attach_without_autostart
 fn vim_navigation_help_and_resizing_keep_control_scopes_and_background_lifetime() {
     scenario("navigation");
 }
+
+#[test]
+fn visual_line_copy_emits_exact_body_and_preserves_control_and_exit_scopes() {
+    scenario("copying");
+}
