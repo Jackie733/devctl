@@ -14,7 +14,7 @@ wsl -l -v
 
 源码建议放在 WSL 的 `~/code/devctl`，三个项目也使用已确认的 WSL 路径。微软建议使用 Linux 工具开发时将项目放在 WSL 文件系统中；参考 [WSL 文件系统说明](https://learn.microsoft.com/en-us/windows/wsl/filesystems) 与 [WSL 基本命令](https://learn.microsoft.com/en-us/windows/wsl/basic-commands)。
 
-确认源码包含 TUI 提交 `feaa688` 或其后续提交。本会话没有自动推送；仅克隆远程仓库不保证拿到本地尚未推送的代码。可将最新源码传到 WSL，或自行推送后在 WSL 获取，不需要复制 target 编译缓存。
+确认源码包含 TUI 与默认配置发现功能；新版本的 `devctl --help` 会列出默认配置查找路径。本会话没有自动推送；仅克隆远程仓库不保证拿到本地尚未推送的代码。可将最新源码传到 WSL，或自行推送后在 WSL 获取，不需要复制 target 编译缓存。
 
 本会话提供的源码归档带有提交号，解压后是 devctl 目录，不含 .git 或 target；使用归档时跳过下面的 git log。可以先解压到独立目录，避免覆盖已有源码，再将 devctl 目录放到 ~/code/devctl。
 
@@ -107,12 +107,12 @@ fi
 ## 4. 校验与进入
 
 ```sh
-devctl --config "$HOME/.config/devctl/devctl.toml" validate
-devctl --config "$HOME/.config/devctl/devctl.toml" plan
-devctl --config "$HOME/.config/devctl/devctl.toml" tui
+devctl validate
+devctl plan
+devctl tui
 ```
 
-这里的配置目录只是放置约定，程序不会自动搜索它；从任意目录操作时都传入同一个 `--config` 路径。validate 校验字段、路径与引用，不执行 npm/pnpm，也不保证开发命令或项目依赖可用。
+程序现在会自动发现配置，具体优先级见 [交互方案](interaction.md) §1。若当前目录或 ~/devctl.toml 存在更高优先级的配置，短命令会选中它；需要固定使用本节的工作区时，仍可运行 `devctl --config "$HOME/.config/devctl/devctl.toml" tui`。找不到配置会明确报错，不会生成空配置。validate 校验字段、路径与引用，不执行 npm/pnpm，也不保证开发命令或项目依赖可用。
 
 按 [交互方案](interaction.md) 验收：先只启动 web，再启动全部；检查日志、单项停止和重新启动；离开后重新连接；最后全部停止、结束工作区。客户端关闭后的保留行为也需在目标 WSL2 中实测。WSL 的 `wsl --shutdown` / `wsl --terminate` 会终止对应运行环境，后台运行不提供跨 WSL 关闭或 Windows 重启的恢复保证。
 

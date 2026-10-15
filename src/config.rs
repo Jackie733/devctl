@@ -38,6 +38,7 @@ pub struct Service {
     pub cmd: Vec<String>,
     pub cwd: Option<PathBuf>,
 
+    /// Included in the default start group; attaching a TUI does not start services.
     #[serde(default = "default_autostart")]
     pub autostart: bool,
 
@@ -47,6 +48,75 @@ pub struct Service {
 
 fn default_autostart() -> bool {
     true
+}
+
+/// Resolve once at the CLI boundary; the supervisor receives this path explicitly.
+pub fn resolve_path(explicit: Option<PathBuf>) -> Result<PathBuf, String> {
+    if let Some(path) = explicit {
+        return Ok(path);
+    }
+
+    let local = std::env::current_dir()
+        .map_err(|error| format!("Failed to determine current directory: {error}"))?
+        .join("devctl.toml");
+    if config_file_exists(&local)? {
+        return Ok(local);
+    }
+    let mut searched = vec![local];
+    let home = std::env::var_os("HOME").filter(|value| !value.is_empty());
+    if let Some(home) = home {
+        let home = PathBuf::from(home);
+        if !home.is_absolute() {
+            return Err(
+                "HOME must be an absolute path for config discovery; use --config PATH.".into(),
+            );
+        }
+        for path in [
+            home.join("devctl.toml"),
+            home.join(".config/devctl/devctl.toml"),
+        ] {
+            if config_file_exists(&path)? {
+                return Ok(path);
+            }
+            searched.push(path);
+        }
+    }
+
+    let paths = searched
+        .iter()
+        .map(|path| format!("  {}", path.display()))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let home_hint = if std::env::var_os("HOME").is_none_or(|value| value.is_empty()) {
+        "\nHOME is not set; home config locations could not be searched."
+    } else {
+        ""
+    };
+    Err(format!(
+        "No workspace configuration found. Searched:\n{paths}{home_hint}\nCreate a config file or pass --config PATH."
+    ))
+}
+
+fn config_file_exists(path: &Path) -> Result<bool, String> {
+    let metadata = match fs::symlink_metadata(path) {
+        Ok(metadata) if metadata.is_symlink() => fs::metadata(path)
+            .map_err(|error| format!("Failed to inspect config {}: {error}", path.display()))?,
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+        Err(error) => {
+            return Err(format!(
+                "Failed to inspect config {}: {error}",
+                path.display()
+            ));
+        }
+    };
+    if !metadata.is_file() {
+        return Err(format!(
+            "Config path is not a regular file: {}",
+            path.display()
+        ));
+    }
+    Ok(true)
 }
 
 #[derive(Debug, Clone, Deserialize)]

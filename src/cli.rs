@@ -5,14 +5,9 @@ use clap::{Parser, Subcommand};
 #[derive(Debug, Parser)]
 #[command(version, about = "Development workspace manager")]
 pub struct Cli {
-    /// Path to the workspace configuration.
-    #[arg(
-        long,
-        global = true,
-        default_value = "devctl.toml",
-        value_name = "PATH"
-    )]
-    pub config: PathBuf,
+    /// Config path; otherwise search ./devctl.toml, ~/devctl.toml, ~/.config/devctl/devctl.toml.
+    #[arg(long, global = true, value_name = "PATH")]
+    pub config: Option<PathBuf>,
 
     #[command(subcommand)]
     pub command: Option<Command>,

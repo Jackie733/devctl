@@ -33,19 +33,23 @@ async fn main() -> ExitCode {
 }
 
 async fn execute(cli: Cli) -> Result<(), String> {
-    match cli.command {
+    let command = match cli.command {
         None => {
             Cli::command()
                 .print_help()
                 .map_err(|error| format!("Failed to print help: {error}"))?;
             println!();
-            Ok(())
+            return Ok(());
         }
-        Some(Command::Tui) => tui::run(&cli.config).await,
-        Some(Command::Supervise { detached }) => supervisor::run(&cli.config, detached).await,
-        Some(Command::Start { services, all }) => {
+        Some(command) => command,
+    };
+    let config_path = config::resolve_path(cli.config)?;
+    match command {
+        Command::Tui => tui::run(&config_path).await,
+        Command::Supervise { detached } => supervisor::run(&config_path, detached).await,
+        Command::Start { services, all } => {
             client::execute(
-                &cli.config,
+                &config_path,
                 &control::Request::Start {
                     targets: services,
                     all,
@@ -56,9 +60,9 @@ async fn execute(cli: Cli) -> Result<(), String> {
             println!("Start request accepted; query status for process state.");
             Ok(())
         }
-        Some(Command::Stop { services, all }) => {
+        Command::Stop { services, all } => {
             client::execute(
-                &cli.config,
+                &config_path,
                 &control::Request::Stop {
                     targets: services,
                     all,
@@ -69,9 +73,9 @@ async fn execute(cli: Cli) -> Result<(), String> {
             println!("Selected services stopped.");
             Ok(())
         }
-        Some(Command::Status) => {
+        Command::Status => {
             let response =
-                client::execute(&cli.config, &control::Request::Status {}, false).await?;
+                client::execute(&config_path, &control::Request::Status {}, false).await?;
             for (id, status) in response.services {
                 println!("{id}: {:?}", status.state);
                 if let Some(error) = status.error {
@@ -80,13 +84,13 @@ async fn execute(cli: Cli) -> Result<(), String> {
             }
             Ok(())
         }
-        Some(Command::Logs {
+        Command::Logs {
             service,
             limit,
             after,
-        }) => {
+        } => {
             let response = client::execute(
-                &cli.config,
+                &config_path,
                 &control::Request::Logs {
                     service: service.clone(),
                     limit: usize::from(limit),
@@ -123,14 +127,14 @@ async fn execute(cli: Cli) -> Result<(), String> {
             }
             Ok(())
         }
-        Some(Command::Shutdown) => {
-            client::execute(&cli.config, &control::Request::Shutdown {}, false).await?;
+        Command::Shutdown => {
+            client::execute(&config_path, &control::Request::Shutdown {}, false).await?;
             println!("Workspace shut down.");
             Ok(())
         }
-        Some(Command::Validate) => print_validation(&cli.config),
-        Some(Command::Plan { targets }) => print_plan(&cli.config, &targets),
-        Some(Command::Run { services, all }) => run_services(&cli.config, &services, all).await,
+        Command::Validate => print_validation(&config_path),
+        Command::Plan { targets } => print_plan(&config_path, &targets),
+        Command::Run { services, all } => run_services(&config_path, &services, all).await,
     }
 }
 

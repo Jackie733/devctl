@@ -2,25 +2,21 @@
 
 这里只保留当前任务与必要交接；历史见 Git，协作规则见 [AGENTS.md](../AGENTS.md)。
 
-## 已完成：M5 首版 TUI 与受控验收
+## 当前任务：WSL 试用反馈，默认配置发现
 
-- 2026-10-15 用户明确授权助手接手部分誊写代码，直接完成全部首版 TUI、测试和逐步提交，不再等待誊写。本轮对应 [requirements.md](requirements.md) U01、P01、P07、P02、P05、L01、L03；阶段见 [roadmap.md](roadmap.md) M5，机制见 [DESIGN.md](../DESIGN.md) §5.1，操作规则集中在 [interaction.md](interaction.md)。
-- 提交 dc37559 完成终端基础和依赖；后续功能提交见 Git。本轮功能已写入主仓库，不再是临时教学代码。未跟踪的 Rust 书籍不在提交范围，不自动推送。
-- 已完成显式 tui 入口、空闲后台连接/创建、项目状态及失败原因、单项/全部启停、有界项目日志、纵向/横向滚动、帮助、窄窗口、手动/自动重连、结束工作区确认及终端恢复。进入不启动服务，离开保留服务，轮询不重建后台，不重放控制。
-- 保留已有 CLI 与后台架构；client 新增保留完整响应和工作区身份的事务接口，原 CLI 包装兼容。连接与操作反馈分开；后台身份变化清除旧日志和确认框，连接/选择代次拒绝过期结果，控制完成后的查询重新发起。
+- 用户报告 autostart=true 时进入 TUI 未启动，并要求省略 --config，支持 devctl validate / devctl tui。已解释并保留现有约定：autostart 是默认启动组合，进入/重连 TUI 不隐式启动；按 a 或 start --all 才启动该组合。
+- 本轮对应 [requirements.md](requirements.md) W02、W03、U01、R02。配置查找顺序和错误规则只在 [interaction.md](interaction.md) §1 主要维护；保留显式路径和当前目录优先，增加两个 HOME 配置位置，不合并配置、不修改用户配置。
+- 实现：CLI config 改为可选；main 在命令入口统一选择路径，之后沿用既有加载/规范化、锁和 IPC。后台启动器继续显式传入规范化路径，默认与显式路径可连接同一实例。无参数帮助、--help/--version 不要求配置；发现失败直接报错，不进入 TUI 或创建后台。
+- 已更新 README、WSL 安装指南、需求与设计；WSL 获取本次提交并重新 cargo install 后才能使用新查找行为。功能提交见 Git，不自动推送。
 
-## 验证证据
+## 本轮验证
 
-- 环境：当前 Linux、Rust 1.98.1、Python 3、sh；CARGO_HOME=/tmp/devctl-tui-step1-ta02nj4m/cargo-home 复用本会话可写临时缓存。Unix socket、进程信号与 PTY 测试在允许这些操作的宿主执行，未以沙箱信号超时宣称功能通过。
-- `cargo test --locked --offline`：**150 项通过**，包含原有后台/进程/日志回归、客户端响应与错误分类、UI 状态/日志预算/绘制，以及 4 组真实 PTY 场景。最后补充的“后台身份变化关闭旧确认框”改动，另以 `cargo test --locked --offline --bin devctl tui::` **14 项通过**验证。
-- `cargo clippy --locked --offline --all-targets -- -D warnings`、`cargo fmt --check` 通过；`cargo build --locked --offline`、`git diff --check` 与文档本地链接检查通过（5 份文档、23 个本地链接）。
-- PTY：进入不自动启动；单项/全部启动与停止、幂等及重新启动；stdout/stderr、日志来源/轮次、滚动锚点与跟随、窄/宽窗口、帮助与结束确认；q/Ctrl-C/外部信号及真正关闭控制终端后服务保留；重连原实例与重建实例、断线控制禁用且不重放、慢停止/失败隔离、高输出下选择与退出。状态使用 CLI 独立核对，重复创建使用子进程启动记录核对；Running 不当作测试程序已写入标记的证据。
-- 终端恢复 guard 沿用已审查实现，记录尝试过的初始化步骤，显式恢复、Drop 与 panic hook 兜底；正常退出和信号路径通过本轮真实 PTY 核对终端模式、光标和备用屏幕。初始化/恢复中途失败未注入真实终端故障；panic 和错误返回 Drop 的独立宿主夹具验证见 9403c2b。
+- `cargo test --locked --offline --test config_discovery_cli --test cli`：新增 8 项查找测试与原有 7 项 CLI 测试通过，覆盖两个 HOME 位置、优先级、显式错误不回退、目录/损坏符号链接、无配置反馈、HOME 缺失和帮助命令。
+- 宿主 `cargo test --locked --offline`：**159 项通过**。新增真实 PTY 场景覆盖从无关目录执行短命令 tui、两个 HOME 默认位置、与显式客户端连接同一实例、进入不自动启动。原有后台/日志/进程与 TUI 测试均通过。
+- 本轮 Cargo 命令使用 CARGO_HOME=/tmp/devctl-tui-step1-ta02nj4m/cargo-home；Unix socket、信号与 PTY 在允许这些操作的 Linux 宿主执行。`cargo fmt --check`、`cargo clippy --locked --offline --all-targets -- -D warnings`、`cargo build --release --locked --offline`、`git diff --check` 均通过；6 份文档的 32 个本地链接与 WSL 指南 sh 命令块语法检查通过。
 
-## 下一步：M6 三个真实项目试用
+## 必要交接与下一步
 
-- 首版代码与受控流程已完成，尚未把测试通过视作用户已验收产品。2026-10-15 用户确认目标为 Windows WSL2，目录依次为 ~/code/deepmdt-frontend-pc、~/code/deepmdt-miniprogram-pro、~/code/rtc-middleware/api-proxy。发行版、CPU 架构、实际 package.json/依赖及 stdin 交互需求待目标环境核实；按需求 §3 完成真实项目流程。
-- 已准备 [WSL2 安装指南](wsl.md)：在 WSL 本机 release 编译安装，按已确认路径生成三个项目配置，显式传 --config 校验、进入及更新。配置创建命令保留已有文件；不修改用户远端配置，不自动推送或发布远程 Release。
-- 本轮本机验证：`cargo build --release --locked --offline` 通过；`cargo install --path . --locked --offline --root /tmp/devctl-wsl-install-check` 通过（两者使用此前的临时 CARGO_HOME），已安装二进制 --version 为 devctl 0.1.0；产物为本机 Linux x86_64 动态链接 ELF。未将其等同于目标 WSL2 兼容性证明。
-- 指南中的 8 个 sh 命令块通过 sh -n；用临时模拟 home 和三个目录展开配置，已安装 release 二进制的 validate/plan 均通过，识别三个项目与命令；未执行 npm/pnpm。当前宿主不存在这三个真实目录，目标 WSL2 的安装、依赖与 TUI 流程尚未实测。源码未改，未重复完整测试、fmt 或 clippy；`git diff --check` 与本地链接检查通过（4 份文档、23 个本地链接）。
-- 已有约束保留：当前按 Linux 验证，未宣称其他平台通过；日志只保留有界近期缓存，不落盘；清理未知、SIGKILL/断电、孤儿进程恢复及其他扩展仍遵守现有需求与后台设计，不因完成 TUI 提前增加功能。
+- M1–M5 的首版功能及受控验证已完成，TUI 提交 feaa688，WSL 指南初版 d215d67。此前已通过 150 项完整回归；本轮是在真实试用反馈上补充配置发现。
+- 用户目标为 Windows WSL2；三个目录是 ~/code/deepmdt-frontend-pc、~/code/deepmdt-miniprogram-pro、~/code/rtc-middleware/api-proxy，配置示例见 [wsl.md](wsl.md)。目标 WSL 的发行版、架构、脚本/依赖及 stdin 交互要求仍待核实；本宿主没有这三个目录。
+- 继续 M6 的真实 npm/pnpm 流程验收，不能用本机测试通过代替用户体验确认。保留已有 Linux/后台保证与限制：有界近期日志，清理未知不虚报退出，不自动恢复 SIGKILL/断电或 WSL 关闭后的进程，不提前实现其他扩展。

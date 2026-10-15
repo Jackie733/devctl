@@ -88,7 +88,8 @@ fn business_errors_exit_with_code_one() {
 
 #[test]
 fn tui_rejects_non_terminal_io_before_writing_escape_sequences() {
-    let output = run(&["tui"]);
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("examples/minimal.toml");
+    let output = run(&["--config", path.to_str().unwrap(), "tui"]);
     assert_eq!(output.status.code(), Some(1));
     assert!(output.stdout.is_empty());
     assert_eq!(

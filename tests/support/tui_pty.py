@@ -70,15 +70,21 @@ class Screen:
 
 
 class Tui:
-    def __init__(self, workspace):
+    def __init__(self, workspace, discover=False):
         self.workspace = workspace
         self.master, self.slave = pty.openpty()
         self.screen = Screen()
         self.raw = bytearray()
         self.original = termios.tcgetattr(self.slave)
         self._winsize(120, 30)
+        args = [BINARY, 'tui'] if discover else [BINARY, '--config', str(workspace.config), 'tui']
+        environment = os.environ.copy()
+        directory = workspace.root / 'unrelated-directory'
+        directory.mkdir(exist_ok=True)
+        if discover:
+            environment['HOME'] = str(workspace.root)
         self.process = subprocess.Popen(
-            [BINARY, '--config', str(workspace.config), 'tui'],
+            args, cwd=directory, env=environment,
             stdin=self.slave, stdout=self.slave, stderr=subprocess.PIPE,
             start_new_session=True,
             preexec_fn=lambda: fcntl.ioctl(self.slave, termios.TIOCSCTTY, 0),
@@ -372,5 +378,37 @@ def high_output():
     finally: w.close()
 
 
-{'lifecycle': lifecycle, 'reconnect': reconnect, 'slow': slow_stop_and_failure, 'high': high_output}[sys.argv[2]]()
+def config_discovery():
+    w = Workspace()
+    try:
+        ui = Tui(w, discover=True)  # ~/devctl.toml, from an unrelated cwd.
+        w.states(web='Stopped', weapp='Stopped', middle='Stopped')
+        assert not any(w.starts(service) for service in ['middle', 'weapp', 'web'])
+        ui.choose('web')
+        ui.send(b's')
+        w.states(web='Running')
+        ui.wait('web-line-')
+        first = w.starts('web')
+        ui.exit()
+        explicit = Tui(w)
+        w.states(web='Running')
+        assert w.starts('web') == first, 'Default and explicit paths created different workspaces'
+        explicit.send(b'Qy')
+        explicit.exit(key=None)
+
+        # Move the same configuration to the second default location.
+        config = w.root / '.config/devctl/devctl.toml'
+        config.parent.mkdir(parents=True)
+        w.config.rename(config)
+        w.config = config
+        ui = Tui(w, discover=True)
+        w.states(web='Stopped', weapp='Stopped', middle='Stopped')
+        assert w.starts('web') == first, 'Entering TUI implicitly started an autostart service'
+        ui.send(b'Qy')
+        ui.exit(key=None)
+    finally: w.close()
+
+
+{'lifecycle': lifecycle, 'reconnect': reconnect, 'slow': slow_stop_and_failure, 'high': high_output,
+ 'discovery': config_discovery}[sys.argv[2]]()
 print('PASS:', sys.argv[2])

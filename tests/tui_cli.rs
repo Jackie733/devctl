@@ -37,3 +37,8 @@ fn tui_remains_responsive_during_stop_and_shows_isolated_failure() {
 fn high_output_does_not_block_selection_or_leaving() {
     scenario("high");
 }
+
+#[test]
+fn tui_discovers_both_home_configs_and_explicit_clients_attach_without_autostart() {
+    scenario("discovery");
+}
