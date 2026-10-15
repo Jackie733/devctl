@@ -2,38 +2,35 @@
 
 这里只保留当前任务与必要交接；历史见 Git，协作规则见 [AGENTS.md](../AGENTS.md)。
 
-## 当前任务：M6 全部启动与单项停止验收
+## 当前任务：M6 离开重连与日志复制验收
 
-- 本轮起点 fca30e4，工作区干净。用户要求继续剩余任务；帮助框与 web 单项试用此前已反馈正常，当前进入全部启动、重复启动保护和单项停止再启动的目标 WSL 验收。
-- 当前关联 M6、P01、P07、P02、L01、X01。助手维护实现与记录，用户在目标 WSL 操作并反馈。已有功能不再重复开发；若真实试用发现问题，先定位并做最小修复。
-- 目标环境：Windows WSL2、Ubuntu 22.04.5 LTS、x86_64；此前确认路径 /home/jackie/.cargo/bin/devctl。用户已确认安装输出 0.2.0；fca30e4 新增的顶栏版本信息尚待目标显示确认。
+- 本轮起点 e5a2263，工作区干净。用户明确确认上一轮五项验收全部通过，现继续后台保留、关闭客户端终端后重连与目标终端复制体验。
+- 当前关联 M6、P05、R02、L01、U01、X01。助手维护实现与记录，用户在目标 WSL 操作并反馈；发现实际问题后先定位并做最小修复。
+- 目标环境：Windows WSL2、Ubuntu 22.04.5 LTS、x86_64；此前确认路径 /home/jackie/.cargo/bin/devctl 与安装输出 0.2.0。fca30e4 顶栏版本显示的目标效果尚未单独确认。
 
-## 必要的目标项目交接
+## 已完成的用户试用
 
-- Node v24.18.0、npm 11.16.0；node/npm/pnpm 均位于 fnm 的 v24.18.0 安装目录。
-- web 的 dev = vite；weapp 的 dev:weapp = npm run build:weapp -- --watch，build:weapp = taro build --type weapp；middle 的 dev = egg-bin dev。展示的 scripts 中未见对应 pre/post 启动钩子或 pnpm install。
-- middle 声明 engines.node >=18.0.0，当前 Node 满足该声明；web、weapp 未显示 engines 或 packageManager。小程序、中台的实际依赖兼容性与 stdin 需求仍待运行确认。
-- 用户此前用 0.1.0 执行固定 ~/.config/devctl/devctl.toml 的 validate 成功；plan 包含三个正确目录，middle/web 为 npm run dev，weapp 为 npm run dev:weapp，三者 autostart 均为 true。旧后台保留创建时配置与环境，更新前处理方式见 [wsl.md](wsl.md) §5。
-- e314939 源码包已用于目标安装；本轮用户确认帮助框与 web 单项试用正常，未提供逐项实例记录。此前实例 #6 的 pnpm install 错误没有新复现证据，不据此认定原因；后续若复现，保留完整日志。
+- 三项目磁盘配置校验与命令核对通过；帮助框尺寸合适，web 单项试用正常。
+- 用户确认五项通过：仅 web 启动；a 启动全部且 web 沿用原实例；再次 a 不重复创建三项实例；x 只停止 web，另两项继续运行且 web 显示 STOPPED / Retained logs；s 再启动 web 后实例更新、旧日志标记 old、页面恢复。
+- 上述反馈覆盖当前三个真实项目的正常启动链与部分日志、启停体验，不等同于关闭客户端、全部清理或失败反馈已经验收。
 
-## 上一步验证（fca30e4）
+## 必要交接
 
-- cargo fmt --check：通过。
-- cargo clippy --locked --offline --all-targets -- -D warnings：通过。
-- cargo test --locked --offline tui::：35 项 TUI 单元测试通过；在既有布局检查中核对 120×30、80×12、60×16、36×10 的版本显示，与包版本一致。
-- cargo test --locked --offline --test tui_cli --test cli：在允许本地 Unix socket 的沙箱外运行，14 项通过，含 7 项真实 PTY 测试。
-- 本轮检查修改文档的本地链接、代码围栏及 git diff --check 通过。仅改顶栏显示，未重跑其他进程管理回归；未在用户 WSL 重新安装或确认新顶栏效果。
+- Node v24.18.0、npm 11.16.0，node/npm/pnpm 均位于 fnm 的 v24.18.0 安装目录。
+- web 为 npm run dev → vite；weapp 为 npm run dev:weapp → npm run build:weapp -- --watch → taro build --type weapp；middle 为 npm run dev → egg-bin dev。三个服务 autostart 均为 true，目录与配置固定见 [wsl.md](wsl.md)。
+- 此前实例 #6 的 pnpm install / ERR_PNPM_IGNORED_BUILDS 没有新的复现反馈，不保留为当前已知启动阻塞，也不据此断言历史原因；若再发生，保留完整日志排查。
+- 已提供 /tmp/devctl-fca30e4.tar.gz 源码包与 WSL scp 拉取方式；助手未建立 WSL 远端连接。旧后台不会随更新重载配置与环境，处理约定见 [wsl.md](wsl.md) §5。
 
-## 本轮检查
+## 验证证据
 
-- 已审查任务记录、Git 状态、需求 §3 的验收顺序，以及界面中实例号与保留日志的现有显示，尚未收到本轮真实项目运行结果。
-- 仅更新任务状态；文档本地链接、代码围栏及 git diff --check 检查通过，未改源码或重跑 Rust 测试。
+- 最近代码提交 fca30e4 已通过 cargo fmt --check、cargo clippy --locked --offline --all-targets -- -D warnings、35 项 TUI 单元测试及 14 项 CLI/真实 PTY 集成测试。
+- 本轮仅记录用户验收反馈并推进任务状态；本地文档链接、代码围栏及 git diff --check 检查通过。未改源码或重跑 Rust 测试，尚未收到本轮重连与复制结果。
 
 ## 下一步
 
-1. 进入固定配置的 TUI，以仅 web 运行为起点，记下其日志标题实例号 #N；按 a 启动全部，检查三个项目状态及真实编译/开发日志。确认 web 仍为原 #N，再按 a 核对三项实例均不变化。若某项失败，保留项目 ID 与完整日志，并确认其他项保持运行。
-2. 选中 web 按 x，确认 web 显示 STOPPED / Retained logs，而 weapp、middle 继续运行；再按 s，确认 web 使用新的实例号，较早实例日志标记 old，实际页面恢复。
-3. 收到本轮结果后，按 [requirements.md](requirements.md) §3 继续离开/关闭终端与重连、全部停止、结束工作区，核对后代清理及端口释放；补齐失败反馈与 V → j/k → y 的目标终端粘贴体验。
-4. fca30e4 顶栏版本显示已完成本地验证并提供源码包 /tmp/devctl-fca30e4.tar.gz，目标显示效果尚未收到明确反馈；可在本轮进入 TUI 时一并核对，之前的 e314939 包不包含该显示。
+1. 三项目保持运行，记下顶栏工作区短 ID 及各项目日志标题实例号。按 q 离开并重进同一配置，确认工作区、实例不变，项目仍运行且近期日志可见。
+2. TUI 运行中关闭其客户端终端窗口或标签页，从新开的 WSL 终端重进同一配置，重复核对；这一步不关闭 WSL 发行版或 Windows。
+3. 在日志面板用 V 选择单行、j/k 扩展多行、y 发送复制；在 Windows 文本编辑器粘贴核对正文和换行，确认没有 stdout/stderr、实例号、序号或 old 前缀。
+4. 收到本轮结果后验证 X 全部停止、重新启动无端口残留、Q 确认结束后台；补齐失败反馈验收，汇总首版结果。用户要求的顶栏版本号可在进入 TUI 时一并确认。
 
-仅提交本步，不自动推送。完整真实项目验收仍未完成；MVP 完整验收前不推进 X03，计划见 [requirements.md](requirements.md) §4.1。
+仅提交本步，不自动推送。完整真实项目验收仍未完成；MVP 验收完成前不推进 X03，范围见 [requirements.md](requirements.md) §4.1。
