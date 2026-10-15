@@ -17,7 +17,7 @@ use crate::{
     client::{self, ClientError},
     control::{Request, Response},
 };
-use app::{App, Operation};
+use app::{App, Focus, Operation};
 
 enum Context {
     Status {
@@ -89,25 +89,37 @@ enum Action {
     Quit,
 }
 
-fn handle_key(app: &mut App, key: KeyEvent, height: usize) -> Action {
+fn handle_key(app: &mut App, key: KeyEvent, area: ratatui::layout::Rect) -> Action {
     if key.kind != KeyEventKind::Press {
         return Action::None;
     }
     if key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL) {
         return Action::Quit;
     }
-    if key
-        .modifiers
-        .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT | KeyModifiers::SUPER)
+    let half_page =
+        key.modifiers == KeyModifiers::CONTROL && matches!(key.code, KeyCode::Char('u' | 'd'));
+    if !half_page
+        && key
+            .modifiers
+            .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT | KeyModifiers::SUPER)
     {
         return Action::None;
     }
     if key.code == KeyCode::Char('q') {
         return Action::Quit;
     }
+    if !view::usable(area) {
+        if key.code == KeyCode::Esc || key.code == KeyCode::Char('n') {
+            app.confirm_shutdown = false;
+            app.goto_top = false;
+        }
+        return Action::Redraw;
+    }
     if app.confirm_shutdown {
         return match key.code {
-            KeyCode::Char('y') => {
+            KeyCode::Char('y')
+                if app.connected && app.pending.is_none() && view::can_confirm(area, app) =>
+            {
                 app.confirm_shutdown = false;
                 Action::Control(Operation::Shutdown)
             }
@@ -118,53 +130,102 @@ fn handle_key(app: &mut App, key: KeyEvent, height: usize) -> Action {
             _ => Action::None,
         };
     }
-    if app.help {
-        return match key.code {
-            KeyCode::Char('?') | KeyCode::Esc => {
-                app.help = false;
-                Action::Redraw
-            }
-            _ => Action::None,
-        };
+    if app.goto_top && key.code == KeyCode::Esc {
+        app.goto_top = false;
+        return Action::Redraw;
     }
-    match key.code {
-        KeyCode::Up | KeyCode::Down => {
-            if app.select(if key.code == KeyCode::Up { -1 } else { 1 }) {
+    let prefix = app.goto_top;
+    let top = prefix && key.code == KeyCode::Char('g');
+    app.goto_top = false;
+    if key.code == KeyCode::Char('g') && !top {
+        app.goto_top = true;
+        return Action::Redraw;
+    }
+    if app.help {
+        let max = view::help_max_scroll(area, app);
+        app.help_scroll = app.help_scroll.min(max);
+        match key.code {
+            KeyCode::Char('?') | KeyCode::Esc => app.help = false,
+            KeyCode::Char('g') if top => app.help_scroll = 0,
+            KeyCode::Char('G') => app.help_scroll = max,
+            KeyCode::Char('j') | KeyCode::Down => {
+                app.help_scroll = app.help_scroll.saturating_add(1).min(max)
+            }
+            KeyCode::Char('k') | KeyCode::Up => app.help_scroll = app.help_scroll.saturating_sub(1),
+            KeyCode::PageDown => {
+                app.help_scroll = app
+                    .help_scroll
+                    .saturating_add(area.height.saturating_sub(6).max(1))
+                    .min(max)
+            }
+            KeyCode::PageUp => {
+                app.help_scroll = app
+                    .help_scroll
+                    .saturating_sub(area.height.saturating_sub(6).max(1))
+            }
+            _ => {}
+        }
+        return Action::Redraw;
+    }
+    let height = view::log_height(area, app);
+    if half_page {
+        let direction = if key.code == KeyCode::Char('u') {
+            -1
+        } else {
+            1
+        };
+        app.logs
+            .scroll(direction * (height / 2).max(1) as isize, height);
+        return Action::Redraw;
+    }
+    let direction = match key.code {
+        KeyCode::Char('j') | KeyCode::Down => Some(1),
+        KeyCode::Char('k') | KeyCode::Up => Some(-1),
+        KeyCode::Char('g') if top => Some(isize::MIN),
+        KeyCode::Char('G') => Some(isize::MAX),
+        _ => None,
+    };
+    if let Some(direction) = direction {
+        if app.focus == Focus::Projects {
+            return if app.select(direction) {
                 Action::Selection
             } else {
-                Action::None
-            }
+                Action::Redraw
+            };
         }
-        KeyCode::PageUp => {
-            app.logs
-                .scroll(-((height.saturating_sub(1)).max(1) as isize), height);
-            Action::Redraw
+        match key.code {
+            KeyCode::Char('g') => app.logs.oldest(),
+            KeyCode::Char('G') => app.logs.follow(),
+            _ => app.logs.scroll(direction, height),
         }
-        KeyCode::PageDown => {
-            app.logs
-                .scroll((height.saturating_sub(1)).max(1) as isize, height);
-            Action::Redraw
+        return Action::Redraw;
+    }
+    match key.code {
+        KeyCode::Char('h' | '1') | KeyCode::Esc => app.focus(Focus::Projects),
+        KeyCode::Char('l' | '0') | KeyCode::Enter => app.focus(Focus::Logs),
+        KeyCode::Tab | KeyCode::BackTab => app.focus(if app.focus == Focus::Projects {
+            Focus::Logs
+        } else {
+            Focus::Projects
+        }),
+        KeyCode::PageUp => app
+            .logs
+            .scroll(-(height.saturating_sub(1).max(1) as isize), height),
+        KeyCode::PageDown => app
+            .logs
+            .scroll(height.saturating_sub(1).max(1) as isize, height),
+        KeyCode::Home => app.logs.oldest(),
+        KeyCode::End => app.logs.follow(),
+        KeyCode::Left | KeyCode::Char('H') => {
+            app.logs.horizontal = app.logs.horizontal.saturating_sub(8)
         }
-        KeyCode::Home => {
-            app.logs.oldest();
-            Action::Redraw
+        KeyCode::Right | KeyCode::Char('L') => {
+            app.logs.horizontal = app.logs.horizontal.saturating_add(8)
         }
-        KeyCode::End => {
-            app.logs.follow();
-            Action::Redraw
-        }
-        KeyCode::Left => {
-            app.logs.horizontal = app.logs.horizontal.saturating_sub(8);
-            Action::Redraw
-        }
-        KeyCode::Right => {
-            app.logs.horizontal = app.logs.horizontal.saturating_add(8);
-            Action::Redraw
-        }
-        KeyCode::Char('r') => Action::Reconnect,
+        KeyCode::Char('r') => return Action::Reconnect,
         KeyCode::Char('?') => {
             app.help = true;
-            Action::Redraw
+            app.help_scroll = 0;
         }
         KeyCode::Char('Q') => {
             if app.connected && app.pending.is_none() {
@@ -174,23 +235,22 @@ fn handle_key(app: &mut App, key: KeyEvent, height: usize) -> Action {
                     "Reconnect and wait for any pending operation before ending the workspace."
                         .into();
             }
-            Action::Redraw
         }
-        KeyCode::Char('a') => Action::Control(Operation::StartAll),
-        KeyCode::Char('X') => Action::Control(Operation::StopAll),
-        KeyCode::Char('s') | KeyCode::Char('x') => match app.selected.clone() {
-            Some(id) => Action::Control(if key.code == KeyCode::Char('s') {
-                Operation::Start(id)
-            } else {
-                Operation::Stop(id)
-            }),
-            None => {
-                app.feedback = "No project selected.".into();
-                Action::Redraw
+        KeyCode::Char('a') => return Action::Control(Operation::StartAll),
+        KeyCode::Char('X') => return Action::Control(Operation::StopAll),
+        KeyCode::Char('s' | 'x') => match app.selected.clone() {
+            Some(id) => {
+                return Action::Control(if key.code == KeyCode::Char('s') {
+                    Operation::Start(id)
+                } else {
+                    Operation::Stop(id)
+                });
             }
+            None => app.feedback = "No project selected.".into(),
         },
-        _ => Action::None,
+        _ => return if prefix { Action::Redraw } else { Action::None },
     }
+    Action::Redraw
 }
 
 pub async fn run(path: &Path) -> Result<(), String> {
@@ -233,8 +293,9 @@ pub async fn run(path: &Path) -> Result<(), String> {
                     let event = event.ok_or("Terminal event stream ended.")?.map_err(|error| error.to_string())?;
                     match event {
                         Event::Key(key) => {
-                            let height = view::log_height(terminal.size().map_err(|error| error.to_string())?.height);
-                            match handle_key(&mut app, key, height) {
+                            let size = terminal.size().map_err(|error| error.to_string())?;
+                            let area = ratatui::layout::Rect::new(0, 0, size.width, size.height);
+                            match handle_key(&mut app, key, area) {
                                 Action::Quit => break Ok(()),
                                 Action::None => {}
                                 Action::Redraw => dirty = true,
@@ -301,10 +362,10 @@ pub async fn run(path: &Path) -> Result<(), String> {
                                 }
                                 Ok(response) => {
                                     if let Some(error) = response.error {
-                                        app.feedback = format!("Logs for {service}: {error}");
+                                        app.logs_error = Some(format!("{service}: {error}"));
                                         dirty = true;
                                     } else if let Some(batch) = response.logs {
-                                        dirty |= app.logs.append(batch);
+                                        dirty |= app.apply_logs(batch);
                                     } else {
                                         app.disconnect("Missing log response; refreshing state.".into());
                                         status_due = true;
@@ -368,6 +429,210 @@ mod tests {
 
     fn key(code: KeyCode) -> KeyEvent {
         KeyEvent::new(code, KeyModifiers::NONE)
+    }
+
+    fn area() -> ratatui::layout::Rect {
+        ratatui::layout::Rect::new(0, 0, 120, 30)
+    }
+
+    fn connected() -> App {
+        let mut app = App::new();
+        app.apply_status(Response {
+            workspace_id: "one".into(),
+            services: ["a", "b", "c"]
+                .into_iter()
+                .map(|id| (id.into(), ServiceStatus::default()))
+                .collect(),
+            ..Response::default()
+        });
+        app.apply_logs(crate::logs::Batch {
+            records: (1..=100)
+                .map(|sequence| crate::logs::Record {
+                    sequence,
+                    instance: 1,
+                    source: crate::logs::Source::Stdout,
+                    text: format!("line {sequence}"),
+                    truncated: false,
+                })
+                .collect(),
+            ..crate::logs::Batch::default()
+        });
+        app
+    }
+
+    #[test]
+    fn focus_changes_preserve_selection_queries_and_log_position() {
+        let mut app = connected();
+        app.logs.oldest();
+        let original = (
+            app.selected.clone(),
+            app.epoch,
+            app.selection_epoch,
+            app.logs.top,
+            app.logs.cursor,
+        );
+        for code in [
+            KeyCode::Char('l'),
+            KeyCode::Char('h'),
+            KeyCode::Tab,
+            KeyCode::BackTab,
+            KeyCode::Char('0'),
+            KeyCode::Esc,
+            KeyCode::Enter,
+            KeyCode::Char('1'),
+        ] {
+            assert!(matches!(
+                handle_key(&mut app, key(code), area()),
+                Action::Redraw
+            ));
+            assert_eq!(
+                (
+                    app.selected.clone(),
+                    app.epoch,
+                    app.selection_epoch,
+                    app.logs.top,
+                    app.logs.cursor
+                ),
+                original
+            );
+        }
+        handle_key(&mut app, key(KeyCode::Enter), area());
+        handle_key(&mut app, key(KeyCode::Char('j')), area());
+        assert_eq!(app.logs.top, Some(2));
+        assert_eq!(app.selected.as_deref(), Some("a"));
+        handle_key(&mut app, key(KeyCode::Esc), area());
+        assert!(matches!(
+            handle_key(&mut app, key(KeyCode::Char('j')), area()),
+            Action::Selection
+        ));
+        assert_eq!(app.selected.as_deref(), Some("b"));
+        assert!(app.logs.records.is_empty());
+        assert!(!app.logs_loaded);
+    }
+
+    #[test]
+    fn vim_prefix_is_bounded_cancelable_and_does_not_swallow_controls() {
+        let mut app = connected();
+        handle_key(&mut app, key(KeyCode::Char('G')), area());
+        assert_eq!(app.selected.as_deref(), Some("c"));
+        handle_key(&mut app, key(KeyCode::Char('g')), area());
+        assert!(app.goto_top);
+        assert_eq!(app.selected.as_deref(), Some("c"));
+        handle_key(&mut app, key(KeyCode::Esc), area());
+        assert!(!app.goto_top);
+        handle_key(&mut app, key(KeyCode::Char('g')), area());
+        assert!(
+            matches!(handle_key(&mut app, key(KeyCode::Char('x')), area()), Action::Control(Operation::Stop(id)) if id == "c")
+        );
+        assert!(!app.goto_top);
+        handle_key(&mut app, key(KeyCode::Char('g')), area());
+        handle_key(&mut app, key(KeyCode::Char('g')), area());
+        assert_eq!(app.selected.as_deref(), Some("a"));
+        handle_key(&mut app, key(KeyCode::Char('g')), area());
+        app.disconnect("lost".into());
+        assert!(!app.goto_top);
+    }
+
+    #[test]
+    fn log_navigation_uses_actual_viewport_and_preserves_legacy_keys() {
+        let mut app = connected();
+        let height = view::log_height(area(), &app);
+        handle_key(
+            &mut app,
+            KeyEvent::new(KeyCode::Char('u'), KeyModifiers::CONTROL),
+            area(),
+        );
+        assert_eq!(app.logs.start(height), 100 - height - height / 2);
+        assert_eq!(app.focus, Focus::Projects);
+        handle_key(
+            &mut app,
+            KeyEvent::new(KeyCode::Char('d'), KeyModifiers::CONTROL),
+            area(),
+        );
+        assert_eq!(app.logs.top, None);
+        handle_key(&mut app, key(KeyCode::Home), area());
+        assert_eq!(app.logs.top, Some(1));
+        handle_key(&mut app, key(KeyCode::PageDown), area());
+        assert_eq!(app.logs.start(height), height - 1);
+        handle_key(&mut app, key(KeyCode::Right), area());
+        handle_key(&mut app, key(KeyCode::Char('L')), area());
+        assert_eq!(app.logs.horizontal, 16);
+        handle_key(&mut app, key(KeyCode::Char('H')), area());
+        assert_eq!(app.logs.horizontal, 8);
+        handle_key(&mut app, key(KeyCode::End), area());
+        assert_eq!(app.logs.top, None);
+        handle_key(&mut app, key(KeyCode::Char('0')), area());
+        handle_key(&mut app, key(KeyCode::Char('g')), area());
+        handle_key(&mut app, key(KeyCode::Char('g')), area());
+        assert_eq!(app.logs.top, Some(1));
+        handle_key(&mut app, key(KeyCode::Char('G')), area());
+        assert_eq!(app.logs.top, None);
+    }
+
+    #[test]
+    fn help_consumes_commands_and_scrolls_without_moving_underlying_panes() {
+        let mut app = connected();
+        app.logs.oldest();
+        app.focus(Focus::Logs);
+        handle_key(&mut app, key(KeyCode::Char('?')), area());
+        for code in ['s', 'x', 'a', 'X', 'Q', 'r'] {
+            assert!(matches!(
+                handle_key(&mut app, key(KeyCode::Char(code)), area()),
+                Action::Redraw
+            ));
+        }
+        handle_key(&mut app, key(KeyCode::Char('G')), area());
+        assert_eq!(app.help_scroll, view::help_max_scroll(area(), &app));
+        handle_key(&mut app, key(KeyCode::Char('g')), area());
+        handle_key(&mut app, key(KeyCode::Char('g')), area());
+        assert_eq!(app.help_scroll, 0);
+        assert!(!app.confirm_shutdown);
+        assert_eq!(app.logs.top, Some(1));
+        assert_eq!(app.selected.as_deref(), Some("a"));
+        handle_key(&mut app, key(KeyCode::Esc), area());
+        assert!(!app.help);
+        assert_eq!(app.focus, Focus::Logs);
+        handle_key(&mut app, key(KeyCode::Char('?')), area());
+        assert!(matches!(
+            handle_key(&mut app, key(KeyCode::Char('q')), area()),
+            Action::Quit
+        ));
+    }
+
+    #[test]
+    fn tiny_windows_and_release_events_cannot_control_services() {
+        let mut app = connected();
+        let tiny = ratatui::layout::Rect::new(0, 0, 20, 6);
+        for code in ['s', 'x', 'a', 'X', 'Q', 'y'] {
+            assert!(!matches!(
+                handle_key(&mut app, key(KeyCode::Char(code)), tiny),
+                Action::Control(_)
+            ));
+        }
+        handle_key(&mut app, key(KeyCode::Char('Q')), area());
+        assert!(app.confirm_shutdown);
+        assert!(!matches!(
+            handle_key(&mut app, key(KeyCode::Char('y')), tiny),
+            Action::Control(_)
+        ));
+        assert!(matches!(
+            handle_key(&mut app, key(KeyCode::Char('q')), tiny),
+            Action::Quit
+        ));
+        let mut release = key(KeyCode::Char('y'));
+        release.kind = KeyEventKind::Release;
+        assert!(matches!(
+            handle_key(&mut app, release, area()),
+            Action::None
+        ));
+        app.disconnect("lost".into());
+        assert!(!app.confirm_shutdown);
+        assert!(!app.begin(Operation::Start("a".into())));
+        let mut empty = App::new();
+        assert!(!matches!(
+            handle_key(&mut empty, key(KeyCode::Char('s')), area()),
+            Action::Control(_)
+        ));
     }
 
     #[tokio::test]
@@ -438,37 +703,65 @@ mod tests {
             ..Response::default()
         });
         assert!(matches!(
-            handle_key(&mut app, key(KeyCode::Char('y')), 10),
+            handle_key(
+                &mut app,
+                key(KeyCode::Char('y')),
+                ratatui::layout::Rect::new(0, 0, 120, 24)
+            ),
             Action::None
         ));
         assert!(matches!(
-            handle_key(&mut app, key(KeyCode::Char('Q')), 10),
+            handle_key(
+                &mut app,
+                key(KeyCode::Char('Q')),
+                ratatui::layout::Rect::new(0, 0, 120, 24)
+            ),
             Action::Redraw
         ));
         assert!(app.confirm_shutdown);
         assert!(matches!(
-            handle_key(&mut app, key(KeyCode::Char('s')), 10),
+            handle_key(
+                &mut app,
+                key(KeyCode::Char('s')),
+                ratatui::layout::Rect::new(0, 0, 120, 24)
+            ),
             Action::None
         ));
         assert!(matches!(
-            handle_key(&mut app, key(KeyCode::Char('q')), 10),
+            handle_key(
+                &mut app,
+                key(KeyCode::Char('q')),
+                ratatui::layout::Rect::new(0, 0, 120, 24)
+            ),
             Action::Quit
         ));
         assert!(matches!(
             handle_key(
                 &mut app,
                 KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL),
-                10
+                ratatui::layout::Rect::new(0, 0, 120, 24)
             ),
             Action::Quit
         ));
         assert!(matches!(
-            handle_key(&mut app, key(KeyCode::Char('y')), 10),
+            handle_key(
+                &mut app,
+                key(KeyCode::Char('y')),
+                ratatui::layout::Rect::new(0, 0, 120, 24)
+            ),
             Action::Control(Operation::Shutdown)
         ));
         assert!(!app.confirm_shutdown);
-        handle_key(&mut app, key(KeyCode::Char('Q')), 10);
-        handle_key(&mut app, key(KeyCode::Esc), 10);
+        handle_key(
+            &mut app,
+            key(KeyCode::Char('Q')),
+            ratatui::layout::Rect::new(0, 0, 120, 24),
+        );
+        handle_key(
+            &mut app,
+            key(KeyCode::Esc),
+            ratatui::layout::Rect::new(0, 0, 120, 24),
+        );
         assert!(!app.confirm_shutdown && app.pending.is_none());
     }
 }

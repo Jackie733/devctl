@@ -9,6 +9,13 @@ use crate::{
 const MAX_LOG_BYTES: usize = 2 * 1024 * 1024;
 const MAX_LOG_RECORDS: usize = 4096;
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Focus {
+    #[default]
+    Projects,
+    Logs,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Operation {
     Start(String),
@@ -130,6 +137,11 @@ impl LogWindow {
 }
 
 pub struct App {
+    pub focus: Focus,
+    pub goto_top: bool,
+    pub help_scroll: u16,
+    pub logs_loaded: bool,
+    pub logs_error: Option<String>,
     pub services: BTreeMap<String, ServiceStatus>,
     pub selected: Option<String>,
     pub workspace_id: Option<String>,
@@ -147,6 +159,11 @@ pub struct App {
 impl App {
     pub fn new() -> Self {
         Self {
+            focus: Focus::Projects,
+            goto_top: false,
+            help_scroll: 0,
+            logs_loaded: false,
+            logs_error: None,
             services: BTreeMap::new(),
             selected: None,
             workspace_id: None,
@@ -160,6 +177,25 @@ impl App {
             confirm_shutdown: false,
             help: false,
         }
+    }
+
+    pub fn focus(&mut self, focus: Focus) {
+        self.focus = focus;
+        self.goto_top = false;
+    }
+
+    fn reset_logs(&mut self) {
+        self.logs = LogWindow::default();
+        self.logs_loaded = false;
+        self.logs_error = None;
+        self.goto_top = false;
+    }
+
+    pub fn apply_logs(&mut self, batch: Batch) -> bool {
+        let changed = !self.logs_loaded || self.logs_error.is_some();
+        self.logs_loaded = true;
+        self.logs_error = None;
+        self.logs.append(batch) || changed
     }
 
     pub fn select(&mut self, direction: isize) -> bool {
@@ -177,7 +213,7 @@ impl App {
         }
         self.selected = Some(ids[next].clone());
         self.selection_epoch += 1;
-        self.logs = LogWindow::default();
+        self.reset_logs();
         true
     }
 
@@ -188,10 +224,10 @@ impl App {
         if reconnected {
             self.epoch += 1;
             self.selection_epoch += 1;
-            self.logs = LogWindow::default();
+            self.reset_logs();
             self.confirm_shutdown = false;
             if self.workspace_id.is_none() {
-                self.feedback = "Connected. Services were not started automatically.".into();
+                self.feedback = "Connected. Services were not started automatically. s: start selected; a: start default.".into();
             }
         }
         self.connected = true;
@@ -205,7 +241,7 @@ impl App {
         {
             self.selected = self.services.keys().next().cloned();
             self.selection_epoch += 1;
-            self.logs = LogWindow::default();
+            self.reset_logs();
         }
         changed
     }
@@ -214,7 +250,7 @@ impl App {
         self.connected = false;
         self.epoch += 1;
         self.selection_epoch += 1;
-        self.logs = LogWindow::default();
+        self.reset_logs();
         self.confirm_shutdown = false;
         self.connection_error = Some(message);
     }
@@ -232,13 +268,18 @@ impl App {
                 "Disconnected; state unknown. Reconnect before controlling services.".into();
             return false;
         }
-        if self.pending.is_some() {
-            self.feedback =
-                "An operation is pending; selection, scrolling and leaving remain available."
-                    .into();
+        if let Some(pending) = &self.pending {
+            self.feedback = format!(
+                "Waiting for {}; {} was not sent. Browsing and q leave remain available.",
+                pending.label(),
+                operation.label()
+            );
             return false;
         }
-        self.feedback = format!("{}: waiting for the workspace...", operation.label());
+        self.feedback = format!(
+            "{}: waiting for the workspace; browse or q leave.",
+            operation.label()
+        );
         self.pending = Some(operation);
         true
     }
@@ -270,10 +311,12 @@ impl App {
             return false;
         }
         self.feedback = match operation {
-            Operation::Start(_) | Operation::StartAll => {
-                "Start request accepted; waiting for process state.".into()
-            }
-            Operation::Stop(_) | Operation::StopAll => "Selected services stopped.".into(),
+            Operation::Start(_) | Operation::StartAll => format!(
+                "{}: Start request accepted; waiting for process state.",
+                operation.label()
+            ),
+            Operation::Stop(id) => format!("{id}: stopped; cleanup confirmed."),
+            Operation::StopAll => "All services stopped; background workspace retained.".into(),
             Operation::Shutdown => "Workspace ended.".into(),
         };
         matches!(operation, Operation::Shutdown)
@@ -312,6 +355,38 @@ mod tests {
             gap: false,
             latest: 100_000,
         }
+    }
+
+    #[test]
+    fn log_loading_and_errors_follow_selection_identity() {
+        let mut app = App::new();
+        app.apply_status(status("one"));
+        assert!(!app.logs_loaded);
+        app.logs_error = Some("temporary failure".into());
+        assert!(app.apply_logs(Batch::default()));
+        assert!(app.logs_loaded && app.logs_error.is_none());
+        assert!(!app.apply_logs(Batch::default()));
+        app.goto_top = true;
+        app.select(1);
+        assert!(!app.logs_loaded && !app.goto_top);
+        app.apply_logs(batch(1..=10, 1));
+        app.focus(Focus::Logs);
+        assert!(app.logs_loaded);
+        app.disconnect("lost".into());
+        assert!(!app.logs_loaded);
+    }
+
+    #[test]
+    fn operation_feedback_keeps_the_requested_target_after_selection_changes() {
+        let mut app = App::new();
+        app.apply_status(status("one"));
+        assert!(app.begin(Operation::Stop("a".into())));
+        app.select(1);
+        assert!(!app.begin(Operation::Start("b".into())));
+        assert!(app.feedback.contains("Stop a"));
+        assert!(app.feedback.contains("Start b was not sent"));
+        app.control_response(&Operation::Stop("a".into()), "one", status("one"));
+        assert_eq!(app.feedback, "a: stopped; cleanup confirmed.");
     }
 
     #[test]

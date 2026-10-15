@@ -27,7 +27,7 @@ cargo run -- --config /path/to/devctl.toml tui
 
 配置放在当前目录的 `devctl.toml`、`~/devctl.toml` 或 `~/.config/devctl/devctl.toml` 时，可直接运行 `devctl validate`、`devctl tui`。显式 `--config` 优先，其次按上述顺序选择第一个存在的配置；缺少配置会报错。完整规则见[交互方案](docs/interaction.md)。
 
-首次进入可创建空闲后台，不自动启动项目；`autostart = true` 表示纳入 `a` / `start --all` 的默认组合。`s/x` 启停选中项，`a/X` 启停全部，`PageUp/PageDown` 滚动日志，`End` 跟随，`?` 查看帮助。`q` 或 Ctrl-C 离开后服务保留；`Q` 经确认后结束工作区。
+首次进入可创建空闲后台，不自动启动项目；`autostart = true` 表示纳入 `a` / `start --all` 的默认组合。`j/k` 在当前面板选择项目或滚动日志，`h/l` 或 Tab 切换面板，`Enter/Esc` 进入日志或返回项目；`gg/G` 跳转首尾，`Ctrl-u/d` 半屏滚动。`s/x` 启停选中项，`a` 启动默认组合、`X` 停止全部；`PageUp/PageDown` 滚动日志，`End` 跟随，`?` 查看可滚动的帮助与完整诊断。窄窗口显示活动面板。`q` 或 Ctrl-C 离开后服务保留；`Q` 经确认后结束工作区。
 
 后台控制（将服务 ID 替换为自己的配置）：
 

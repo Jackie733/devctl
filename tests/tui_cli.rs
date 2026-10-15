@@ -42,3 +42,8 @@ fn high_output_does_not_block_selection_or_leaving() {
 fn tui_discovers_both_home_configs_and_explicit_clients_attach_without_autostart() {
     scenario("discovery");
 }
+
+#[test]
+fn vim_navigation_help_and_resizing_keep_control_scopes_and_background_lifetime() {
+    scenario("navigation");
+}

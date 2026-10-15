@@ -117,7 +117,7 @@ class Tui:
         os.write(self.master, value)
 
     def choose(self, service):
-        self.send(b'\x1b[A\x1b[A')
+        self.send(b'1gg')
         self.wait('Selected: middle |')
         steps = ['middle', 'weapp', 'web'].index(service)
         self.send(b'\x1b[B' * steps)
@@ -247,7 +247,7 @@ def lifecycle():
         ui.choose('weapp')
         ui.send(b'x')
         w.states(weapp='Stopped', web='Running', middle='Running')
-        ui.wait('Selected services stopped.')
+        ui.wait('weapp: stopped; cleanup confirmed.')
         ui.send(b's')
         w.states(weapp='Running')
         w.wait_starts('weapp', 2)
@@ -255,12 +255,12 @@ def lifecycle():
         ui.choose('web')
         ui.pump(.5)
         ui.send(b'\x1b[5~')
-        ui.wait('reading')
+        ui.wait('READ')
         anchor = re.search(r'seq=(\d+)', ui.screen.text()).group(1)
         ui.pump(.4)
         assert re.search(r'seq=(\d+)', ui.screen.text()).group(1) == anchor
         ui.send(b'\x1b[F')
-        ui.wait('following')
+        ui.wait('FOLLOW')
         ui.send(b'Q')
         ui.wait('y: confirm')
         ui.send(b'n')
@@ -280,7 +280,7 @@ def lifecycle():
         assert w.starts('web') == first
         again.send(b'X')
         w.states(web='Stopped', weapp='Stopped', middle='Stopped')
-        again.wait('Selected services stopped.')
+        again.wait('All services stopped; background workspace retained.')
         again.send(b'a')
         w.states(web='Running', weapp='Running', middle='Running')
         again.wait('Start request accepted')
@@ -378,6 +378,56 @@ def high_output():
     finally: w.close()
 
 
+def navigation():
+    w = Workspace()
+    try:
+        ui = Tui(w)
+        ui.choose('web')
+        ui.send(b's')
+        w.states(web='Running', weapp='Stopped', middle='Stopped')
+        ui.wait('web-line-')
+        assert 'Cleanup UNCONFIRMED' not in ui.screen.text(), 'Live service mislabeled as cleanup failure'
+        ui.pump(.7)
+        ui.send(b'0gg')
+        ui.wait('Logs · ACTIVE')
+        ui.wait('READ')
+        selected = 'Selected: web | Running'
+        assert selected in ui.screen.text()
+        anchor = re.search(r'seq=(\d+)', ui.screen.text()).group(1)
+        ui.send(b'j')
+        ui.wait(lambda text: re.search(r'seq=(\d+)', text).group(1) != anchor)
+        assert selected in ui.screen.text(), 'Log j changed the selected project'
+        ui.send(b'?sxaXQ')
+        ui.wait('CURRENT PANEL')
+        w.states(web='Running', weapp='Stopped', middle='Stopped')
+        assert not w.starts('weapp') and not w.starts('middle'), 'Help leaked a control key'
+        ui.send(b'G')
+        ui.wait('CURRENT DETAILS')
+        ui.send(b'\x1b')
+        ui.wait('Logs · ACTIVE')
+        ui.resize(36, 10)
+        ui.wait('Logs · ACTIVE')
+        ui.wait('q leave')
+        ui.send(b'1')
+        ui.wait('Projects · ACTIVE')
+        ui.send(b'0')
+        ui.wait('Logs · ACTIVE')
+        ui.resize(20, 6)
+        ui.wait('Window too small')
+        ui.send(b'QyX')
+        ui.pump(.15)
+        w.states(web='Running')
+        ui.resize(120, 30)
+        ui.wait('Logs · ACTIVE')
+        ui.send(b'G')
+        ui.wait('FOLLOW')
+        ui.send(b'?')
+        ui.wait('CURRENT PANEL')
+        ui.exit()
+        w.states(web='Running')
+    finally: w.close()
+
+
 def config_discovery():
     w = Workspace()
     try:
@@ -410,5 +460,5 @@ def config_discovery():
 
 
 {'lifecycle': lifecycle, 'reconnect': reconnect, 'slow': slow_stop_and_failure, 'high': high_output,
- 'discovery': config_discovery}[sys.argv[2]]()
+ 'discovery': config_discovery, 'navigation': navigation}[sys.argv[2]]()
 print('PASS:', sys.argv[2])
