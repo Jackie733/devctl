@@ -147,10 +147,10 @@ devctl --config "$HOME/.config/devctl/devctl.toml" plan
 ```sh
 devctl validate
 devctl plan
-devctl tui
+devctl
 ```
 
-程序现在会自动发现配置，具体优先级见 [交互方案](interaction.md) §1。若当前目录或 ~/devctl.toml 存在更高优先级的配置，短命令会选中它；需要固定使用本节的工作区时，仍可运行 `devctl --config "$HOME/.config/devctl/devctl.toml" tui`。找不到配置会明确报错，不会生成空配置。validate 校验字段、路径与引用，不执行 npm/pnpm，也不保证开发命令或项目依赖可用。
+程序现在会自动发现配置，默认进入 TUI，具体入口与配置优先级见 [交互方案](interaction.md) §1。若当前目录或 ~/devctl.toml 存在更高优先级的配置，短命令会选中它；需要固定使用本节的工作区时，可运行 `devctl --config "$HOME/.config/devctl/devctl.toml"`。找不到配置会明确报错，不会生成空配置。validate 校验字段、路径与引用，不执行 npm/pnpm，也不保证开发命令或项目依赖可用。
 
 按 [交互方案](interaction.md) 验收：先只启动 web，再启动全部；检查日志、单项停止和重新启动；离开后重新连接；最后全部停止、结束工作区。客户端关闭后的保留行为也需在目标 WSL2 中实测。WSL 的 `wsl --shutdown` / `wsl --terminate` 会终止对应运行环境，后台运行不提供跨 WSL 关闭或 Windows 重启的恢复保证。
 

@@ -16,7 +16,7 @@ mod tui;
 
 use std::{path::Path, process::ExitCode};
 
-use clap::{CommandFactory, Parser};
+use clap::Parser;
 use cli::{Cli, Command};
 use manager::Manager;
 use tokio::signal::unix::{SignalKind, signal};
@@ -33,16 +33,7 @@ async fn main() -> ExitCode {
 }
 
 async fn execute(cli: Cli) -> Result<(), String> {
-    let command = match cli.command {
-        None => {
-            Cli::command()
-                .print_help()
-                .map_err(|error| format!("Failed to print help: {error}"))?;
-            println!();
-            return Ok(());
-        }
-        Some(command) => command,
-    };
+    let command = cli.command.unwrap_or(Command::Tui);
     let config_path = config::resolve_path(cli.config)?;
     match command {
         Command::Tui => tui::run(&config_path).await,

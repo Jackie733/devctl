@@ -120,7 +120,7 @@ Linux 清理完成定义为组内没有存活成员，并且直接 Child 已 wai
 
 ### 5.1 TUI 实现
 
-对应 U01、P01、P07、P02、P05、L01、L03。`devctl tui` 是显式入口，无参数仍显示帮助。使用 Ratatui 0.30.x、Crossterm 0.29.x 的 EventStream 和 futures-util StreamExt，沿用 Tokio current_thread 运行时及原有 feature；具体版本写入 Cargo.lock。事件读取不混用阻塞 read/poll，版本线与 Ratatui 后端保持一致。参考 [Ratatui](https://docs.rs/ratatui/latest/ratatui/) 与 [Crossterm 事件文档](https://docs.rs/crossterm/0.29.0/crossterm/event/index.html)。
+对应 U01、P01、P07、P02、P05、L01、L03。入口分发在未提供子命令时使用 Command::Tui，与显式 tui 复用配置发现与同一个终端入口；显式子命令不走此默认分支，帮助和版本由 Clap 在执行入口前处理。操作约定见 [interaction.md](docs/interaction.md) §1。使用 Ratatui 0.30.x、Crossterm 0.29.x 的 EventStream 和 futures-util StreamExt，沿用 Tokio current_thread 运行时及原有 feature；具体版本写入 Cargo.lock。事件读取不混用阻塞 read/poll，版本线与 Ratatui 后端保持一致。参考 [Ratatui](https://docs.rs/ratatui/latest/ratatui/) 与 [Crossterm 事件文档](https://docs.rs/crossterm/0.29.0/crossterm/event/index.html)。
 
 模块边界：src/tui/mod.rs 协调终端事件、计时和请求任务；app.rs 独占项目快照、选择、连接信息、操作反馈、有界日志及滚动锚点；view.rs 借用状态绘制；terminal.rs 集中建立和恢复终端。App 不持有 Manager、Child 或运行锁，也不需要共享锁。项目列表来源于后台快照，按 Service ID 保留选择，不以磁盘配置替换已有后台的列表。
 

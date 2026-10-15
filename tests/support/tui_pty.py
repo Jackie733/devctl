@@ -82,14 +82,15 @@ class Screen:
 
 
 class Tui:
-    def __init__(self, workspace, discover=False, windows_clipboard=False):
+    def __init__(self, workspace, discover=False, windows_clipboard=False, explicit_tui=False):
         self.workspace = workspace
         self.master, self.slave = pty.openpty()
         self.screen = Screen()
         self.raw = bytearray()
         self.original = termios.tcgetattr(self.slave)
         self._winsize(120, 30)
-        args = [BINARY, 'tui'] if discover else [BINARY, '--config', str(workspace.config), 'tui']
+        args = [BINARY] if discover else [BINARY, '--config', str(workspace.config)]
+        if explicit_tui: args.append('tui')
         environment = os.environ.copy()
         # Never write to the real host clipboard, even when the suite runs in WSL.
         environment['SSH_CONNECTION'] = 'devctl-pty-test'
@@ -299,7 +300,7 @@ def lifecycle():
         ui.wait('Projects')
         ui.exit()
         w.states(web='Running', weapp='Running', middle='Running')
-        again = Tui(w)
+        again = Tui(w, explicit_tui=True)
         again.choose('web')
         again.wait('web-line-')
         assert w.starts('web') == first

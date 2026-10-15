@@ -9,8 +9,8 @@ fn run(args: &[&str]) -> std::process::Output {
 }
 
 #[test]
-fn help_and_no_arguments_succeed_without_loading_config() {
-    for args in [&[][..], &["--help"][..], &["-h"][..]] {
+fn help_succeeds_without_loading_config() {
+    for args in [&["--help"][..], &["-h"][..]] {
         let output = run(args);
         assert!(output.status.success(), "{output:?}");
         assert!(output.stderr.is_empty());
@@ -89,11 +89,14 @@ fn business_errors_exit_with_code_one() {
 #[test]
 fn tui_rejects_non_terminal_io_before_writing_escape_sequences() {
     let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("examples/minimal.toml");
-    let output = run(&["--config", path.to_str().unwrap(), "tui"]);
-    assert_eq!(output.status.code(), Some(1));
-    assert!(output.stdout.is_empty());
-    assert_eq!(
-        String::from_utf8(output.stderr).unwrap(),
-        "Error: TUI requires a terminal on stdin and stdout.\n"
-    );
+    let path = path.to_str().unwrap();
+    for args in [&["--config", path][..], &["--config", path, "tui"][..]] {
+        let output = run(args);
+        assert_eq!(output.status.code(), Some(1));
+        assert!(output.stdout.is_empty());
+        assert_eq!(
+            String::from_utf8(output.stderr).unwrap(),
+            "Error: TUI requires a terminal on stdin and stdout.\n"
+        );
+    }
 }

@@ -3,7 +3,11 @@ use std::path::PathBuf;
 use clap::{Parser, Subcommand};
 
 #[derive(Debug, Parser)]
-#[command(version, about = "Development workspace manager")]
+#[command(
+    version,
+    about = "Development workspace manager",
+    after_help = "Run without a subcommand to open the terminal interface."
+)]
 pub struct Cli {
     /// Config path; otherwise search ./devctl.toml, ~/devctl.toml, ~/.config/devctl/devctl.toml.
     #[arg(long, global = true, value_name = "PATH")]

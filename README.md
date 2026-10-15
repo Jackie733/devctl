@@ -22,10 +22,10 @@ Windows WSL2 的本地 release 安装、三个真实项目配置和试用步骤�
 终端界面（将配置路径替换为自己的配置）：
 
 ```sh
-cargo run -- --config /path/to/devctl.toml tui
+cargo run -- --config /path/to/devctl.toml
 ```
 
-配置放在当前目录的 `devctl.toml`、`~/devctl.toml` 或 `~/.config/devctl/devctl.toml` 时，可直接运行 `devctl validate`、`devctl tui`。显式 `--config` 优先，其次按上述顺序选择第一个存在的配置；缺少配置会报错。完整规则见[交互方案](docs/interaction.md)。
+配置放在当前目录的 `devctl.toml`、`~/devctl.toml` 或 `~/.config/devctl/devctl.toml` 时，直接运行 `devctl` 进入 TUI，`devctl tui` 也继续可用；`devctl validate` 等子命令执行各自操作，`--help` / `--version` 输出信息后退出。显式 `--config` 优先，其次按上述顺序选择第一个存在的配置；缺少配置会报错。完整规则见[交互方案](docs/interaction.md)。
 
 首次进入可创建空闲后台，不自动启动项目；`autostart = true` 表示纳入 `a` / `start --all` 的默认组合。`j/k` 在当前面板选择项目或移动日志阅读光标，`h/l` 或 Tab 切换面板，`Enter/Esc` 进入日志或返回项目；`gg/G` 跳转首尾，`Ctrl-u/d` 半屏滚动。`s/x` 启停选中项，`a` 启动默认组合、`X` 停止全部；`PageUp/PageDown` 滚动日志，`End` 跟随，`?` 查看可滚动的帮助与完整诊断。日志面板独立显示当前服务状态，停止后明确标为保留日志；底部固定两行；先用 `j/k` 定位日志，再用 `v` 从该行开始整行选择、`j/k` 扩展、`y` 请求复制、`Esc` 取消。本机 WSL 使用 clip.exe，其他环境及 SSH 使用 OSC 52；限制与失败处理见[交互方案](docs/interaction.md#整行选择与复制)，复制后请实际粘贴核对。窄窗口显示活动面板。`q` 或 Ctrl-C 离开后服务保留；`Q` 经确认后结束工作区。
 

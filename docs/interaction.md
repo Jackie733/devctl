@@ -4,20 +4,22 @@
 
 ## 1. 启动与连接
 
-所有需要工作区的命令（包括 validate、plan、tui 与后台控制）统一按以下顺序选择配置，第一个存在的配置生效，不合并：
+省略子命令时，`devctl` 或 `devctl --config PATH` 直接进入 TUI，保留 `devctl tui` 作为显式入口。指定 validate、plan、start、stop、status、logs、shutdown、run 等子命令时只执行对应操作；未知子命令报错，不回退到 TUI。`--help` / `-h` 和 `--version` / `-V` 直接输出信息并退出。
+
+所有需要工作区的命令（包括默认 TUI 入口、validate、plan、tui 与后台控制）统一按以下顺序选择配置，第一个存在的配置生效，不合并：
 
 1. 显式 `--config PATH`。
 2. 当前目录的 `devctl.toml`，兼容原有用法。
 3. `~/devctl.toml`。
 4. `~/.config/devctl/devctl.toml`。
 
-后两项基于 HOME 查找。找不到时列出查找位置并报错，不创建文件；高优先级位置是目录/无效符号链接或路径检查失败时直接报错。发现只选择路径，各命令仍沿用原有加载规则：需要读取时，解析或读取失败不回退到其他工作区；连接已有后台不重载磁盘配置。帮助、版本及无参数帮助不要求配置。
+后两项基于 HOME 查找。找不到时列出查找位置并报错，不创建文件；高优先级位置是目录/无效符号链接或路径检查失败时直接报错。发现只选择路径，各命令仍沿用原有加载规则：需要读取时，解析或读取失败不回退到其他工作区；连接已有后台不重载磁盘配置。帮助和版本不要求配置；默认进入 TUI 需要配置与终端输入/输出，没有 TTY 时明确报错，不输出界面控制序列。
 
-配置在默认位置时可直接执行 `devctl validate`、`devctl tui` 等短命令；需要固定工作区时，仍可给下列命令加上 `--config /path/to/devctl.toml`：
+配置在默认位置时可直接执行 `devctl`、`devctl validate` 等短命令；需要固定工作区时，仍可给下列命令加上 `--config /path/to/devctl.toml`：
 
 | 命令 | 行为 |
 | --- | --- |
-| `devctl tui` | 连接或创建后台管理实例，显示界面，不自动启动服务 |
+| `devctl` / `devctl tui` | 连接或创建后台管理实例，显示界面，不自动启动服务 |
 | `devctl start web` | 只启动 web，其他项目保持原状态；需要时创建后台管理实例 |
 | `devctl start weapp` / `devctl start middle` | 分别只启动小程序或中台 |
 | `devctl start --all` | 启动默认组合，已运行项目不重复启动 |

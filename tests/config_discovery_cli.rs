@@ -104,6 +104,7 @@ fn explicit_path_then_cwd_then_home_determine_the_workspace_without_merging() {
 fn missing_config_lists_search_locations_and_does_not_start_a_workspace() {
     let fixture = Fixture::new();
     for args in [
+        &[][..],
         &["validate"][..],
         &["tui"],
         &["status"],
@@ -195,11 +196,10 @@ fn explicit_missing_path_never_falls_back_to_a_valid_home_config() {
 }
 
 #[test]
-fn help_version_and_no_arguments_do_not_require_a_config() {
+fn help_and_version_do_not_require_a_config() {
     let fixture = Fixture::new();
     for args in [
-        &[][..],
-        &["--help"],
+        &["--help"][..],
         &["--version"],
         &["validate", "--help"],
         &["tui", "--help"],
