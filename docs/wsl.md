@@ -1,6 +1,6 @@
 # WSL2 安装与项目配置
 
-目标环境已确认是 Windows WSL2；发行版与 CPU 架构尚待核实。当前仓库在 Linux 上通过受控验证，下面是目标 WSL2 的安装与试用流程，不代表已在用户 WSL2 上完成验收。实际进度见 [tasks.md](tasks.md)。
+目标环境已确认是 Windows WSL2、Ubuntu 22.04.5 LTS、x86_64。当前仓库在 Linux 上通过受控验证，下面是目标 WSL2 的安装与试用流程，不代表已在用户 WSL2 上完成验收。实际进度见 [tasks.md](tasks.md)。
 
 ## 1. 在 WSL2 准备源码与工具
 

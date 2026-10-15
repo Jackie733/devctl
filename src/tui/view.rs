@@ -3,7 +3,7 @@ use ratatui::{
     layout::{Constraint, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Clear, Paragraph, Row, Table},
+    widgets::{Block, Clear, Padding, Paragraph, Row, Table},
 };
 
 use super::app::{App, Focus};
@@ -657,10 +657,33 @@ fn help_lines(app: &App) -> Vec<Line<'static>> {
     lines
 }
 
+fn help_block() -> Block<'static> {
+    Block::bordered()
+        .title("Help | j/k scroll | gg/G first/last")
+        .padding(Padding::new(2, 2, 1, 1))
+}
+
+fn help_area(area: Rect, app: &App) -> Rect {
+    let width = area.width.saturating_sub(4).min(80);
+    let inner = help_block().inner(Rect::new(0, 0, width, area.height));
+    let rows = wrapped(help_lines(app), inner.width).len();
+    // Borders, vertical padding and the fixed footer occupy five rows.
+    let height = rows.saturating_add(5).min(usize::from(u16::MAX)) as u16;
+    popup(area, width, height.min(area.height.saturating_sub(2)))
+}
+
+pub fn help_height(area: Rect, app: &App) -> u16 {
+    help_block()
+        .inner(help_area(area, app))
+        .height
+        .saturating_sub(1)
+        .max(1)
+}
+
 pub fn help_max_scroll(area: Rect, app: &App) -> u16 {
-    let area = popup(area, 90, area.height.saturating_sub(2));
-    let height = usize::from(area.height.saturating_sub(3));
-    let count = wrapped(help_lines(app), area.width.saturating_sub(2)).len();
+    let inner = help_block().inner(help_area(area, app));
+    let height = usize::from(inner.height.saturating_sub(1));
+    let count = wrapped(help_lines(app), inner.width).len();
     count.saturating_sub(height).min(usize::from(u16::MAX)) as u16
 }
 
@@ -681,9 +704,9 @@ fn overlay(frame: &mut Frame, app: &App) {
             area,
         );
     } else if app.help {
-        let area = popup(frame.area(), 90, frame.area().height.saturating_sub(2));
+        let area = help_area(frame.area(), app);
         frame.render_widget(Clear, area);
-        let block = Block::bordered().title("Help | j/k scroll | gg/G first/last");
+        let block = help_block();
         let inner = block.inner(area);
         frame.render_widget(block, area);
         let [body, footer] =
@@ -916,6 +939,36 @@ mod tests {
         assert!(!draw(&app, 120, 30).contains("permission denied"));
         app.disconnect("lost".into());
         assert!(draw(&app, 120, 30).contains("state unknown"));
+    }
+
+    #[test]
+    fn help_fits_content_on_large_screens_and_keeps_details_reachable_after_resize() {
+        let mut app = App::new();
+        app.help = true;
+        app.feedback = "HELP-TAIL".into();
+        let large = Rect::new(7, 3, 300, 64);
+        let popup = help_area(large, &app);
+        assert_eq!(popup.width, 80);
+        assert!(popup.height < 40);
+        assert_eq!(popup.x, large.x + (large.width - popup.width) / 2);
+        assert_eq!(popup.y, large.y + (large.height - popup.height) / 2);
+        assert_eq!(help_max_scroll(large, &app), 0);
+        let text = draw(&app, 300, 64);
+        assert!(text.contains("CURRENT PANEL") && text.contains("HELP-TAIL"));
+
+        for (width, height) in [(120, 30), (80, 12), (60, 16), (36, 10)] {
+            let area = Rect::new(0, 0, width, height);
+            let popup = help_area(area, &app);
+            assert!(popup.x >= 2 && popup.right() <= width - 2);
+            assert!(popup.y >= 1 && popup.bottom() < height);
+            app.help_scroll = help_max_scroll(area, &app);
+            let text = draw(&app, width, height);
+            assert!(text.contains("HELP-TAIL"));
+            assert!(text.contains("?/Esc close | q leave"));
+        }
+        // A stale scroll position must not hide content after enlarging the window.
+        let text = draw(&app, 300, 64);
+        assert!(text.contains("CURRENT PANEL") && text.contains("HELP-TAIL"));
     }
 
     #[test]

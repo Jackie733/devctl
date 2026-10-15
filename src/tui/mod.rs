@@ -156,13 +156,11 @@ fn handle_key(app: &mut App, key: KeyEvent, area: ratatui::layout::Rect) -> Acti
             KeyCode::PageDown => {
                 app.help_scroll = app
                     .help_scroll
-                    .saturating_add(area.height.saturating_sub(6).max(1))
+                    .saturating_add(view::help_height(area, app))
                     .min(max)
             }
             KeyCode::PageUp => {
-                app.help_scroll = app
-                    .help_scroll
-                    .saturating_sub(area.height.saturating_sub(6).max(1))
+                app.help_scroll = app.help_scroll.saturating_sub(view::help_height(area, app))
             }
             _ => {}
         }
@@ -627,6 +625,24 @@ mod tests {
         assert_eq!(app.logs.top, Some(1));
         handle_key(&mut app, key(KeyCode::Char('G')), area());
         assert_eq!(app.logs.top, None);
+    }
+
+    #[test]
+    fn help_paging_uses_the_popup_body_and_clamps_at_both_ends() {
+        let mut app = connected();
+        let area = ratatui::layout::Rect::new(0, 0, 60, 16);
+        handle_key(&mut app, key(KeyCode::Char('?')), area);
+        let page = view::help_height(area, &app);
+        assert!(view::help_max_scroll(area, &app) > page);
+        handle_key(&mut app, key(KeyCode::PageDown), area);
+        assert_eq!(app.help_scroll, page);
+        handle_key(&mut app, key(KeyCode::PageUp), area);
+        assert_eq!(app.help_scroll, 0);
+        handle_key(&mut app, key(KeyCode::PageUp), area);
+        assert_eq!(app.help_scroll, 0);
+        handle_key(&mut app, key(KeyCode::Char('G')), area);
+        handle_key(&mut app, key(KeyCode::PageDown), area);
+        assert_eq!(app.help_scroll, view::help_max_scroll(area, &app));
     }
 
     #[test]
