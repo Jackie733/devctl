@@ -2,21 +2,19 @@
 
 这里只保留当前任务与必要交接；历史见 Git，协作规则见 [AGENTS.md](../AGENTS.md)。
 
-## 当前任务：WSL 试用反馈，默认配置发现
+## 当前任务：WSL 试用反馈，web 启动命令与配置生效
 
-- 用户报告 autostart=true 时进入 TUI 未启动，并要求省略 --config，支持 devctl validate / devctl tui。已解释并保留现有约定：autostart 是默认启动组合，进入/重连 TUI 不隐式启动；按 a 或 start --all 才启动该组合。
-- 本轮对应 [requirements.md](requirements.md) W02、W03、U01、R02。配置查找顺序和错误规则只在 [interaction.md](interaction.md) §1 主要维护；保留显式路径和当前目录优先，增加两个 HOME 配置位置，不合并配置、不修改用户配置。
-- 实现：CLI config 改为可选；main 在命令入口统一选择路径，之后沿用既有加载/规范化、锁和 IPC。后台启动器继续显式传入规范化路径，默认与显式路径可连接同一实例。无参数帮助、--help/--version 不要求配置；发现失败直接报错，不进入 TUI 或创建后台。
-- 已更新 README、WSL 安装指南、需求与设计；WSL 获取本次提交并重新 cargo install 后才能使用新查找行为。功能提交见 Git，不自动推送。
+- 用户确认 web 应为 npm run dev；已同步修正 [requirements.md](requirements.md) §1、[DESIGN.md](../DESIGN.md) 配置示例及 [wsl.md](wsl.md)，对应 W01、P02、P05。pnpm 不再作为三个启动命令的统一前置要求。
+- 用户最新实例 #6 日志仍有 pnpm install，因 ERR_PNPM_IGNORED_BUILDS（core-js、esbuild）退出。代码审查确认后台只在创建时加载配置；停止/重新启动单项、q 后重连不会加载改动。配置与后台生命周期约定仍见 DESIGN §6，本轮不增加热重载。
+- WSL 指南补充：显式指定同一配置，shutdown 成功后 validate / plan web / tui；shutdown 会停止工作区全部服务。若新后台仍报错，在项目目录直接运行 npm run dev 并检查 scripts / packageManager，区分后台旧配置与项目脚本间接调用 pnpm。没有用户项目源码，暂不能确定其调用链。
 
 ## 本轮验证
 
-- `cargo test --locked --offline --test config_discovery_cli --test cli`：新增 8 项查找测试与原有 7 项 CLI 测试通过，覆盖两个 HOME 位置、优先级、显式错误不回退、目录/损坏符号链接、无配置反馈、HOME 缺失和帮助命令。
-- 宿主 `cargo test --locked --offline`：**159 项通过**。新增真实 PTY 场景覆盖从无关目录执行短命令 tui、两个 HOME 默认位置、与显式客户端连接同一实例、进入不自动启动。原有后台/日志/进程与 TUI 测试均通过。
-- 本轮 Cargo 命令使用 CARGO_HOME=/tmp/devctl-tui-step1-ta02nj4m/cargo-home；Unix socket、信号与 PTY 在允许这些操作的 Linux 宿主执行。`cargo fmt --check`、`cargo clippy --locked --offline --all-targets -- -D warnings`、`cargo build --release --locked --offline`、`git diff --check` 均通过；6 份文档的 32 个本地链接与 WSL 指南 sh 命令块语法检查通过。
+- 本轮仅修改文档；Python 检查 20 个本地 Markdown 链接、WSL 指南 10 个 sh 命令块语法（sh -n）、示例 TOML 解析与三个 npm 命令一致性，均通过；`git diff --check` 通过。不重复执行 Rust 测试。
+- pnpm 的交互式依赖构建审批依据其官方 approve-builds 文档；未修改真实项目配置、依赖或锁文件，未在用户 WSL 执行启动与审批。
 
 ## 必要交接与下一步
 
-- M1–M5 的首版功能及受控验证已完成，TUI 提交 feaa688，WSL 指南初版 d215d67。此前已通过 150 项完整回归；本轮是在真实试用反馈上补充配置发现。
+- M1–M5 的首版功能及受控验证已完成。默认配置发现提交 ff0de7c，最近一次完整回归 **159 项通过**，fmt、clippy、release 构建通过；命令和环境见该提交的任务记录。未自动推送。
 - 用户目标为 Windows WSL2；三个目录是 ~/code/deepmdt-frontend-pc、~/code/deepmdt-miniprogram-pro、~/code/rtc-middleware/api-proxy，配置示例见 [wsl.md](wsl.md)。目标 WSL 的发行版、架构、脚本/依赖及 stdin 交互要求仍待核实；本宿主没有这三个目录。
-- 继续 M6 的真实 npm/pnpm 流程验收，不能用本机测试通过代替用户体验确认。保留已有 Linux/后台保证与限制：有界近期日志，清理未知不虚报退出，不自动恢复 SIGKILL/断电或 WSL 关闭后的进程，不提前实现其他扩展。
+- 下一步先在 WSL 结束旧后台后仅启动 web，若仍失败，获取直接 npm run dev 的最新错误与 scripts / packageManager 输出；然后继续 M6 的三个真实项目完整流程验收，不能用本机测试通过代替用户体验确认。保留已有 Linux/后台保证与限制：有界近期日志，清理未知不虚报退出，不自动恢复 SIGKILL/断电或 WSL 关闭后的进程，不提前实现其他扩展。

@@ -25,11 +25,10 @@ rustc --version
 cargo --version
 node --version
 npm --version
-pnpm --version
-command -v node npm pnpm
+command -v node npm
 ```
 
-Node.js、npm 和 pnpm 使用目标 WSL 中安装的 Linux 工具，Node 版本沿用各项目要求；启动命令直接继承运行 devctl 时的 PATH，不通过交互式 shell 加载别名。确认三个命令能在各自项目目录手动运行。
+Node.js 和 npm 使用目标 WSL 中安装的 Linux 工具，Node 版本沿用各项目要求；启动命令直接继承运行 devctl 时的 PATH，不通过交互式 shell 加载别名。确认三个开发命令能在各自项目目录手动运行；若项目脚本内部使用 pnpm，再按项目约定准备 pnpm。
 
 尚未安装 Rust 时，使用 [Rust 官方安装说明](https://rust-lang.org/tools/install/) 安装 rustup 和当前 stable 工具链；已有 rustup 可执行 `rustup update stable`。仓库目前以 Rust 1.98.1 实测，不把运行锁所需的 1.89 当作整个依赖树的最低版本承诺。Ubuntu/Debian 缺少构建工具时可先执行：
 
@@ -84,7 +83,7 @@ path = "$HOME/code/rtc-middleware/api-proxy"
 
 [services.web]
 project = "web"
-cmd = ["pnpm", "run", "dev"]
+cmd = ["npm", "run", "dev"]
 autostart = true
 
 [services.weapp]
@@ -125,6 +124,28 @@ devctl --config "$HOME/.config/devctl/devctl.toml" shutdown
 ```
 
 更新源码后，在源码目录重新执行 `cargo +stable install --path . --locked`，再校验并进入 TUI。后台本就不存在时，shutdown 报无法连接；以当前状态为准，不据此创建后台。
+
+### 修改 web 命令后仍出现 pnpm 日志
+
+先确认 `[services.web]` 的 `cmd = ["npm", "run", "dev"]`。按 q 离开 TUI、停止后重新启动单项服务或执行 stop --all，都会保留原后台，不能使配置改动生效。上一段的 shutdown 会停止该工作区的全部服务并结束后台；确认它成功后，再执行：
+
+```sh
+devctl --config "$HOME/.config/devctl/devctl.toml" validate
+devctl --config "$HOME/.config/devctl/devctl.toml" plan web
+devctl --config "$HOME/.config/devctl/devctl.toml" tui
+```
+
+plan 显示磁盘配置，应包含 web 的 npm 命令；它本身不更新现存后台。进入新 TUI 后选中 web 按 s 启动。这里显式指定路径，避免默认发现选中另一份配置。
+
+若新后台仍出现 pnpm 错误，在独立终端运行以下命令，检查 npm 脚本是否间接调用 pnpm：
+
+```sh
+cd "$HOME/code/deepmdt-frontend-pc"
+npm pkg get scripts packageManager
+npm run dev
+```
+
+`ERR_PNPM_IGNORED_BUILDS` 表示依赖安装中的构建脚本未获允许；用户日志中涉及 core-js 和 esbuild。它说明执行链进入了 pnpm install，但仅凭这段输出不能确定最外层命令是 npm 还是 pnpm。如果项目确实需要 pnpm，按项目约定在独立终端审核并执行 [pnpm approve-builds](https://pnpm.io/cli/approve-builds)，再重试。不要仅为消除错误批量放行全部依赖；TUI 不转发服务 stdin，交互式审批应在普通终端完成。
 
 若遇到问题，保留实际命令和完整错误，连同以下环境信息一起排查：
 

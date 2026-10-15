@@ -42,7 +42,7 @@ path = "../middle"
 
 [services.web]
 project = "web"
-cmd = ["pnpm", "run", "dev"]
+cmd = ["npm", "run", "dev"]
 
 [services.weapp]
 project = "weapp"
