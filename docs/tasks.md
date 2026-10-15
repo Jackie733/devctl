@@ -2,11 +2,11 @@
 
 这里只保留当前任务与必要交接；历史见 Git，协作规则见 [AGENTS.md](../AGENTS.md)。
 
-## 当前任务：修复 WSL 日志复制与中间行选择
+## 当前任务：用小写 v 进入日志选择模式
 
-- 本轮起点 7649189，工作区干净。用户反馈日志复制后不能粘贴，且选择只能从首条可见日志开始；关联 M5、M6、L01、U01、X01，优先修复后继续验收。
+- 本轮起点 371c449，工作区干净。用户要求按小写 v 进入日志选择模式；关联 M5、M6、L01、U01，新增 v 作为主要进入/取消选择键，保留 V 兼容，并同步提示与文档。仍为整行选择，不引入字符级选择。
 - 用户已在目标 WSL 确认 command -v clip.exe 输出 /mnt/c/WINDOWS/system32/clip.exe，printf 测试命令执行成功，并明确反馈 Windows 中可以正常粘贴 devctl-copy-test。
-- 本轮已实现本机 WSL 使用 clip.exe、其他环境/SSH 使用 OSC 52；剪贴板异步任务有并发与时间上限，失败保留选区。普通日志导航增加阅读光标，V 从该行开始选择。规则见 [interaction.md](interaction.md) §2.3，资源与状态边界见 [DESIGN.md](../DESIGN.md) §5。
+- 上一轮 371c449 已实现本机 WSL 使用 clip.exe、其他环境/SSH 使用 OSC 52；剪贴板异步任务有并发与时间上限，失败保留选区。普通日志导航增加阅读光标，从该行开始选择。规则见 [interaction.md](interaction.md) §2.3，资源与状态边界见 [DESIGN.md](../DESIGN.md) §5。
 - 新的 TUI 粘贴与中间行选择效果尚待同步构建后由用户确认；目标命令测试成功不等同于新 TUI 整体已验收。
 
 ## 已完成的用户试用与必要交接
@@ -17,7 +17,7 @@
 - 尚未单独收到目标 TUI 顶栏版本显示、q 离开重连、关闭客户端终端重连的明确结果，不因本轮报告复制问题而将这些项目标为通过。全部停止、结束工作区及失败反馈仍待验收。
 - 助手无法反向 SSH 连接目标 WSL，沿用用户在 WSL 通过 scp 拉取当前 Linux 源码包的方式；旧包 fca30e4 不包含本轮复制修复。
 
-## 本轮验证
+## 上一轮验证（371c449）
 
 - cargo fmt --check、cargo clippy --locked --offline --all-targets -- -D warnings：通过。
 - cargo test --locked --offline tui::：38 项 TUI 单元测试通过，覆盖中间行起点、追加日志与缩放时锚点、淘汰/翻页、Unicode 编码、剪贴板非零退出与超时。
@@ -25,9 +25,16 @@
 - cargo test --locked --offline：在允许 Unix socket 的沙箱外最终完整回归 186 项通过（109 单元、77 集成）。首次完整运行有一项原 PTY 测试在发送 Esc 后立即缩放时失败，补充等待帮助实际关闭后再缩放，相关场景与完整回归均重跑通过。
 - 修改文档的本地链接、代码围栏、Python 3 AST 语法及 git diff --check 检查通过；已审查差异。未构建 release 产物，未在用户 WSL 安装本轮构建，不把受控测试记为实际 Windows 剪贴板验收。
 
+## 本轮验证
+
+- cargo fmt --check、cargo clippy --locked --offline --all-targets -- -D warnings：通过。
+- cargo test --locked --offline tui::：38 项通过，既有选择模式检查覆盖 v/V 的进入、取消、服务控制隔离及项目面板不进入日志选择。
+- cargo test --locked --offline --test tui_cli：8 项真实 PTY 测试通过，主要复制流程改用小写 v，保留 V 的兼容场景；使用假 clip.exe，不写真实宿主剪贴板。
+- 修改文档的本地链接、代码围栏、Python 3 AST 语法及 git diff --check 检查通过。仅调整键位和提示，未重跑其他进程管理测试；目标 WSL 的新键位与上一轮复制修复仍待用户确认。
+
 ## 下一步
 
-1. 同步本轮源码并在目标 WSL 重新安装；进入日志后先 j/k 定位中间行，再 V → j/k → y，核对反馈包含 via clip.exe，在 Windows 编辑器粘贴检查正文、中文和换行。
+1. 同步本轮源码并在目标 WSL 重新安装；进入日志后先 j/k 定位中间行，再 v → j/k → y，核对反馈包含 via clip.exe，在 Windows 编辑器粘贴检查正文、中文和换行。371c449 包包含复制修复，但不包含本轮小写 v 键位。
 2. 确认本轮修复后，补齐 q 离开/关闭客户端终端后的原工作区和实例重连结果，再验收 X 全部停止、重新启动无端口残留及 Q 确认结束后台。
 3. 补齐失败反馈与其他未确认项，汇总首版结果。完整规则与验收依据见 [requirements.md](requirements.md) §3。
 

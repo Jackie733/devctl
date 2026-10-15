@@ -169,7 +169,7 @@ fn handle_key(app: &mut App, key: KeyEvent, area: ratatui::layout::Rect) -> Acti
     let height = view::log_height(area, app);
     if app.logs.selection.is_some() {
         match key.code {
-            KeyCode::Esc | KeyCode::Char('V') => app.logs.selection = None,
+            KeyCode::Esc | KeyCode::Char('v' | 'V') => app.logs.selection = None,
             KeyCode::Char('y') => return Action::Copy,
             KeyCode::Char('?') => {
                 app.help = true;
@@ -257,7 +257,7 @@ fn handle_key(app: &mut App, key: KeyEvent, area: ratatui::layout::Rect) -> Acti
         KeyCode::Right | KeyCode::Char('L') => {
             app.logs.horizontal = app.logs.horizontal.saturating_add(8)
         }
-        KeyCode::Char('V') if app.focus == Focus::Logs => {
+        KeyCode::Char('v' | 'V') if app.focus == Focus::Logs => {
             if !app.logs.begin_selection(height) {
                 app.feedback = "No cached output to select.".into();
             }
@@ -738,41 +738,49 @@ mod tests {
 
     #[test]
     fn visual_line_mode_is_modal_and_escape_stays_in_logs() {
-        let mut app = connected();
-        app.focus(Focus::Logs);
-        handle_key(&mut app, key(KeyCode::Char('V')), area());
-        let anchor = app.logs.selection.unwrap().anchor;
-        handle_key(&mut app, key(KeyCode::Char('j')), area());
-        assert_eq!(app.logs.selection.unwrap().head, anchor + 1);
-        for code in ['s', 'x', 'a', 'X', 'Q', 'r', 'h', '1'] {
+        for code in ['v', 'V'] {
+            let mut app = connected();
+            app.focus(Focus::Logs);
+            handle_key(&mut app, key(KeyCode::Char(code)), area());
+            let anchor = app.logs.selection.unwrap().anchor;
+            handle_key(&mut app, key(KeyCode::Char('j')), area());
+            assert_eq!(app.logs.selection.unwrap().head, anchor + 1);
+            for code in ['s', 'x', 'a', 'X', 'Q', 'r', 'h', '1'] {
+                assert!(matches!(
+                    handle_key(&mut app, key(KeyCode::Char(code)), area()),
+                    Action::Redraw
+                ));
+            }
+            assert_eq!(app.focus, Focus::Logs);
+            assert!(!app.confirm_shutdown);
             assert!(matches!(
-                handle_key(&mut app, key(KeyCode::Char(code)), area()),
+                handle_key(&mut app, key(KeyCode::Char('y')), area()),
+                Action::Copy
+            ));
+            handle_key(&mut app, key(KeyCode::Char('?')), area());
+            assert!(matches!(
+                handle_key(&mut app, key(KeyCode::Char('y')), area()),
                 Action::Redraw
             ));
+            handle_key(&mut app, key(KeyCode::Esc), area());
+            assert!(app.logs.selection.is_some());
+            handle_key(&mut app, key(KeyCode::Char(code)), area());
+            assert!(app.logs.selection.is_none());
+            handle_key(&mut app, key(KeyCode::Char(code)), area());
+            assert!(app.logs.selection.is_some());
+            handle_key(&mut app, key(KeyCode::Esc), area());
+            assert!(app.logs.selection.is_none());
+            assert_eq!(app.focus, Focus::Logs);
+            assert!(app.logs.top.is_some());
+            handle_key(&mut app, key(KeyCode::Esc), area());
+            assert_eq!(app.focus, Focus::Projects);
+            assert!(!matches!(
+                handle_key(&mut app, key(KeyCode::Char('y')), area()),
+                Action::Copy
+            ));
+            handle_key(&mut app, key(KeyCode::Char(code)), area());
+            assert!(app.logs.selection.is_none());
         }
-        assert_eq!(app.focus, Focus::Logs);
-        assert!(!app.confirm_shutdown);
-        assert!(matches!(
-            handle_key(&mut app, key(KeyCode::Char('y')), area()),
-            Action::Copy
-        ));
-        handle_key(&mut app, key(KeyCode::Char('?')), area());
-        assert!(matches!(
-            handle_key(&mut app, key(KeyCode::Char('y')), area()),
-            Action::Redraw
-        ));
-        handle_key(&mut app, key(KeyCode::Esc), area());
-        assert!(app.logs.selection.is_some());
-        handle_key(&mut app, key(KeyCode::Esc), area());
-        assert!(app.logs.selection.is_none());
-        assert_eq!(app.focus, Focus::Logs);
-        assert!(app.logs.top.is_some());
-        handle_key(&mut app, key(KeyCode::Esc), area());
-        assert_eq!(app.focus, Focus::Projects);
-        assert!(!matches!(
-            handle_key(&mut app, key(KeyCode::Char('y')), area()),
-            Action::Copy
-        ));
     }
 
     #[tokio::test]

@@ -307,7 +307,7 @@ pub fn render(frame: &mut Frame, app: &App) {
     let context = if app.goto_top {
         "g ... | g top | Esc cancel".into()
     } else if app.logs.selection.is_some() && area.width < 60 {
-        "V j/k y copy Esc".into()
+        "v j/k y copy Esc".into()
     } else if app.logs.selection.is_some() {
         "V-LINE | j/k extend | y copy | Esc cancel".into()
     } else if app.focus == Focus::Projects {
@@ -318,9 +318,9 @@ pub fn render(frame: &mut Frame, app: &App) {
             format!("s/x {id} | j/k select | Enter logs | a default | X stop ALL | Q end")
         }
     } else if area.width < 60 {
-        "j/k V G Esc".into()
+        "j/k v G Esc".into()
     } else {
-        "j/k move | V select | G follow | Esc projects".into()
+        "j/k move | v select | G follow | Esc projects".into()
     };
     let [context_area, global] =
         Layout::horizontal([Constraint::Min(0), Constraint::Length(17)]).areas(screen.footer);
@@ -643,7 +643,7 @@ fn help_lines(app: &App) -> Vec<Line<'static>> {
         "LOGS",
         "Ctrl-u/d: half page | PageUp/PageDown: page",
         "Home: oldest cached | End: follow | H/L or Left/Right: pan",
-        "j/k: move log cursor; V: select from cursor; j/k: extend selection",
+        "j/k: move log cursor; v: select from cursor; j/k: extend selection",
         "In V-LINE: y copies log text; Esc cancels and stays in logs.",
         "Local WSL: copy via clip.exe; elsewhere: terminal clipboard (OSC 52).",
         "Copy feedback names the method; verify by pasting. Failures keep selection.",
