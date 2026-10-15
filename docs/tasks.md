@@ -19,5 +19,8 @@
 
 ## 下一步：M6 三个真实项目试用
 
-- 首版代码与受控流程已完成，尚未把测试通过视作用户已验收产品。由用户提供或在实际配置中核实三个项目目录、开发命令、实际平台及是否需要 stdin 交互，再按需求 §3 完成 npm/pnpm 全流程体验。
+- 首版代码与受控流程已完成，尚未把测试通过视作用户已验收产品。2026-10-15 用户确认目标为 Windows WSL2，目录依次为 ~/code/deepmdt-frontend-pc、~/code/deepmdt-miniprogram-pro、~/code/rtc-middleware/api-proxy。发行版、CPU 架构、实际 package.json/依赖及 stdin 交互需求待目标环境核实；按需求 §3 完成真实项目流程。
+- 已准备 [WSL2 安装指南](wsl.md)：在 WSL 本机 release 编译安装，按已确认路径生成三个项目配置，显式传 --config 校验、进入及更新。配置创建命令保留已有文件；不修改用户远端配置，不自动推送或发布远程 Release。
+- 本轮本机验证：`cargo build --release --locked --offline` 通过；`cargo install --path . --locked --offline --root /tmp/devctl-wsl-install-check` 通过（两者使用此前的临时 CARGO_HOME），已安装二进制 --version 为 devctl 0.1.0；产物为本机 Linux x86_64 动态链接 ELF。未将其等同于目标 WSL2 兼容性证明。
+- 指南中的 8 个 sh 命令块通过 sh -n；用临时模拟 home 和三个目录展开配置，已安装 release 二进制的 validate/plan 均通过，识别三个项目与命令；未执行 npm/pnpm。当前宿主不存在这三个真实目录，目标 WSL2 的安装、依赖与 TUI 流程尚未实测。源码未改，未重复完整测试、fmt 或 clippy；`git diff --check` 与本地链接检查通过（4 份文档、23 个本地链接）。
 - 已有约束保留：当前按 Linux 验证，未宣称其他平台通过；日志只保留有界近期缓存，不落盘；清理未知、SIGKILL/断电、孤儿进程恢复及其他扩展仍遵守现有需求与后台设计，不因完成 TUI 提前增加功能。
