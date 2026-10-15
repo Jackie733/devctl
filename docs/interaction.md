@@ -47,7 +47,7 @@
 
 ### 2.1 界面入口与操作范围
 
-2026-10-15 已实现本节的焦点导航、Vim 风格键位、自适应布局、上下文帮助及整行选择复制；受控验证见 [tasks.md](tasks.md)，三个真实项目的 WSL2 试用仍待用户审核。本轮不加入 `:` 命令行。
+2026-10-15 已实现本节的焦点导航、Vim 风格键位、自适应布局、上下文帮助及整行选择复制，用户已确认三个真实项目的 WSL2 试用通过；受控验证见 [tasks.md](tasks.md)。首版不加入 `:` 命令行。
 
 进入 TUI 后直接显示项目管理界面与连接反馈，不播放启动动画。宽屏左侧项目、右侧日志；窄屏显示当前活动面板。`s/x` 操作选中项目，`a` 启动默认组合，`X` 停止全部并保留后台，`q/Ctrl-C` 只离开客户端，`Q` 经确认后结束工作区。
 
@@ -127,7 +127,7 @@
 宽屏示意（内容为虚构示例；实际列表沿用 Service ID 排序，界面标签先沿用现有英文）：
 
 ```text
-devctl 0.2.0 | Connected | workspace 8f12ab34
+devctl 1.0.0 | Connected | workspace 8f12ab34
 ┌ [1] Projects · ACTIVE ───┐┌ [0] Logs · FAILED: web | #6 ─────────────────────┐
 │   middle   Stopped       ││ FAILED | Process ended; retained logs.           │
 │   weapp    Running       ││ [stdout #6 seq=148] Starting dev server          │
@@ -187,7 +187,7 @@ s/x web  j/k select  Enter logs  a default  X stop ALL       ? help  q leave
 
 ### 2.6 验收场景
 
-以下为行为验收依据。状态转换、TestBackend 和真实 PTY 的受控验证记录见任务文档；最后一项真实项目验收仍待用户完成：
+以下为行为验收依据。状态转换、TestBackend 和真实 PTY 的受控验证记录见任务文档；2026-10-15 用户已明确确认真实项目验收通过：
 
 1. 全部停止时，用 `j/k` 选 web、`s` 启动；`Enter` 进入日志后 `j/k` 移动日志阅读光标，到边缘滚动，不切换项目；`Esc` 回列表。验证 P01、U01、L01。
 2. `h/l`、`Tab/Shift-Tab`、`1/0` 只改焦点；列表首尾不越界；无项目时导航与单项操作有明确反馈。验证 U01。

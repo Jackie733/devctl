@@ -1,6 +1,33 @@
 # WSL2 安装与项目配置
 
-目标环境已确认是 Windows WSL2、Ubuntu 22.04.5 LTS、x86_64。当前仓库在 Linux 上通过受控验证，下面是目标 WSL2 的安装与试用流程，不代表已在用户 WSL2 上完成验收。实际进度见 [tasks.md](tasks.md)。
+目标环境是 Windows WSL2、Ubuntu 22.04.5 LTS、x86_64；2026-10-15 用户确认 MVP 完整验收通过，发布版本为 1.0.0。以下保留安装、配置与验收流程，验证证据见 [tasks.md](tasks.md)。
+
+## 0. 安装 1.0.0 发布程序（无需 Rust）
+
+[v1.0.0 Release](https://github.com/Jackie733/devctl/releases/tag/v1.0.0) 提供 Linux x86_64 musl 静态程序，不依赖宿主 glibc 版本；目标架构应为 `uname -m` 输出的 `x86_64`。仓库保持私有，需要有访问权限的 GitHub 账号；不能直接把私有附件 URL 交给不支持认证的外部更新器。可在已安装并登录 GitHub CLI 的 WSL 中下载：
+
+```sh
+gh auth status
+gh release download v1.0.0 --repo Jackie733/devctl \
+  --pattern devctl-v1.0.0-x86_64-unknown-linux-musl \
+  --pattern devctl-update --pattern SHA256SUMS \
+  --dir "$HOME/Downloads/devctl-v1.0.0"
+cd "$HOME/Downloads/devctl-v1.0.0"
+sha256sum --check --ignore-missing SHA256SUMS
+```
+
+也可从 Release 页面登录下载相同三个附件，再进入下载目录校验。校验全部成功后，已有版本的用户先按 §4 结束各工作区旧后台并退出 TUI，再安装；首次安装直接执行：
+
+```sh
+binary_sha=$(awk '$2 == "devctl-v1.0.0-x86_64-unknown-linux-musl" { print $1 }' SHA256SUMS)
+bash ./devctl-update ./devctl-v1.0.0-x86_64-unknown-linux-musl "$binary_sha"
+export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
+rehash
+command -v devctl
+devctl --version
+```
+
+预期输出 `devctl 1.0.0`，安装位置为 `~/.local/bin/devctl`。长期 PATH 设置见 §2，项目配置见 §3；已有配置继续使用。下方 §1–§2 是从源码编译的替代方式。
 
 ## 1. 在 WSL2 准备源码与工具
 
@@ -14,9 +41,9 @@ wsl -l -v
 
 源码建议放在 WSL 的 `~/code/devctl`，三个项目也使用已确认的 WSL 路径。微软建议使用 Linux 工具开发时将项目放在 WSL 文件系统中；参考 [WSL 文件系统说明](https://learn.microsoft.com/en-us/windows/wsl/filesystems) 与 [WSL 基本命令](https://learn.microsoft.com/en-us/windows/wsl/basic-commands)。
 
-确认源码包含 TUI 与默认配置发现功能；新版本的 `devctl --help` 会列出默认配置查找路径。本会话没有自动推送；仅克隆远程仓库不保证拿到本地尚未推送的代码。可将最新源码传到 WSL，或自行推送后在 WSL 获取，不需要复制 target 编译缓存。
+源码可从 Release 的 `devctl-v1.0.0-source.tar.gz` 获取，或克隆仓库后检出 `v1.0.0` 标签；无需复制 target 编译缓存。`devctl --help` 会列出默认配置查找路径。
 
-本会话提供的源码归档带有提交号，解压后是 devctl 目录，不含 .git 或 target；使用归档时跳过下面的 git log。可以先解压到独立目录，避免覆盖已有源码，再将 devctl 目录放到 ~/code/devctl。
+发布源码归档解压后是 devctl-1.0.0 目录，不含 .git 或 target；使用归档时跳过下面的 git log。可以先解压到独立目录，避免覆盖已有源码，再将源码目录放到 ~/code/devctl。
 
 ```sh
 cd "$HOME/code/devctl"
@@ -42,11 +69,11 @@ sudo apt install -y build-essential curl git python3
 在最新源码目录执行：
 
 ```sh
-cargo +stable install --path . --locked
+cargo +stable install --path . --locked --force
 "$HOME/.cargo/bin/devctl" --version
 ```
 
-当前功能版本为 0.2.0，安装后版本输出应为 `devctl 0.2.0`。
+当前稳定版本为 1.0.0，安装后版本输出应为 `devctl 1.0.0`。
 
 `cargo install` 默认使用 release 优化构建并安装；通常安装到 `~/.cargo/bin/devctl`，无需先单独运行 `cargo build --release`。`--locked` 使用仓库已有 Cargo.lock；首次安装不加 `--offline`，允许下载依赖。若设置了 CARGO_HOME、CARGO_INSTALL_ROOT 或 Cargo 安装配置，安装目录按其设置变化，以 Cargo 输出为准。参考 [Cargo install 文档](https://doc.rust-lang.org/cargo/commands/cargo-install.html)。
 
@@ -177,14 +204,14 @@ devctl-update --help
 
 ### 准备二进制与校验值
 
-目前仓库没有自动发布流程，不能直接假设某个 Release 地址已存在。可先在与目标 WSL 架构、系统库兼容的 Linux 环境中构建：
+优先使用 §0 的发布附件与校验值。仓库尚无自动发布流程；自行构建时，应在与目标 WSL 架构、系统库兼容的 Linux 环境中构建：
 
 ```sh
 cargo +stable build --release --locked
 sha256sum target/release/devctl
 ```
 
-将 `target/release/devctl` 传到目标 WSL，例如保存为 `~/Downloads/devctl`，同时从构建方取得输出中的 64 位 SHA-256。WSL 收到预编译程序后无需 Rust 或 Cargo。目标架构可用 `uname -m` 核对；仅架构相同仍不足以保证系统库兼容，需要实际运行验证。后续发布系统提供二进制和校验值后，直接使用其 HTTPS 地址。
+将 `target/release/devctl` 传到目标 WSL，例如保存为 `~/Downloads/devctl`，同时从构建方取得输出中的 64 位 SHA-256。WSL 收到预编译程序后无需 Rust 或 Cargo。目标架构可用 `uname -m` 核对；仅架构相同仍不足以保证系统库兼容，需要实际运行验证。当前发布附件通过 §0 的认证下载取得；只有无需认证的 HTTPS 来源才能直接交给外部更新器。
 
 SHA-256 用于核对文件是否符合预期；程序与预期校验值应来自可信的构建或发布来源。更新器会在执行候选程序前比较校验值。
 
@@ -230,7 +257,7 @@ git log -5 --oneline
 whence -va devctl
 ```
 
-Zsh 的 whence 会显示别名、函数及 PATH 中的各个安装位置。特别注意 ~/.local/bin/devctl 优先于 ~/.cargo/bin/devctl：cargo install 只更新 Cargo 安装位置，可能没有更新实际启动的文件。历史构建曾共用 0.1.0，本次功能版已升至 0.2.0；版本字符串能区分这两个功能版本，同一版本下的不同构建仍需结合源码或文件校验值核对。
+Zsh 的 whence 会显示别名、函数及 PATH 中的各个安装位置。特别注意 ~/.local/bin/devctl 优先于 ~/.cargo/bin/devctl：cargo install 只更新 Cargo 安装位置，可能没有更新实际启动的文件。历史试用版本为 0.1.0、0.2.0，当前稳定版为 1.0.0；同一版本下的不同构建仍需结合源码或文件校验值核对。
 
 确认源码包含上述提交后，可用显式源码运行隔离安装路径问题：`cargo +stable run --locked -- --config "$HOME/.config/devctl/devctl.toml" tui`。它会按需编译当前源码；若此时底部为两行，再更新实际安装位置。布局由客户端绘制，结束后台本身不会更新旧客户端；后台升级规则仍按本节前文执行。
 

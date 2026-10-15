@@ -1,6 +1,6 @@
 # devctl 首版设计
 
-依据 [已确认需求](docs/requirements.md)：统一管理 web、微信小程序和 Node.js 中台的三个开发命令。本文是逐步落地的设计，不表示代码均已实现；操作规则见 [interaction.md](docs/interaction.md)，进度见 [tasks.md](docs/tasks.md)。后台运行已确认纳入首版；依赖编排、探针与重启后恢复在 MVP 完成后再评估，历史方案可从 Git 查询。
+依据 [已确认需求](docs/requirements.md)：统一管理 web、微信小程序和 Node.js 中台的三个开发命令。首版已实现并由用户确认验收通过，版本为 1.0.0；尚未实现的 MVP 后方案单独标注。操作规则见 [interaction.md](docs/interaction.md)，验证证据见 [tasks.md](docs/tasks.md)。后台运行已纳入首版；依赖编排、探针与重启后恢复继续待评估，历史方案可从 Git 查询。
 
 ## 1. 数据流与职责
 
@@ -136,7 +136,7 @@ client::transact 保留完整 Response 以及后台身份，ClientError 区分�
 
 终端修改前检查输入/输出 TTY，先建立 guard，再记录将要尝试的 raw mode、alternate screen、隐藏光标设置，以处理写入部分成功后报错。初始化错误显式回滚；恢复逐项尽力执行并保留所有错误，不因一项失败跳过后续步骤。正常退出、输入/绘制错误和 SIGINT/SIGTERM/SIGHUP 均回收客户端请求并恢复；Drop 兜底，panic hook 在打印诊断前尽力恢复。raw mode 的 Ctrl-C 作为按键处理。退出不撤销后台已受理操作，不发送隐式 stop/shutdown；不承诺 SIGKILL 后恢复。
 
-验证包括 App 状态转换和日志边界、TestBackend 的正常/窄窗口及弹窗、真实 PTY 中的控制/重连/退出/高输出。PTY 使用独立临时配置及受控程序，CLI 状态和进程启动记录作为独立证据；Running 不保证程序已写入测试启动标记。测试和限制见 [任务记录](docs/tasks.md)，三个真实项目的完整体验仍需用户试用。
+验证包括 App 状态转换和日志边界、TestBackend 的正常/窄窗口及弹窗、真实 PTY 中的控制/重连/退出/高输出。PTY 使用独立临时配置及受控程序，CLI 状态和进程启动记录作为独立证据；Running 不保证程序已写入测试启动标记。测试和限制见 [任务记录](docs/tasks.md)；2026-10-15 用户另行确认三个真实项目的完整体验通过。
 
 ### 5.2 TUI 焦点、布局与上下文反馈
 
@@ -205,7 +205,7 @@ flowchart LR
 
 ## 6. 后台生命周期与控制通道
 
-后台是本机、当前用户的独立管理进程，不依附 TUI 的控制终端。后台及服务不得继承客户端的终端 stdin/stdout/stderr；客户端关闭、断开或收到 Ctrl-C 不转成服务停止。脱离终端与启动握手已通过真实 PTY 关闭和重连的受控测试；完整项目体验仍待试用。
+后台是本机、当前用户的独立管理进程，不依附 TUI 的控制终端。后台及服务不得继承客户端的终端 stdin/stdout/stderr；客户端关闭、断开或收到 Ctrl-C 不转成服务停止。脱离终端与启动握手已通过真实 PTY 关闭和重连的受控测试，用户已确认目标 WSL2 的完整项目验收通过。
 
 已实现隐藏的 supervise 内部入口：加载配置、注册信号、持锁创建空闲 Manager，不应用 autostart；空闲也保持运行，SIGINT/SIGTERM 后收尾。该入口可前台调试，也可由启动器以 --detached 创建独立会话。start 按需创建后台，stop/status/shutdown 只连接已有实例。
 
