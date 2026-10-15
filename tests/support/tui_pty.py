@@ -82,7 +82,7 @@ class Screen:
 
 
 class Tui:
-    def __init__(self, workspace, discover=False):
+    def __init__(self, workspace, discover=False, windows_clipboard=False):
         self.workspace = workspace
         self.master, self.slave = pty.openpty()
         self.screen = Screen()
@@ -91,6 +91,12 @@ class Tui:
         self._winsize(120, 30)
         args = [BINARY, 'tui'] if discover else [BINARY, '--config', str(workspace.config), 'tui']
         environment = os.environ.copy()
+        # Never write to the real host clipboard, even when the suite runs in WSL.
+        environment['SSH_CONNECTION'] = 'devctl-pty-test'
+        if windows_clipboard:
+            environment.pop('SSH_CONNECTION')
+            environment['WSL_DISTRO_NAME'] = 'devctl-pty-test'
+            environment['PATH'] = str(workspace.root) + os.pathsep + environment.get('PATH', '')
         directory = workspace.root / 'unrelated-directory'
         directory.mkdir(exist_ok=True)
         if discover:
@@ -285,6 +291,7 @@ def lifecycle():
         ui.send(b'?')
         ui.wait('business readiness')
         ui.send(b'\x1b')
+        ui.wait(lambda text: 'Help |' not in text)
         ui.resize(50, 14)
         ui.wait('Selected: web | Running')
         ui.wait('q leave')
@@ -414,7 +421,9 @@ def navigation():
         assert selected in ui.screen.text()
         anchor = re.search(r'seq=(\d+)', ui.screen.text()).group(1)
         ui.send(b'j')
-        ui.wait(lambda text: re.search(r'seq=(\d+)', text).group(1) != anchor)
+        ui.wait(lambda text: re.search(r'> \[(?:stdout|stderr) #\d+ seq=(\d+)\]', text))
+        cursor = re.search(r'> \[(?:stdout|stderr) #\d+ seq=(\d+)\]', ui.screen.text()).group(1)
+        assert cursor != anchor and re.search(r'seq=(\d+)', ui.screen.text()).group(1) == anchor
         assert selected in ui.screen.text(), 'Log j changed the selected project'
         ui.send(b'?sxaXQ')
         ui.wait('CURRENT PANEL')
@@ -461,16 +470,18 @@ def copying():
         w.states(web='Running', weapp='Stopped', middle='Stopped')
         ui.wait('web-line-')
         ui.pump(.6)
-        ui.send(b'0V')
+        ui.send(b'0ggjj')
+        ui.wait(lambda text: '> [stdout' in text or '> [stderr' in text)
+        ui.send(b'V')
         ui.wait('V-LINE')
         bodies = re.findall(r'\[(?:stdout|stderr) #\d+ seq=\d+\] ([^│\n]*)', ui.screen.text())
-        assert len(bodies) >= 2
-        expected = '\n'.join(body.rstrip() for body in bodies[:2]) + '\n'
+        assert len(bodies) >= 4
+        expected = '\n'.join(body.rstrip() for body in bodies[2:4]) + '\n'
         ui.send(b'jsxaXQy')
         ui.wait(lambda _: ui.screen.clipboard_requests == 1)
         assert ui.screen.clipboard == expected, (repr(ui.screen.clipboard), repr(expected))
         assert 'seq=' not in ui.screen.clipboard
-        ui.wait('Sent 2 lines to terminal clipboard')
+        ui.wait('Sent 2 lines via OSC 52')
         w.states(web='Running', weapp='Stopped', middle='Stopped')
         ui.send(b'y')
         ui.pump(.1)
@@ -489,6 +500,77 @@ def copying():
         ui.wait('V-LINE')
         ui.exit()
         w.states(web='Running')
+    finally: w.close()
+
+
+def windows_copying():
+    w = Workspace()
+    try:
+        worker = w.root / 'worker.py'
+        worker.write_text(worker.read_text().replace(
+            "print(service + '-line-' + str(number))",
+            "print(service + '-line-' + str(number) + '-中文🙂')"))
+        clip = w.root / 'clip.exe'
+        clip.write_text('''#!/usr/bin/env python3
+import os, sys, time
+from pathlib import Path
+root = Path(__file__).parent
+(root / 'clip.pid').write_text(str(os.getpid()))
+mode = (root / 'clip.mode').read_text()
+if mode == 'fail': sys.exit(7)
+if mode == 'slow': time.sleep(.8)
+if mode == 'hang': time.sleep(60)
+(root / 'clipboard.bin').write_bytes(sys.stdin.buffer.read())
+''')
+        clip.chmod(0o700)
+        mode = w.root / 'clip.mode'
+        mode.write_text('ok')
+        ui = Tui(w, windows_clipboard=True)
+        ui.choose('web')
+        ui.send(b's')
+        w.states(web='Running', weapp='Stopped', middle='Stopped')
+        ui.wait('web-line-')
+        ui.pump(.6)
+        ui.send(b'0ggjjVjy')
+        ui.wait('Copied 2 lines via clip.exe')
+        copied = (w.root / 'clipboard.bin').read_bytes().decode('utf-16le')
+        assert '中文🙂' in copied and len(copied.splitlines()) == 2 and copied.endswith('\n'), repr(copied)
+        assert 'seq=' not in copied and not copied.startswith('\ufeff')
+        assert ui.screen.clipboard_requests == 0, 'Native copy also emitted OSC 52'
+
+        mode.write_text('fail')
+        ui.send(b'Vy')
+        ui.wait('Clipboard copy failed:')
+        ui.wait('V-LINE')
+        assert ui.screen.clipboard_requests == 0, 'Native failure silently fell back to OSC 52'
+
+        # Changing the range during an in-flight copy must preserve the new range.
+        mode.write_text('slow')
+        ui.send(b'y')
+        ui.wait('Copying 1 log lines')
+        ui.send(b'j?')
+        ui.wait('Help |')
+        ui.pump(1)
+        ui.send(b'\x1b')
+        ui.wait('V-LINE 2 selected')
+        ui.wait('Copied 1 lines via clip.exe')
+
+        # A blocked native process must not prevent leaving or stop managed services.
+        mode.write_text('hang')
+        (w.root / 'clip.pid').unlink()
+        ui.send(b'y')
+        ui.wait('Copying 2 log lines')
+        deadline = time.monotonic() + 3
+        while not (w.root / 'clip.pid').exists():
+            assert time.monotonic() < deadline
+            ui.pump(.02)
+        pid = int((w.root / 'clip.pid').read_text())
+        ui.exit()
+        w.states(web='Running', weapp='Stopped', middle='Stopped')
+        deadline = time.monotonic() + 3
+        while Path(f'/proc/{pid}').exists():
+            assert time.monotonic() < deadline, 'Native clipboard process survived client exit'
+            time.sleep(.02)
     finally: w.close()
 
 
@@ -524,5 +606,6 @@ def config_discovery():
 
 
 {'lifecycle': lifecycle, 'reconnect': reconnect, 'slow': slow_stop_and_failure, 'high': high_output,
- 'discovery': config_discovery, 'navigation': navigation, 'copying': copying}[sys.argv[2]]()
+ 'discovery': config_discovery, 'navigation': navigation, 'copying': copying,
+ 'windows-copying': windows_copying}[sys.argv[2]]()
 print('PASS:', sys.argv[2])

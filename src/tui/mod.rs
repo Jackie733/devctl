@@ -231,7 +231,7 @@ fn handle_key(app: &mut App, key: KeyEvent, area: ratatui::layout::Rect) -> Acti
         match key.code {
             KeyCode::Char('g') => app.logs.oldest(),
             KeyCode::Char('G') => app.logs.follow(),
-            _ => app.logs.scroll(direction, height),
+            _ => app.logs.move_reading(direction, height),
         }
         return Action::Redraw;
     }
@@ -299,6 +299,7 @@ pub async fn run(path: &Path) -> Result<(), String> {
     let mut hangup = signal(SignalKind::hangup()).map_err(|error| error.to_string())?;
     let mut guard = terminal::TerminalGuard::enter().map_err(|error| error.to_string())?;
     let mut requests = Requests::default();
+    let mut copies = JoinSet::new();
 
     let result = async {
         let path = path.canonicalize().map_err(|error| format!("Failed to resolve config path {}: {error}", path.display()))?;
@@ -351,14 +352,17 @@ pub async fn run(path: &Path) -> Result<(), String> {
                                     dirty = true;
                                 }
                                 Action::Copy => {
+                                    if !copies.is_empty() {
+                                        app.feedback = "Clipboard copy in progress; wait before copying again.".into();
+                                        dirty = true;
+                                        continue;
+                                    }
                                     match app.logs.selected_text() {
-                                        Ok((text, count)) => match terminal::copy_logs(&mut stdout(), &text) {
-                                            Ok(()) => {
-                                                app.logs.selection = None;
-                                                app.feedback = format!("Sent {count} lines to terminal clipboard; verify paste.");
-                                            }
-                                            Err(error) => app.feedback = format!("Clipboard write failed: {error}; selection retained."),
-                                        },
+                                        Ok((text, count)) => {
+                                            let context = (app.epoch, app.selection_epoch, app.logs.selection);
+                                            copies.spawn(async move { (context, count, terminal::copy_logs(&text).await) });
+                                            app.feedback = format!("Copying {count} log lines...");
+                                        }
                                         Err(error) => app.feedback = error.into(),
                                     }
                                     dirty = true;
@@ -374,11 +378,30 @@ pub async fn run(path: &Path) -> Result<(), String> {
                         Event::Resize(width, height) => {
                             let area = ratatui::layout::Rect::new(0, 0, width, height);
                             let height = view::log_height(area, &app);
-                            app.logs.move_selection(0, height);
+                            app.logs.keep_visible(height);
                             dirty = true;
                         },
                         _ => {}
                     }
+                }
+                Some(completion) = copies.join_next(), if !copies.is_empty() => {
+                    match completion {
+                        Ok((context, count, result)) => {
+                            let unchanged = context == (app.epoch, app.selection_epoch, app.logs.selection);
+                            match result {
+                                Ok(target) => {
+                                    if unchanged { app.logs.selection = None; }
+                                    app.feedback = match target {
+                                        terminal::CopyTarget::Windows => format!("Copied {count} lines via clip.exe; verify paste."),
+                                        terminal::CopyTarget::Terminal => format!("Sent {count} lines via OSC 52; terminal support required; verify paste."),
+                                    };
+                                }
+                                Err(error) => app.feedback = format!("Clipboard copy failed: {error}. Select again or retry y."),
+                            }
+                        }
+                        Err(error) => app.feedback = format!("Clipboard task failed: {error}"),
+                    }
+                    dirty = true;
                 }
                 Some(completion) = requests.tasks.join_next_with_id(), if !requests.tasks.is_empty() => {
                     let (id, completed) = match completion {
@@ -472,6 +495,7 @@ pub async fn run(path: &Path) -> Result<(), String> {
 
     // These tasks only own client connections, never service processes.
     requests.tasks.shutdown().await;
+    copies.shutdown().await;
     match (result, guard.restore()) {
         (Ok(()), Ok(())) => Ok(()),
         (Err(error), Ok(())) => Err(error),
@@ -556,7 +580,8 @@ mod tests {
         }
         handle_key(&mut app, key(KeyCode::Enter), area());
         handle_key(&mut app, key(KeyCode::Char('j')), area());
-        assert_eq!(app.logs.top, Some(2));
+        assert_eq!(app.logs.top, Some(1));
+        assert_eq!(app.logs.reading, Some(2));
         assert_eq!(app.selected.as_deref(), Some("a"));
         handle_key(&mut app, key(KeyCode::Esc), area());
         assert!(matches!(

@@ -77,6 +77,7 @@ pub struct LogWindow {
     bytes: usize,
     pub cursor: Option<u64>,
     pub top: Option<u64>,
+    pub reading: Option<u64>,
     pub horizontal: u16,
     pub dropped: u64,
     pub incomplete: bool,
@@ -117,6 +118,15 @@ impl LogWindow {
             self.top = self.records.front().map(|record| record.sequence);
             self.anchor_lost = true;
         }
+        if self.reading.is_some_and(|sequence| {
+            !self
+                .records
+                .iter()
+                .any(|record| record.sequence == sequence)
+        }) {
+            self.reading = None;
+            self.anchor_lost = true;
+        }
         if self.selection.is_some_and(|selection| {
             !self
                 .records
@@ -135,11 +145,21 @@ impl LogWindow {
     }
 
     pub fn begin_selection(&mut self, height: usize) -> bool {
-        let Some(record) = self.records.get(self.start(height)) else {
+        let start = self.start(height);
+        let Some(record) = self
+            .reading
+            .and_then(|sequence| {
+                self.records
+                    .iter()
+                    .find(|record| record.sequence == sequence)
+            })
+            .or_else(|| self.records.get(start))
+        else {
             return false;
         };
         let sequence = record.sequence;
-        self.top = Some(sequence);
+        self.top = Some(self.records[start].sequence);
+        self.reading = Some(sequence);
         self.selection = Some(LineSelection {
             anchor: sequence,
             head: sequence,
@@ -163,6 +183,46 @@ impl LogWindow {
             .saturating_add_signed(amount)
             .min(self.records.len().saturating_sub(1));
         selection.head = self.records[next].sequence;
+        self.reading = Some(selection.head);
+        self.keep_visible(height);
+    }
+
+    pub fn move_reading(&mut self, amount: isize, height: usize) {
+        if self.records.is_empty() {
+            return;
+        }
+        let start = self.start(height);
+        let current = self
+            .reading
+            .and_then(|sequence| {
+                self.records
+                    .iter()
+                    .position(|record| record.sequence == sequence)
+            })
+            .unwrap_or(start);
+        let next = current
+            .saturating_add_signed(amount)
+            .min(self.records.len() - 1);
+        self.reading = Some(self.records[next].sequence);
+        self.top = Some(self.records[start].sequence);
+        self.keep_visible(height);
+    }
+
+    pub fn keep_visible(&mut self, height: usize) {
+        let Some(sequence) = self
+            .selection
+            .map(|selection| selection.head)
+            .or(self.reading)
+        else {
+            return;
+        };
+        let Some(next) = self
+            .records
+            .iter()
+            .position(|record| record.sequence == sequence)
+        else {
+            return;
+        };
         let start = self.start(height);
         if next < start {
             self.top = Some(self.records[next].sequence);
@@ -214,6 +274,7 @@ impl LogWindow {
     }
 
     pub fn scroll(&mut self, amount: isize, height: usize) {
+        self.reading = None;
         let last = self.records.len().saturating_sub(height);
         let start = self.start(height).saturating_add_signed(amount).min(last);
         self.top = if amount > 0 && start == last {
@@ -224,11 +285,13 @@ impl LogWindow {
     }
 
     pub fn oldest(&mut self) {
+        self.reading = None;
         self.top = self.records.front().map(|record| record.sequence);
     }
 
     pub fn follow(&mut self) {
         self.selection = None;
+        self.reading = None;
         self.top = None;
         self.anchor_lost = false;
     }
@@ -456,6 +519,50 @@ mod tests {
             gap: false,
             latest: 100_000,
         }
+    }
+
+    #[test]
+    fn reading_cursor_starts_selection_in_the_middle_and_survives_output_and_resize() {
+        let mut logs = LogWindow::default();
+        logs.append(batch(1..=20, 1));
+        logs.move_reading(2, 5);
+        assert_eq!(logs.reading, Some(18));
+        assert_eq!(logs.top, Some(16));
+        logs.begin_selection(5);
+        assert_eq!(logs.selection.unwrap().anchor, 18);
+        assert_eq!(logs.top, Some(16));
+        logs.move_selection(1, 5);
+        logs.append(batch(21..=25, 1));
+        assert_eq!(logs.selection.unwrap().head, 19);
+        assert_eq!(logs.reading, Some(19));
+        assert_eq!(logs.top, Some(16));
+        logs.selection = None;
+        logs.keep_visible(1);
+        assert_eq!(logs.top, Some(19));
+        logs.begin_selection(1);
+        assert_eq!(logs.selection.unwrap().anchor, 19);
+        logs.follow();
+        assert_eq!(logs.reading, None);
+        assert_eq!(logs.selection, None);
+        assert_eq!(logs.top, None);
+    }
+
+    #[test]
+    fn evicted_reading_cursor_is_cleared_and_paging_repositions_selection_start() {
+        let mut logs = LogWindow::default();
+        logs.append(batch(1..=20, 1));
+        logs.oldest();
+        logs.move_reading(2, 5);
+        logs.scroll(5, 5);
+        assert_eq!(logs.reading, None);
+        logs.begin_selection(5);
+        assert_eq!(logs.selection.unwrap().anchor, 6);
+        logs.selection = None;
+        logs.append(batch(21..=4102, 1));
+        assert_eq!(logs.reading, None);
+        assert!(logs.anchor_lost);
+        logs.begin_selection(5);
+        assert_eq!(logs.selection.unwrap().anchor, 7);
     }
 
     #[test]

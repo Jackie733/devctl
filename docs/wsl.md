@@ -267,4 +267,15 @@ devctl --version
 command -v node npm pnpm
 ```
 
-目标 WSL2 上的自动检查可在源码目录运行 `cargo +stable test --locked --test tui_cli` 和 `cargo +stable test --locked`；这些测试使用独立临时配置及 Python 3、sh，不使用上述三个真实项目。
+目标 WSL2 上的自动检查可在源码目录运行 `cargo +stable test --locked --test tui_cli` 和 `cargo +stable test --locked`；这些测试使用独立临时配置及 Python 3、sh，不使用上述三个真实项目。剪贴板测试使用假 clip.exe 或截获 OSC 52，不写入真实 Windows 剪贴板。
+
+### 日志复制后无法粘贴
+
+复制通道规则见 [interaction.md](interaction.md#整行选择与复制)。在运行 devctl 的同一个 WSL 环境检查：
+
+```sh
+command -v clip.exe
+printf 'devctl-copy-test' | clip.exe
+```
+
+在 Windows 记事本粘贴核对测试文本。本次目标环境已确认 /mnt/c/WINDOWS/system32/clip.exe 可执行，且上述文本可以正常粘贴。更新后的 TUI 在本机 WSL 使用该程序，反馈应包含 via clip.exe；如果显示 via OSC 52，则实际使用的是终端通道，需核对是否通过 SSH 运行。clip.exe 缺失、启动失败或超时不会被误报为复制成功，按反馈排查互操作与 PATH 后可保留原选区按 y 重试。

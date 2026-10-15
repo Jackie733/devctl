@@ -320,7 +320,7 @@ pub fn render(frame: &mut Frame, app: &App) {
     } else if area.width < 60 {
         "j/k V G Esc".into()
     } else {
-        "j/k scroll | V select | G follow | Esc projects".into()
+        "j/k move | V select | G follow | Esc projects".into()
     };
     let [context_area, global] =
         Layout::horizontal([Constraint::Min(0), Constraint::Length(17)]).areas(screen.footer);
@@ -493,11 +493,15 @@ fn logs_view(frame: &mut Frame, area: Rect, app: &App) {
             let head = app
                 .logs
                 .selection
-                .is_some_and(|selection| selection.head == record.sequence);
+                .map(|selection| selection.head)
+                .or(app.logs.reading)
+                .is_some_and(|sequence| sequence == record.sequence);
             let row_style = if selected {
                 Style::default()
                     .bg(if head { Color::Blue } else { Color::DarkGray })
                     .fg(Color::White)
+            } else if head && app.focus == Focus::Logs {
+                Style::default().bg(Color::DarkGray)
             } else {
                 Style::default()
             };
@@ -507,7 +511,7 @@ fn logs_view(frame: &mut Frame, area: Rect, app: &App) {
                 } else {
                     ""
                 };
-            let pointer = if app.logs.selection.is_some() {
+            let pointer = if app.logs.selection.is_some() || app.logs.reading.is_some() {
                 if head { "> " } else { "  " }
             } else {
                 ""
@@ -520,6 +524,8 @@ fn logs_view(frame: &mut Frame, area: Rect, app: &App) {
                     ),
                     if selected {
                         row_style
+                    } else if head && app.focus == Focus::Logs {
+                        Style::default().fg(Color::Cyan)
                     } else {
                         Style::default().fg(Color::DarkGray)
                     },
@@ -612,7 +618,9 @@ fn help_lines(app: &App) -> Vec<Line<'static>> {
     } else {
         match app.focus {
             Focus::Projects => "j/k or Up/Down: select | gg/G: first/last | Enter: logs",
-            Focus::Logs => "j/k or Up/Down: scroll | gg: oldest | G: follow | Esc: projects",
+            Focus::Logs => {
+                "j/k or Up/Down: move log cursor | gg: oldest | G: follow | Esc: projects"
+            }
         }
     };
     let panels = if app.logs.selection.is_some() {
@@ -635,10 +643,10 @@ fn help_lines(app: &App) -> Vec<Line<'static>> {
         "LOGS",
         "Ctrl-u/d: half page | PageUp/PageDown: page",
         "Home: oldest cached | End: follow | H/L or Left/Right: pan",
-        "V: select first visible log line; j/k: extend; gg/G: first/last",
+        "j/k: move log cursor; V: select from cursor; j/k: extend selection",
         "In V-LINE: y copies log text; Esc cancels and stays in logs.",
-        "Copy uses terminal clipboard (OSC 52); terminal support required.",
-        "Clipboard delivery cannot be acknowledged; verify by pasting.",
+        "Local WSL: copy via clip.exe; elsewhere: terminal clipboard (OSC 52).",
+        "Copy feedback names the method; verify by pasting. Failures keep selection.",
         "Selected logs stay anchored; eviction cancels selection.",
         "Log header/banner shows service state; FOLLOW/READ is only scrolling.",
         "STOPPED/FAILED logs are retained history; old marks an earlier run.",
