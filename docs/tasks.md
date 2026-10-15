@@ -2,40 +2,30 @@
 
 这里只保留当前任务与必要交接；历史见 Git，协作规则见 [AGENTS.md](../AGENTS.md)。
 
-## 当前任务：用小写 v 进入日志选择模式
+## 当前任务：记录已确认的 MVP 后日志计划与架构方案
 
-- 本轮起点 371c449，工作区干净。用户要求按小写 v 进入日志选择模式；关联 M5、M6、L01、U01，新增 v 作为主要进入/取消选择键，保留 V 兼容，并同步提示与文档。仍为整行选择，不引入字符级选择。
-- 用户已在目标 WSL 确认 command -v clip.exe 输出 /mnt/c/WINDOWS/system32/clip.exe，printf 测试命令执行成功，并明确反馈 Windows 中可以正常粘贴 devctl-copy-test。
-- 上一轮 371c449 已实现本机 WSL 使用 clip.exe、其他环境/SSH 使用 OSC 52；剪贴板异步任务有并发与时间上限，失败保留选区。普通日志导航增加阅读光标，从该行开始选择。规则见 [interaction.md](interaction.md) §2.3，资源与状态边界见 [DESIGN.md](../DESIGN.md) §5。
-- 新的 TUI 粘贴与中间行选择效果尚待同步构建后由用户确认；目标命令测试成功不等同于新 TUI 整体已验收。
+- 本轮起点 e57c8c0，工作区干净。用户确认日志增强方向，要求先写入计划与方案，MVP 后再实现；本轮仅改文档。
+- L01–L04 后续范围与验收统一记录在 [requirements.md](requirements.md) §4.2，内部阶段顺序在 [roadmap.md](roadmap.md) §4，所有权、存储、游标、失败和验证机制在 [DESIGN.md](../DESIGN.md#53-mvp-后日志增强方案尚未实现)。阶段为历史分页、持久化、检索与聚合；与 X03 的先后和排期留待 MVP 验收后确定。
+- 已确认规划不等于已实现，不扩大当前 MVP 验收范围，也不改变其他待评估项状态。交互文档只同步计划引用，具体新增键位待对应功能实施时确定。
 
-## 已完成的用户试用与必要交接
+## 必要交接与实际进度
 
-- 目标环境为 Windows WSL2、Ubuntu 22.04.5 LTS、x86_64；此前确认 /home/jackie/.cargo/bin/devctl 安装版本 0.2.0，Node v24.18.0、npm 11.16.0。
-- 三项目配置与命令检查、帮助框尺寸、web 单项试用已通过。用户还确认全部启动与重复启动保护、单独停止 web 不影响另两项、web 再启动实例更新、旧日志 old 标记和页面恢复均通过。
-- web 为 npm run dev → vite；weapp 为 npm run dev:weapp → Taro watch；middle 为 npm run dev → egg-bin dev；三个服务 autostart 均为 true。目录与配置见 [wsl.md](wsl.md)。此前 pnpm 错误没有新的复现反馈。
-- 尚未单独收到目标 TUI 顶栏版本显示、q 离开重连、关闭客户端终端重连的明确结果，不因本轮报告复制问题而将这些项目标为通过。全部停止、结束工作区及失败反馈仍待验收。
-- 助手无法反向 SSH 连接目标 WSL，沿用用户在 WSL 通过 scp 拉取当前 Linux 源码包的方式；旧包 fca30e4 不包含本轮复制修复。
-
-## 上一轮验证（371c449）
-
-- cargo fmt --check、cargo clippy --locked --offline --all-targets -- -D warnings：通过。
-- cargo test --locked --offline tui::：38 项 TUI 单元测试通过，覆盖中间行起点、追加日志与缩放时锚点、淘汰/翻页、Unicode 编码、剪贴板非零退出与超时。
-- cargo test --locked --offline --test tui_cli：8 项真实 PTY 测试通过；使用隔离假 clip.exe 检查中文与换行、失败保留选区、复制期间新选区不被清除、帮助导航及退出后复制进程清理，不访问真实宿主剪贴板。OSC 52 场景独立解码核对中间起点的精确正文。
-- cargo test --locked --offline：在允许 Unix socket 的沙箱外最终完整回归 186 项通过（109 单元、77 集成）。首次完整运行有一项原 PTY 测试在发送 Esc 后立即缩放时失败，补充等待帮助实际关闭后再缩放，相关场景与完整回归均重跑通过。
-- 修改文档的本地链接、代码围栏、Python 3 AST 语法及 git diff --check 检查通过；已审查差异。未构建 release 产物，未在用户 WSL 安装本轮构建，不把受控测试记为实际 Windows 剪贴板验收。
+- 目标为 Windows WSL2、Ubuntu 22.04.5 LTS、x86_64；/home/jackie/.cargo/bin/devctl 已反馈安装版本 0.2.0，Node v24.18.0、npm 11.16.0。
+- 三项目配置与命令核对、帮助框尺寸、web 单项试用、全部启动与重复启动保护、单独停止 web 不影响另两项、web 再启动及 old 日志标记已由用户确认通过。
+- 用户已确认目标 WSL 的 clip.exe 可找到，printf 测试文本在 Windows 可以正常粘贴。371c449 实现 WSL 原生复制与从中间行选择，e57c8c0 增加小写 v 进入/取消选择并保留 V；实际新 TUI 粘贴、顶栏版本号、小写 v 效果仍待用户反馈。
+- 当前日志仍为内存缓存，进入/切换项目时仅取尾部页，向上滚动不会自动加载后台更早记录；这些限制的增强已放入 MVP 后计划，当前不提前开发。
+- 371c449 已通过全量 186 项测试；e57c8c0 已通过 38 项 TUI 单元、8 项真实 PTY、cargo fmt --check 和 cargo clippy --locked --offline --all-targets -- -D warnings。上述受控验证不替代目标试用。
+- 助手无法反向 SSH 连接目标，沿用 WSL scp 拉取当前 Linux 源码包的方式。最新功能包 /tmp/devctl-e57c8c0.tar.gz 已准备，本轮纯文档变更无需再次安装程序。
 
 ## 本轮验证
 
-- cargo fmt --check、cargo clippy --locked --offline --all-targets -- -D warnings：通过。
-- cargo test --locked --offline tui::：38 项通过，既有选择模式检查覆盖 v/V 的进入、取消、服务控制隔离及项目面板不进入日志选择。
-- cargo test --locked --offline --test tui_cli：8 项真实 PTY 测试通过，主要复制流程改用小写 v，保留 V 的兼容场景；使用假 clip.exe，不写真实宿主剪贴板。
-- 修改文档的本地链接、代码围栏、Python 3 AST 语法及 git diff --check 检查通过。仅调整键位和提示，未重跑其他进程管理测试；目标 WSL 的新键位与上一轮复制修复仍待用户确认。
+- 检查五份修改文档的本地链接及章节锚点、代码围栏、表格结构、计划状态和阶段映射，git diff --check 通过；审查差异仅涉及文档。Mermaid 数据流图做源码检查，未用渲染器验证。
+- 未修改源码或依赖，未运行 Rust 测试或构建；本轮无日志增强功能实现。
 
 ## 下一步
 
-1. 同步本轮源码并在目标 WSL 重新安装；进入日志后先 j/k 定位中间行，再 v → j/k → y，核对反馈包含 via clip.exe，在 Windows 编辑器粘贴检查正文、中文和换行。371c449 包包含复制修复，但不包含本轮小写 v 键位。
-2. 确认本轮修复后，补齐 q 离开/关闭客户端终端后的原工作区和实例重连结果，再验收 X 全部停止、重新启动无端口残留及 Q 确认结束后台。
-3. 补齐失败反馈与其他未确认项，汇总首版结果。完整规则与验收依据见 [requirements.md](requirements.md) §3。
+1. 继续当前 MVP：同步 e57c8c0 功能包后，用 j/k → v → j/k → y 验证日志选区与 Windows 粘贴，核对 via clip.exe 反馈及顶栏版本显示。
+2. 补齐 q 离开与关闭客户端终端后的原工作区/实例重连，随后验证 X 全部停止、重新启动无端口残留、Q 确认结束后台及失败反馈。
+3. MVP 完整验收后安排 X03 与日志增强；届时按阶段明确存储目录、容量/保留期限、刷新持久化边界、查询接口与格式兼容，再实施与验收。
 
-仅提交本步，不自动推送。MVP 完整验收前不推进 X03，范围见 [requirements.md](requirements.md) §4.1。
+仅提交本步，不自动推送。当前首版验收依据仍为 [requirements.md](requirements.md) §2–§3。
