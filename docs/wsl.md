@@ -200,6 +200,21 @@ devctl --config "$HOME/.config/devctl/devctl.toml" tui
 
 继续使用源码安装也可以：在更新后的源码目录执行 `cargo +stable install --path . --locked`。若已安装 `~/.local/bin/devctl`，它会优先于 Cargo 版本；不要混用两套更新入口后仅凭版本字符串判断实际执行位置。
 
+### 更新后底部仍显示三行
+
+143dce2 已将主界面底部固定为一行状态和一行快捷键，054665a 又将日志状态与 FOLLOW/READ 分开显示。若仍看到底部独立的 `q leave (keep running) | ? help | a start default` 一行、日志标题为 `Logs: web | FOLLOW`，应先检查是否仍在运行旧 TUI 客户端。
+
+按 q 离开界面，在 WSL 的源码目录检查：
+
+```sh
+git log -5 --oneline
+whence -va devctl
+```
+
+Zsh 的 whence 会显示别名、函数及 PATH 中的各个安装位置。特别注意 ~/.local/bin/devctl 优先于 ~/.cargo/bin/devctl：cargo install 只更新 Cargo 安装位置，可能没有更新实际启动的文件。当前 --version 仍可能都显示 0.1.0，不能仅凭版本字符串确认构建已更新。
+
+确认源码包含上述提交后，可用显式源码运行隔离安装路径问题：`cargo +stable run --locked -- --config "$HOME/.config/devctl/devctl.toml" tui`。它会按需编译当前源码；若此时底部为两行，再更新实际安装位置。布局由客户端绘制，结束后台本身不会更新旧客户端；后台升级规则仍按本节前文执行。
+
 ### 修改 web 命令后仍出现 pnpm 日志
 
 先确认 `[services.web]` 的 `cmd = ["npm", "run", "dev"]`。按 q 离开 TUI、停止后重新启动单项服务或执行 stop --all，都会保留原后台，不能使配置改动生效。上一段的 shutdown 会停止该工作区的全部服务并结束后台；确认它成功后，再执行：
