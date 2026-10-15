@@ -97,6 +97,9 @@ fn diagnostics(app: &App) -> Vec<Line<'static>> {
     if let Some(error) = &app.logs_error {
         warnings.push(format!("Logs: {}", clean(error)));
     }
+    if app.logs_loaded && !app.logs.records.is_empty() && app.logs.oldest_retained.is_none() {
+        warnings.push("History paging unavailable on this background version; end the workspace and reopen with the updated program.".into());
+    }
     if !warnings.is_empty() {
         lines.push(Line::styled(
             warnings.join(" | "),
@@ -318,9 +321,9 @@ pub fn render(frame: &mut Frame, app: &App) {
             format!("s/x {id} | j/k select | Enter logs | a default | X stop ALL | Q end")
         }
     } else if area.width < 60 {
-        "j/k v G Esc".into()
+        "j/k v p G Esc".into()
     } else {
-        "j/k move | v select | G follow | Esc projects".into()
+        "j/k move | v select | p pause | G follow | Esc projects".into()
     };
     let [context_area, global] =
         Layout::horizontal([Constraint::Min(0), Constraint::Length(17)]).areas(screen.footer);
@@ -412,8 +415,10 @@ fn logs_view(frame: &mut Frame, area: Rect, app: &App) {
             .filter(|record| selection.contains(record.sequence))
             .count();
         format!("V-LINE {count} selected")
-    } else if app.logs.top.is_none() {
+    } else if !app.logs.paused {
         "FOLLOW".into()
+    } else if app.logs.records.is_empty() {
+        "READ 0 cached".into()
     } else {
         format!(
             "READ {}–{} / {} cached",
@@ -421,6 +426,30 @@ fn logs_view(frame: &mut Frame, area: Rect, app: &App) {
             (start + height).min(app.logs.records.len()),
             app.logs.records.len()
         )
+    };
+    let history = if app.logs.paused {
+        let boundary = if app.logs.requested.is_some() {
+            "loading history"
+        } else if app.logs.records.front().is_some_and(|first| {
+            app.logs
+                .oldest_retained
+                .is_some_and(|oldest| oldest < first.sequence)
+        }) {
+            "earlier available"
+        } else if app.logs.records.front().is_some_and(|first| {
+            app.logs
+                .oldest_retained
+                .is_some_and(|oldest| first.sequence < oldest)
+        }) {
+            "snapshot predates retained history"
+        } else if app.logs.oldest_retained.is_some() {
+            "retained start"
+        } else {
+            ""
+        };
+        format!(" | +{} new | {boundary}", app.logs.new_records())
+    } else {
+        String::new()
     };
     let offset = if app.logs.horizontal == 0 {
         String::new()
@@ -445,7 +474,8 @@ fn logs_view(frame: &mut Frame, area: Rect, app: &App) {
         },
         clean(app.selected.as_deref().unwrap_or("(none)")),
     );
-    let block = panel(title, app.focus == Focus::Logs).title_bottom(format!("{position}{offset}"));
+    let block =
+        panel(title, app.focus == Focus::Logs).title_bottom(format!("{position}{history}{offset}"));
     frame.render_widget(block, area);
     frame.render_widget(
         Paragraph::new(Line::styled(
@@ -641,8 +671,8 @@ fn help_lines(app: &App) -> Vec<Line<'static>> {
         "Q: confirm ending workspace | r: sync existing background",
         "",
         "LOGS",
-        "Ctrl-u/d: half page | PageUp/PageDown: page",
-        "Home: oldest cached | End: follow | H/L or Left/Right: pan",
+        "Ctrl-u/d: half page | PageUp/PageDown: page; edges load history",
+        "Home/gg: oldest retained | End/G: follow | p: pause/resume",
         "j/k: move log cursor; v: select from cursor; j/k: extend selection",
         "In V-LINE: y copies log text; Esc cancels and stays in logs.",
         "Local WSL: copy via clip.exe; elsewhere: terminal clipboard (OSC 52).",
@@ -651,7 +681,7 @@ fn help_lines(app: &App) -> Vec<Line<'static>> {
         "Log header/banner shows service state; FOLLOW/READ is only scrolling.",
         "STOPPED/FAILED logs are retained history; old marks an earlier run.",
         "Running means process alive, not business readiness.",
-        "Logs are bounded; gaps and losses are reported.",
+        "H/L or Left/Right: pan | Bounded logs; gaps/losses are reported.",
         "",
         "LEAVING",
         "q / Ctrl-C: leave; services keep running",

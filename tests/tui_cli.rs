@@ -57,3 +57,8 @@ fn visual_line_copy_emits_exact_body_and_preserves_control_and_exit_scopes() {
 fn wsl_copy_handles_unicode_failure_and_in_flight_navigation_without_touching_host_clipboard() {
     scenario("windows-copying");
 }
+
+#[test]
+fn history_pages_pause_bookmarks_and_expiry_work_in_a_real_terminal() {
+    scenario("history");
+}

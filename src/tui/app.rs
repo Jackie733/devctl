@@ -86,16 +86,159 @@ pub struct LogWindow {
     pub anchor_lost: bool,
     pub selection: Option<LineSelection>,
     pub selection_lost: bool,
+    pub paused: bool,
+    pub latest: u64,
+    pub oldest_retained: Option<u64>,
+    pub pause_at: u64,
+    pub requested: Option<LogQuery>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LogQuery {
+    Tail,
+    After(u64),
+    Before(u64),
+    Restore(u64),
+    Bounds,
+}
+
+impl LogQuery {
+    pub fn request(self, service: String) -> Request {
+        let (after, before) = match self {
+            Self::Tail => (None, None),
+            Self::After(sequence) => (Some(sequence), None),
+            Self::Before(sequence) => (None, Some(sequence)),
+            Self::Restore(sequence) => (Some(sequence.saturating_sub(1)), None),
+            // Poll metadata without transferring or accumulating unread output.
+            Self::Bounds => (Some(u64::MAX), None),
+        };
+        Request::Logs {
+            service,
+            limit: 100,
+            after,
+            before,
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+struct Bookmark {
+    top: u64,
+    reading: Option<u64>,
+    horizontal: u16,
+    pause_at: u64,
 }
 
 impl LogWindow {
-    pub fn append(&mut self, batch: Batch) -> bool {
-        let mut changed = self.dropped != batch.dropped
+    pub fn query(&self) -> LogQuery {
+        self.requested.unwrap_or(match self.cursor {
+            None => LogQuery::Tail,
+            Some(_) if self.paused => LogQuery::Bounds,
+            Some(cursor) => LogQuery::After(cursor),
+        })
+    }
+
+    pub fn pause(&mut self, height: usize) {
+        if !self.paused {
+            self.pause_at = self.latest.max(self.cursor.unwrap_or(0));
+            self.paused = true;
+            if self.cursor.is_some() && self.requested == Some(LogQuery::Tail) {
+                self.requested = None;
+            }
+        }
+        if self.top.is_none() {
+            self.top = self
+                .records
+                .get(self.start(height))
+                .map(|record| record.sequence);
+        }
+    }
+
+    pub fn new_records(&self) -> u64 {
+        self.latest.saturating_sub(self.pause_at)
+    }
+
+    fn request_edge(&mut self, earlier: bool) {
+        if earlier {
+            if let Some(first) = self.records.front()
+                && self
+                    .oldest_retained
+                    .is_some_and(|oldest| oldest < first.sequence)
+            {
+                self.requested = Some(LogQuery::Before(first.sequence));
+            }
+        } else if let Some(last) = self.records.back()
+            && self.oldest_retained.is_some()
+            && last.sequence < self.latest
+        {
+            self.requested = Some(LogQuery::After(last.sequence));
+        }
+    }
+
+    fn metadata(&mut self, batch: &Batch) -> bool {
+        let changed = self.latest != batch.latest
+            || self.oldest_retained != batch.oldest
+            || self.dropped != batch.dropped
             || self.incomplete != batch.incomplete
             || (!self.gap && batch.gap);
+        self.latest = batch.latest;
+        self.oldest_retained = batch.oldest;
         self.dropped = batch.dropped;
         self.incomplete = batch.incomplete;
         self.gap |= batch.gap;
+        changed
+    }
+
+    pub fn apply_page(&mut self, query: LogQuery, batch: Batch) -> bool {
+        if self.requested == Some(query) {
+            self.requested = None;
+        }
+        match query {
+            LogQuery::Bounds => self.metadata(&batch),
+            LogQuery::Before(_) => {
+                self.metadata(&batch);
+                let first = self.records.front().map(|record| record.sequence);
+                for record in batch.records.into_iter().rev() {
+                    if first.is_some_and(|first| record.sequence >= first) {
+                        continue;
+                    }
+                    self.bytes += record.text.len();
+                    self.records.push_front(record);
+                }
+                self.trim(true);
+                // The tail may have been removed to make room for older records.
+                self.cursor = self.records.back().map(|record| record.sequence);
+                true
+            }
+            LogQuery::Tail | LogQuery::Restore(_) => {
+                let (top, reading) = (self.top, self.reading);
+                // A saved cursor may lie beyond this byte-limited page. Its absence
+                // from the first page is not evidence that the backend evicted it.
+                self.reading = None;
+                self.top = match query {
+                    LogQuery::Restore(target) => Some(target),
+                    _ => None,
+                };
+                self.records.clear();
+                self.bytes = 0;
+                self.cursor = None;
+                self.append(batch);
+                if let LogQuery::Restore(target) = query {
+                    self.anchor_lost |= self.records.front().is_none_or(|r| r.sequence != target);
+                    self.top = self.records.front().map(|r| r.sequence);
+                    self.reading = reading
+                        .filter(|sequence| self.records.iter().any(|r| r.sequence == *sequence));
+                } else if self.paused {
+                    self.top = top.or_else(|| self.records.front().map(|r| r.sequence));
+                }
+                true
+            }
+            LogQuery::After(_) => self.append(batch),
+        }
+    }
+
+    pub fn append(&mut self, batch: Batch) -> bool {
+        let mut changed = self.metadata(&batch);
         for record in batch.records {
             if self.cursor.is_some_and(|cursor| record.sequence <= cursor) {
                 continue;
@@ -106,8 +249,18 @@ impl LogWindow {
             self.records.push_back(record);
             changed = true;
         }
+        self.trim(false);
+        changed
+    }
+
+    fn trim(&mut self, from_back: bool) {
         while self.bytes > MAX_LOG_BYTES || self.records.len() > MAX_LOG_RECORDS {
-            if let Some(record) = self.records.pop_front() {
+            let record = if from_back {
+                self.records.pop_back()
+            } else {
+                self.records.pop_front()
+            };
+            if let Some(record) = record {
                 self.bytes -= record.text.len();
                 self.local_evicted = self.local_evicted.saturating_add(1);
             }
@@ -139,9 +292,7 @@ impl LogWindow {
         }) {
             self.selection = None;
             self.selection_lost = true;
-            changed = true;
         }
-        changed
     }
 
     pub fn begin_selection(&mut self, height: usize) -> bool {
@@ -158,6 +309,7 @@ impl LogWindow {
             return false;
         };
         let sequence = record.sequence;
+        self.pause(height);
         self.top = Some(self.records[start].sequence);
         self.reading = Some(sequence);
         self.selection = Some(LineSelection {
@@ -185,12 +337,19 @@ impl LogWindow {
         selection.head = self.records[next].sequence;
         self.reading = Some(selection.head);
         self.keep_visible(height);
+        if next == 0 && amount < 0 {
+            self.request_edge(true);
+        }
+        if next + 1 == self.records.len() && amount > 0 {
+            self.request_edge(false);
+        }
     }
 
     pub fn move_reading(&mut self, amount: isize, height: usize) {
         if self.records.is_empty() {
             return;
         }
+        self.pause(height);
         let start = self.start(height);
         let current = self
             .reading
@@ -206,6 +365,12 @@ impl LogWindow {
         self.reading = Some(self.records[next].sequence);
         self.top = Some(self.records[start].sequence);
         self.keep_visible(height);
+        if next == 0 && amount < 0 {
+            self.request_edge(true);
+        }
+        if next + 1 == self.records.len() && amount > 0 {
+            self.request_edge(false);
+        }
     }
 
     pub fn keep_visible(&mut self, height: usize) {
@@ -274,19 +439,31 @@ impl LogWindow {
     }
 
     pub fn scroll(&mut self, amount: isize, height: usize) {
+        self.pause(height);
         self.reading = None;
         let last = self.records.len().saturating_sub(height);
         let start = self.start(height).saturating_add_signed(amount).min(last);
-        self.top = if amount > 0 && start == last {
-            None
-        } else {
-            self.records.get(start).map(|record| record.sequence)
-        };
+        self.top = self.records.get(start).map(|record| record.sequence);
+        if start == 0 && amount < 0 {
+            self.request_edge(true);
+        }
+        if start == last && amount > 0 {
+            self.request_edge(false);
+            if self.requested.is_none() {
+                self.follow();
+            }
+        }
     }
 
     pub fn oldest(&mut self) {
+        self.pause(1);
         self.reading = None;
         self.top = self.records.front().map(|record| record.sequence);
+        if let Some(oldest) = self.oldest_retained
+            && self.top.is_none_or(|top| oldest < top)
+        {
+            self.requested = Some(LogQuery::Restore(oldest));
+        }
     }
 
     pub fn follow(&mut self) {
@@ -294,10 +471,13 @@ impl LogWindow {
         self.reading = None;
         self.top = None;
         self.anchor_lost = false;
+        self.paused = false;
+        self.requested = Some(LogQuery::Tail);
     }
 }
 
 pub struct App {
+    bookmarks: BTreeMap<String, Bookmark>,
     pub focus: Focus,
     pub goto_top: bool,
     pub help_scroll: u16,
@@ -320,6 +500,7 @@ pub struct App {
 impl App {
     pub fn new() -> Self {
         Self {
+            bookmarks: BTreeMap::new(),
             focus: Focus::Projects,
             goto_top: false,
             help_scroll: 0,
@@ -350,16 +531,53 @@ impl App {
 
     fn reset_logs(&mut self) {
         self.logs = LogWindow::default();
+        if let Some(bookmark) = self.selected.as_ref().and_then(|id| self.bookmarks.get(id)) {
+            self.logs.paused = true;
+            self.logs.top = Some(bookmark.top);
+            self.logs.reading = bookmark.reading;
+            self.logs.horizontal = bookmark.horizontal;
+            self.logs.pause_at = bookmark.pause_at;
+            self.logs.requested = Some(LogQuery::Restore(bookmark.top));
+        }
         self.logs_loaded = false;
         self.logs_error = None;
         self.goto_top = false;
     }
 
+    #[cfg(test)]
     pub fn apply_logs(&mut self, batch: Batch) -> bool {
+        self.apply_log_page(LogQuery::After(self.logs.cursor.unwrap_or(0)), batch)
+    }
+
+    pub fn apply_log_page(&mut self, query: LogQuery, batch: Batch) -> bool {
         let changed = !self.logs_loaded || self.logs_error.is_some();
         self.logs_loaded = true;
         self.logs_error = None;
-        self.logs.append(batch) || changed
+        self.logs.apply_page(query, batch) || changed
+    }
+
+    fn remember_position(&mut self) {
+        let Some(id) = self.selected.as_ref() else {
+            return;
+        };
+        if !self.logs_loaded {
+            return;
+        }
+        if self.logs.paused {
+            if let Some(top) = self.logs.top {
+                self.bookmarks.insert(
+                    id.clone(),
+                    Bookmark {
+                        top,
+                        reading: self.logs.reading,
+                        horizontal: self.logs.horizontal,
+                        pause_at: self.logs.pause_at,
+                    },
+                );
+            }
+        } else {
+            self.bookmarks.remove(id);
+        }
     }
 
     pub fn select(&mut self, direction: isize) -> bool {
@@ -375,7 +593,9 @@ impl App {
         if self.selected.as_ref() == Some(ids[next]) {
             return false;
         }
-        self.selected = Some(ids[next].clone());
+        let next = ids[next].clone();
+        self.remember_position();
+        self.selected = Some(next);
         self.selection_epoch += 1;
         self.reset_logs();
         true
@@ -386,6 +606,16 @@ impl App {
             !self.connected || self.workspace_id.as_ref() != Some(&response.workspace_id);
         let changed = reconnected || self.services != response.services;
         if reconnected {
+            if self
+                .workspace_id
+                .as_ref()
+                .is_some_and(|id| id != &response.workspace_id)
+            {
+                self.bookmarks.clear();
+                self.feedback = "Workspace changed; old log positions are no longer valid.".into();
+            } else {
+                self.remember_position();
+            }
             self.epoch += 1;
             self.selection_epoch += 1;
             self.reset_logs();
@@ -398,6 +628,8 @@ impl App {
         self.connection_error = None;
         self.workspace_id = Some(response.workspace_id);
         self.services = response.services;
+        self.bookmarks
+            .retain(|id, _| self.services.contains_key(id));
         if !self
             .selected
             .as_ref()
@@ -411,6 +643,7 @@ impl App {
     }
 
     pub fn disconnect(&mut self, message: String) {
+        self.remember_position();
         self.connected = false;
         self.epoch += 1;
         self.selection_epoch += 1;
@@ -518,7 +751,158 @@ mod tests {
             incomplete: false,
             gap: false,
             latest: 100_000,
+            ..Batch::default()
         }
+    }
+
+    fn page(sequences: std::ops::RangeInclusive<u64>, oldest: u64, latest: u64) -> Batch {
+        Batch {
+            oldest: Some(oldest),
+            latest,
+            ..batch(sequences, 1)
+        }
+    }
+
+    #[test]
+    fn paused_bounds_polling_keeps_records_selection_and_position_stable() {
+        let mut logs = LogWindow::default();
+        logs.apply_page(LogQuery::Tail, page(201..=300, 1, 300));
+        logs.pause(10);
+        logs.begin_selection(10);
+        let selection = logs.selection;
+        let top = logs.top;
+        assert_eq!(logs.query(), LogQuery::Bounds);
+        let mut bounds = Batch {
+            oldest: Some(401),
+            latest: 4500,
+            ..Batch::default()
+        };
+        bounds.dropped = 400;
+        logs.apply_page(LogQuery::Bounds, bounds);
+        assert_eq!(logs.records.len(), 100);
+        assert_eq!(logs.top, top);
+        assert_eq!(logs.selection, selection);
+        assert_eq!(logs.new_records(), 4200);
+        assert!(!logs.anchor_lost);
+        logs.follow();
+        assert_eq!(logs.query(), LogQuery::Tail);
+        logs.apply_page(LogQuery::Tail, page(4401..=4500, 401, 4500));
+        assert!(!logs.paused && logs.top.is_none());
+        assert_eq!(logs.records.front().unwrap().sequence, 4401);
+        assert_eq!(logs.records.len(), 100);
+    }
+
+    #[test]
+    fn history_prepend_deduplicates_and_keeps_reading_and_copy_anchors() {
+        let mut logs = LogWindow::default();
+        logs.apply_page(LogQuery::Tail, page(201..=300, 1, 300));
+        logs.move_reading(isize::MIN, 10);
+        logs.begin_selection(10);
+        assert_eq!(logs.query(), LogQuery::Before(201));
+        let selection = logs.selection;
+        logs.apply_page(LogQuery::Before(201), page(101..=210, 1, 350));
+        assert_eq!(logs.records.len(), 200);
+        assert_eq!(logs.top, Some(201));
+        assert_eq!(logs.reading, Some(201));
+        assert_eq!(logs.selection, selection);
+        assert_eq!(logs.selected_text().unwrap(), ("x\n".into(), 1));
+        logs.move_selection(-1, 10);
+        assert_eq!(logs.selection.unwrap().head, 200);
+        assert_eq!(logs.query(), LogQuery::Bounds);
+    }
+
+    #[test]
+    fn prepending_respects_memory_limits_and_forward_paging_does_not_skip_trimmed_tail() {
+        let mut logs = LogWindow::default();
+        logs.apply_page(LogQuery::Tail, page(101..=4196, 1, 4196));
+        logs.oldest();
+        logs.requested = Some(LogQuery::Before(101));
+        logs.apply_page(LogQuery::Before(101), page(1..=100, 1, 4196));
+        assert_eq!(logs.records.len(), MAX_LOG_RECORDS);
+        assert_eq!(logs.cursor, Some(4096));
+        assert_eq!(logs.records.front().unwrap().sequence, 1);
+        logs.scroll(isize::MAX, 10);
+        assert!(logs.paused);
+        assert_eq!(logs.query(), LogQuery::After(4096));
+        logs.apply_page(LogQuery::After(4096), page(4097..=4196, 1, 4196));
+        assert_eq!(logs.records.back().unwrap().sequence, 4196);
+
+        let mut logs = LogWindow::default();
+        logs.append(batch(10..=137, 16 * 1024));
+        logs.apply_page(LogQuery::Before(10), batch(1..=9, 16 * 1024));
+        assert_eq!(logs.bytes, MAX_LOG_BYTES);
+        assert_eq!(logs.records.len(), 128);
+        assert_eq!(logs.cursor, Some(128));
+    }
+
+    #[test]
+    fn bookmarks_restore_across_project_switch_and_reconnect_but_not_workspace_replacement() {
+        let mut app = App::new();
+        app.apply_status(status("one"));
+        app.apply_log_page(LogQuery::Tail, page(201..=300, 1, 300));
+        app.logs.move_reading(-2, 10);
+        app.logs.horizontal = 16;
+        let (top, reading) = (app.logs.top, app.logs.reading);
+        app.select(1);
+        app.apply_log_page(LogQuery::Tail, page(1..=5, 1, 5));
+        app.select(-1);
+        assert_eq!(app.logs.query(), LogQuery::Restore(top.unwrap()));
+        app.apply_log_page(app.logs.query(), page(top.unwrap()..=300, 1, 320));
+        assert_eq!((app.logs.top, app.logs.reading), (top, reading));
+        assert_eq!(app.logs.horizontal, 16);
+        app.disconnect("lost".into());
+        app.apply_status(status("one"));
+        assert_eq!(app.logs.query(), LogQuery::Restore(top.unwrap()));
+        app.apply_log_page(app.logs.query(), page(top.unwrap()..=300, 1, 320));
+        app.apply_status(status("two"));
+        assert_eq!(app.logs.query(), LogQuery::Tail);
+        assert!(!app.logs.paused);
+        assert!(app.bookmarks.is_empty());
+        assert!(app.feedback.contains("no longer valid"));
+    }
+
+    #[test]
+    fn expired_bookmarks_land_at_retained_boundary_with_a_warning() {
+        let mut logs = LogWindow {
+            paused: true,
+            top: Some(10),
+            reading: Some(15),
+            ..LogWindow::default()
+        };
+        logs.apply_page(LogQuery::Restore(10), page(500..=599, 500, 700));
+        assert_eq!(logs.top, Some(500));
+        assert!(logs.reading.is_none() && logs.anchor_lost);
+        logs.oldest();
+        assert_eq!(logs.query(), LogQuery::Bounds);
+        logs.apply_page(
+            LogQuery::Bounds,
+            Batch {
+                oldest: Some(600),
+                latest: 800,
+                ..Batch::default()
+            },
+        );
+        logs.move_reading(isize::MIN, 10);
+        assert_eq!(logs.query(), LogQuery::Bounds);
+    }
+
+    #[test]
+    fn jumping_to_retained_start_and_short_restore_pages_do_not_report_false_eviction() {
+        let mut logs = LogWindow::default();
+        logs.apply_page(LogQuery::Tail, page(201..=300, 1, 300));
+        logs.oldest();
+        assert_eq!(logs.query(), LogQuery::Restore(1));
+        logs.apply_page(LogQuery::Restore(1), page(1..=100, 1, 300));
+        assert_eq!(logs.top, Some(1));
+        assert!(!logs.anchor_lost);
+        logs.reading = Some(10);
+        logs.apply_page(LogQuery::Restore(1), page(1..=4, 1, 300));
+        assert!(logs.reading.is_none());
+        assert_eq!(logs.top, Some(1));
+        assert!(!logs.anchor_lost);
+        logs.follow();
+        logs.pause(10);
+        assert_eq!(logs.query(), LogQuery::Bounds);
     }
 
     #[test]

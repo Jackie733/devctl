@@ -442,6 +442,57 @@ fn recent_logs_survive_client_exit_label_sources_and_distinguish_service_instanc
 }
 
 #[test]
+fn cli_reads_backward_pages_beyond_the_initial_tail_without_overlap() {
+    let mut workspace = Workspace::new();
+    let marker = workspace.config.path.with_file_name("web");
+    workspace.edit(|config| {
+        config["services"]["web"]["cmd"] = toml::Value::Array([
+            "python3".to_owned(), "-u".into(), "-c".into(),
+            "import os,sys,time\nfor i in range(1,251):\n print('history-'+str(i)); time.sleep(.001)\nopen(sys.argv[1],'w').write(str(os.getpid())+'\\n')\ntime.sleep(60)".into(),
+            marker.to_str().unwrap().into(),
+        ].into_iter().map(toml::Value::String).collect());
+    });
+    workspace.ok(&["start", "web"]);
+    let web = workspace.pid("web");
+    let deadline = Instant::now() + Duration::from_secs(3);
+    loop {
+        if workspace
+            .ok(&["logs", "web", "--limit", "1"])
+            .contains("history-250")
+        {
+            break;
+        }
+        assert!(Instant::now() < deadline);
+        thread::sleep(Duration::from_millis(10));
+    }
+    for (args, start, end) in [
+        (vec!["logs", "web"], 151, 250),
+        (vec!["logs", "web", "--before", "151"], 51, 150),
+        (vec!["logs", "web", "--before", "51"], 1, 50),
+    ] {
+        let output = workspace.run(&args);
+        assert!(output.status.success(), "{output:?}");
+        let text = String::from_utf8(output.stdout).unwrap();
+        let actual: Vec<_> = text
+            .lines()
+            .map(|line| line.split_once("] ").unwrap().1)
+            .collect();
+        let expected: Vec<_> = (start..=end).map(|i| format!("history-{i}")).collect();
+        assert_eq!(actual, expected);
+        let notice = String::from_utf8(output.stderr).unwrap();
+        if start == 1 {
+            assert!(notice.contains("start of retained output"));
+        } else {
+            assert!(notice.contains(&format!("--before {start}")));
+        }
+    }
+    assert!(workspace.ok(&["logs", "web", "--before", "1"]).is_empty());
+    assert!(workspace.ok(&["logs", "web", "--after", "250"]).is_empty());
+    workspace.ok(&["shutdown"]);
+    workspace.stopped(web);
+}
+
+#[test]
 fn excessive_output_is_bounded_sanitized_and_does_not_block_control() {
     let mut workspace = Workspace::new();
     let marker = workspace.config.path.with_file_name("web");

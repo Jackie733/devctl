@@ -31,6 +31,8 @@ pub enum Request {
         service: String,
         limit: usize,
         after: Option<u64>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        before: Option<u64>,
     },
 }
 
@@ -171,6 +173,34 @@ pub async fn connection(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn log_protocol_keeps_old_requests_compatible_and_never_silently_drops_backward_bounds() {
+        let old = "action='logs'\nservice='web'\nlimit=10\n";
+        assert!(matches!(
+            toml::from_str::<Request>(old).unwrap(),
+            Request::Logs { before: None, .. }
+        ));
+        let forward = toml::to_string(&Request::Logs {
+            service: "web".into(),
+            limit: 10,
+            after: Some(3),
+            before: None,
+        })
+        .unwrap();
+        assert!(!forward.contains("before"));
+        let backward = toml::to_string(&Request::Logs {
+            service: "web".into(),
+            limit: 10,
+            after: None,
+            before: Some(4),
+        })
+        .unwrap();
+        assert!(backward.contains("before = 4"));
+        let old_batch = "records=[]\ndropped=0\nincomplete=false\ngap=false\nlatest=0\n";
+        let batch: Batch = toml::from_str(old_batch).unwrap();
+        assert!(batch.oldest.is_none() && !batch.has_older);
+    }
 
     #[tokio::test]
     async fn framing_rejects_oversized_lengths_before_reading_payload() {

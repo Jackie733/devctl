@@ -207,6 +207,11 @@ pub struct Batch {
     pub incomplete: bool,
     pub gap: bool,
     pub latest: u64,
+    /// Oldest retained record, independent of the returned page.
+    #[serde(default)]
+    pub oldest: Option<u64>,
+    #[serde(default)]
+    pub has_older: bool,
 }
 
 pub fn channel(
@@ -261,9 +266,18 @@ impl Store {
         }
     }
 
-    pub fn query(&self, id: &str, limit: usize, after: Option<u64>) -> Result<Batch, String> {
+    pub fn query(
+        &self,
+        id: &str,
+        limit: usize,
+        after: Option<u64>,
+        before: Option<u64>,
+    ) -> Result<Batch, String> {
         if !(1..=500).contains(&limit) {
             return Err("Log limit must be between 1 and 500.".into());
+        }
+        if after.is_some() && before.is_some() {
+            return Err("Select either after or before, not both.".into());
         }
         let buffer = self
             .buffers
@@ -290,26 +304,35 @@ impl Store {
                 }
             }
         } else {
-            for record in buffer.records.iter().rev() {
+            for record in buffer
+                .records
+                .iter()
+                .rev()
+                .filter(|record| before.is_none_or(|before| record.sequence < before))
+            {
                 if !append(record) {
                     break;
                 }
             }
             records.reverse();
         }
+        let oldest = buffer.records.front().map(|record| record.sequence);
+        let has_older = records
+            .first()
+            .is_some_and(|first| oldest.is_some_and(|oldest| oldest < first.sequence));
         Ok(Batch {
             records,
             dropped: buffer
                 .evicted
                 .saturating_add(buffer.dropped.load(Ordering::Relaxed)),
             incomplete: buffer.incomplete.load(Ordering::Relaxed),
-            gap: after.is_some_and(|after| {
-                buffer
-                    .records
-                    .front()
-                    .is_some_and(|record| record.sequence > after.saturating_add(1))
+            gap: oldest.is_some_and(|oldest| {
+                after.is_some_and(|after| oldest > after.saturating_add(1))
+                    || before.is_some_and(|before| before <= oldest && oldest > 1)
             }),
             latest: buffer.next.saturating_sub(1),
+            oldest,
+            has_older,
         })
     }
 }
@@ -357,7 +380,7 @@ mod tests {
         drop(writer);
         capture.await.unwrap().unwrap();
         drain(&mut receiver, &mut store);
-        let records = store.query("web", 100, None).unwrap().records;
+        let records = store.query("web", 100, None, None).unwrap().records;
         assert_eq!(records.len(), 5);
         assert!(records[0].text.is_empty());
         assert_eq!(records[1].text, "partial");
@@ -380,7 +403,7 @@ mod tests {
         task.await.unwrap().unwrap();
         drain(&mut receiver, &mut store);
         let actual: String = store
-            .query("web", 100, Some(0))
+            .query("web", 100, Some(0), None)
             .unwrap()
             .records
             .iter()
@@ -401,7 +424,7 @@ mod tests {
                 Err(std::io::Error::other("injected pipe failure"))
             });
             Readers { tasks, sink }.finish().await;
-            let batch = store.query("web", 1, None).unwrap();
+            let batch = store.query("web", 1, None, None).unwrap();
             assert!(batch.incomplete);
             assert_eq!(batch.dropped, 0);
         }
@@ -415,7 +438,7 @@ mod tests {
         }
         assert_eq!(receiver.len(), QUEUE_CAPACITY);
         drain(&mut receiver, &mut store);
-        let batch = store.query("web", 500, None).unwrap();
+        let batch = store.query("web", 500, None, None).unwrap();
         assert_eq!(batch.records.len(), QUEUE_CAPACITY);
         assert_eq!(batch.dropped, 10);
     }
@@ -431,17 +454,17 @@ mod tests {
         assert_eq!(buffer.bytes, MAX_BUFFER_BYTES);
         assert_eq!(buffer.records.len(), MAX_BUFFER_BYTES / MAX_RECORD_BYTES);
         assert_eq!(
-            store.query("web", 500, None).unwrap().records.len(),
+            store.query("web", 500, None, None).unwrap().records.len(),
             MAX_QUERY_BYTES / MAX_RECORD_BYTES
         );
-        assert!(store.query("web", 1, Some(0)).unwrap().gap);
+        assert!(store.query("web", 1, Some(0), None).unwrap().gap);
         for _ in 0..MAX_RECORDS + 10 {
             sink.emit(Source::Stderr, b"", false);
             drain(&mut receiver, &mut store);
         }
         assert_eq!(store.buffers["web"].records.len(), MAX_RECORDS);
         assert_eq!(store.buffers["web"].bytes, 0);
-        assert!(store.query("web", 1, Some(0)).unwrap().dropped > 0);
+        assert!(store.query("web", 1, Some(0), None).unwrap().dropped > 0);
     }
 
     #[test]
@@ -452,20 +475,76 @@ mod tests {
                 .emit(Source::Stdout, b"entry", false);
             drain(&mut receiver, &mut store);
         }
-        let tail = store.query("web", 3, None).unwrap();
+        let tail = store.query("web", 3, None, None).unwrap();
         assert_eq!(
             tail.records.iter().map(|r| r.instance).collect::<Vec<_>>(),
             [8, 9, 10]
         );
-        let page = store.query("web", 3, Some(4)).unwrap();
+        let page = store.query("web", 3, Some(4), None).unwrap();
         assert_eq!(
             page.records.iter().map(|r| r.sequence).collect::<Vec<_>>(),
             [5, 6, 7]
         );
         assert_eq!(page.latest, 10);
         for limit in [0, 501] {
-            assert!(store.query("web", limit, None).is_err());
+            assert!(store.query("web", limit, None, None).is_err());
         }
-        assert!(store.query("unknown", 1, None).is_err());
+        assert!(store.query("unknown", 1, None, None).is_err());
+    }
+
+    #[test]
+    fn backward_pages_are_exclusive_ordered_and_stable_as_new_output_arrives() {
+        let (sink, mut receiver, mut store) = setup();
+        for _ in 0..250 {
+            sink.emit(Source::Stdout, b"entry", false);
+            drain(&mut receiver, &mut store);
+        }
+        let tail = store.query("web", 100, None, None).unwrap();
+        assert_eq!(tail.records.first().unwrap().sequence, 151);
+        assert_eq!(tail.oldest, Some(1));
+        assert!(tail.has_older);
+        for _ in 0..20 {
+            sink.emit(Source::Stderr, b"new", false);
+            drain(&mut receiver, &mut store);
+        }
+        let page = store.query("web", 100, None, Some(151)).unwrap();
+        assert_eq!(page.records.first().unwrap().sequence, 51);
+        assert_eq!(page.records.last().unwrap().sequence, 150);
+        assert_eq!(page.latest, 270);
+        assert!(page.has_older);
+        let first = store.query("web", 100, None, Some(51)).unwrap();
+        assert_eq!(first.records.len(), 50);
+        assert_eq!(first.records.first().unwrap().sequence, 1);
+        assert!(!first.has_older && !first.gap);
+        for before in [0, 1] {
+            let empty = store.query("web", 100, None, Some(before)).unwrap();
+            assert!(empty.records.is_empty() && !empty.gap && !empty.has_older);
+        }
+        assert!(store.query("web", 1, Some(1), Some(2)).is_err());
+    }
+
+    #[test]
+    fn backward_queries_bound_bytes_and_report_expired_cursors_instead_of_empty_history() {
+        let (sink, mut receiver, mut store) = setup();
+        for _ in 0..200 {
+            sink.emit(Source::Stdout, &vec![b'x'; MAX_RECORD_BYTES], false);
+            drain(&mut receiver, &mut store);
+        }
+        let page = store.query("web", 500, None, Some(150)).unwrap();
+        assert_eq!(page.records.len(), MAX_QUERY_BYTES / MAX_RECORD_BYTES);
+        assert_eq!(page.records.first().unwrap().sequence, 146);
+        assert_eq!(page.records.last().unwrap().sequence, 149);
+        assert!(page.has_older);
+        let expired = store.query("web", 100, None, Some(50)).unwrap();
+        assert!(expired.records.is_empty() && expired.gap);
+        assert_eq!(expired.oldest, Some(73));
+        let boundary = store.query("web", 100, None, Some(73)).unwrap();
+        assert!(boundary.records.is_empty() && boundary.gap);
+        let bounds = store.query("web", 1, Some(u64::MAX), None).unwrap();
+        assert!(bounds.records.is_empty() && !bounds.gap);
+        assert_eq!(bounds.latest, 200);
+        let (_, _, empty) = setup();
+        let page = empty.query("web", 1, None, Some(10)).unwrap();
+        assert!(page.records.is_empty() && page.oldest.is_none() && !page.gap);
     }
 }

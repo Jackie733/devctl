@@ -17,7 +17,7 @@ use crate::{
     client::{self, ClientError},
     control::{Request, Response},
 };
-use app::{App, Focus, Operation};
+use app::{App, Focus, LogQuery, Operation};
 
 enum Context {
     Status {
@@ -27,6 +27,7 @@ enum Context {
         epoch: u64,
         selection: u64,
         service: String,
+        query: LogQuery,
     },
     Control {
         operation: Operation,
@@ -251,6 +252,13 @@ fn handle_key(app: &mut App, key: KeyEvent, area: ratatui::layout::Rect) -> Acti
             .scroll(height.saturating_sub(1).max(1) as isize, height),
         KeyCode::Home => app.logs.oldest(),
         KeyCode::End => app.logs.follow(),
+        KeyCode::Char('p') => {
+            if app.logs.paused {
+                app.logs.follow();
+            } else {
+                app.logs.pause(height);
+            }
+        }
         KeyCode::Left | KeyCode::Char('H') => {
             app.logs.horizontal = app.logs.horizontal.saturating_sub(8)
         }
@@ -325,8 +333,9 @@ pub async fn run(path: &Path) -> Result<(), String> {
             if logs_due && app.connected && requests.logs.is_none()
                 && let Some(service) = app.selected.clone()
             {
-                requests.spawn(&path, Context::Logs { epoch: app.epoch, selection: app.selection_epoch, service: service.clone() },
-                    Request::Logs { service, limit: 100, after: app.logs.cursor }, false);
+                let query = app.logs.query();
+                requests.spawn(&path, Context::Logs { epoch: app.epoch, selection: app.selection_epoch, service: service.clone(), query },
+                    query.request(service), false);
                 logs_due = false;
             }
             tokio::select! {
@@ -336,6 +345,7 @@ pub async fn run(path: &Path) -> Result<(), String> {
                         Event::Key(key) => {
                             let size = terminal.size().map_err(|error| error.to_string())?;
                             let area = ratatui::layout::Rect::new(0, 0, size.width, size.height);
+                            let previous_logs = (app.logs.paused, app.logs.requested);
                             match handle_key(&mut app, key, area) {
                                 Action::Quit => break Ok(()),
                                 Action::None => {}
@@ -373,6 +383,12 @@ pub async fn run(path: &Path) -> Result<(), String> {
                                     }
                                     dirty = true;
                                 }
+                            }
+                            if previous_logs != (app.logs.paused, app.logs.requested) {
+                                // A tail/pause/history transition invalidates the previous query.
+                                app.selection_epoch += 1;
+                                if let Some(task) = &requests.logs { task.abort(); }
+                                logs_due = true;
                             }
                         }
                         Event::Resize(width, height) => {
@@ -433,7 +449,7 @@ pub async fn run(path: &Path) -> Result<(), String> {
                                 }
                             }
                         }
-                        Context::Logs { epoch, selection, service } => {
+                        Context::Logs { epoch, selection, service, query } => {
                             if !app.accepts_logs(epoch, selection, &service) { continue; }
                             match completed.result {
                                 Ok(response) if app.workspace_id.as_ref() != Some(&response.workspace_id) => {
@@ -446,7 +462,7 @@ pub async fn run(path: &Path) -> Result<(), String> {
                                         app.logs_error = Some(format!("{service}: {error}"));
                                         dirty = true;
                                     } else if let Some(batch) = response.logs {
-                                        dirty |= app.apply_logs(batch);
+                                        dirty |= app.apply_log_page(query, batch);
                                     } else {
                                         app.disconnect("Missing log response; refreshing state.".into());
                                         status_due = true;
@@ -614,6 +630,31 @@ mod tests {
         handle_key(&mut app, key(KeyCode::Char('g')), area());
         app.disconnect("lost".into());
         assert!(!app.goto_top);
+    }
+
+    #[test]
+    fn pause_is_independent_of_focus_and_does_not_escape_selection_or_help() {
+        let mut app = connected();
+        let selected = app.selected.clone();
+        handle_key(&mut app, key(KeyCode::Char('p')), area());
+        assert!(app.logs.paused);
+        assert_eq!(app.logs.query(), LogQuery::Bounds);
+        assert_eq!(app.focus, Focus::Projects);
+        assert_eq!(app.selected, selected);
+        app.focus(Focus::Logs);
+        app.logs.begin_selection(10);
+        let selection = app.logs.selection;
+        handle_key(&mut app, key(KeyCode::Char('p')), area());
+        assert!(app.logs.paused);
+        assert_eq!(app.logs.selection, selection);
+        app.logs.selection = None;
+        app.help = true;
+        handle_key(&mut app, key(KeyCode::Char('p')), area());
+        assert!(app.logs.paused);
+        app.help = false;
+        handle_key(&mut app, key(KeyCode::Char('p')), area());
+        assert!(!app.logs.paused);
+        assert_eq!(app.logs.query(), LogQuery::Tail);
     }
 
     #[test]
@@ -799,11 +840,13 @@ mod tests {
                 epoch: 0,
                 selection: 0,
                 service: "web".into(),
+                query: LogQuery::Tail,
             },
             Request::Logs {
                 service: "web".into(),
                 limit: 100,
                 after: None,
+                before: None,
             },
             false,
         );

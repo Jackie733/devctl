@@ -53,8 +53,9 @@ fn dispatch(
             service,
             limit,
             after,
+            before,
         } => {
-            let response = match logs.query(&service, limit, after) {
+            let response = match logs.query(&service, limit, after, before) {
                 Ok(logs) => Response {
                     logs: Some(logs),
                     ..Response::default()

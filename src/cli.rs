@@ -51,8 +51,12 @@ pub enum Command {
         service: String,
         #[arg(long, default_value_t = 100, value_parser = clap::value_parser!(u16).range(1..=500))]
         limit: u16,
-        #[arg(long)]
+        /// Read records strictly after this sequence.
+        #[arg(long, conflicts_with = "before")]
         after: Option<u64>,
+        /// Read the nearest records strictly before this sequence.
+        #[arg(long, conflicts_with = "after")]
+        before: Option<u64>,
     },
     /// Stop all services and end the background workspace.
     Shutdown,

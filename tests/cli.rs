@@ -53,6 +53,7 @@ fn invalid_arguments_exit_with_code_two() {
         &["--config"][..],
         &["validate", "extra"][..],
         &["unknown-command"][..],
+        &["logs", "web", "--before", "10", "--after", "2"][..],
     ] {
         let output = run(args);
         assert_eq!(output.status.code(), Some(2), "{output:?}");

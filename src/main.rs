@@ -79,6 +79,7 @@ async fn execute(cli: Cli) -> Result<(), String> {
             service,
             limit,
             after,
+            before,
         } => {
             let response = client::execute(
                 &config_path,
@@ -86,6 +87,7 @@ async fn execute(cli: Cli) -> Result<(), String> {
                     service: service.clone(),
                     limit: usize::from(limit),
                     after,
+                    before,
                 },
                 false,
             )
@@ -104,6 +106,13 @@ async fn execute(cli: Cli) -> Result<(), String> {
             }
             if logs.gap {
                 eprintln!("Warning: requested log cursor precedes retained output.");
+            }
+            if logs.has_older {
+                if let Some(first) = logs.records.first() {
+                    eprintln!("Earlier retained output: use --before {}.", first.sequence);
+                }
+            } else if before.is_some() && logs.oldest.is_some() {
+                eprintln!("Reached the start of retained output.");
             }
             for record in logs.records {
                 let source = match record.source {

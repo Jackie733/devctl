@@ -184,6 +184,17 @@ if mode == 'slow':
         time.sleep(1.5)
         sys.exit(0)
     signal.signal(signal.SIGTERM, stop)
+if mode == 'history':
+    for number in range(350):
+        print(service + '-history-' + str(number))
+        time.sleep(.001)
+    print(service + '-history-ready')
+    while not (root / 'history-more').exists(): time.sleep(.02)
+    for number in range(4200):
+        print(service + '-new-' + str(number))
+        time.sleep(.0005)
+    print(service + '-history-more-done')
+    while True: time.sleep(1)
 number = 0
 while True:
     if mode == 'high':
@@ -210,7 +221,8 @@ class Workspace:
         for service in ['middle', 'weapp', 'web']:
             worker_mode = ('slow' if mode == 'slow' and service == 'middle' else
                            'failure' if mode == 'failure' and service == 'weapp' else
-                           'high' if mode == 'high' and service == 'web' else 'normal')
+                           'high' if mode == 'high' and service == 'web' else
+                           'history' if mode == 'history' and service == 'web' else 'normal')
             args = [sys.executable, '-u', str(worker), str(self.root), service, worker_mode]
             text += f'\n[services.{service}]\nproject = "demo"\ncmd = {json.dumps(args)}\nautostart = true\n'
         self.config.write_text(text)
@@ -575,6 +587,61 @@ if mode == 'hang': time.sleep(60)
     finally: w.close()
 
 
+def history():
+    w = Workspace(mode='history')
+    try:
+        w.cli('start', 'web')
+        deadline = time.monotonic() + 8
+        while 'web-history-ready' not in w.cli('logs', 'web', '--limit', '1').stdout.decode():
+            assert time.monotonic() < deadline
+            time.sleep(.03)
+        ui = Tui(w)
+        ui.choose('web')
+        ui.wait('web-history-ready')
+        def first_sequence(text):
+            match = re.search(r'seq=(\d+)', text)
+            return int(match.group(1)) if match else 0
+        ui.send(b'0')
+        for _ in range(6):
+            ui.send(b'\x1b[5~')
+            ui.pump(.12)
+        ui.wait(lambda text: 0 < first_sequence(text) < 252)
+        # Home queries the backend's retained beginning, beyond either client page.
+        ui.send(b'gg')
+        ui.wait(lambda text: first_sequence(text) == 1)
+        assert 'READ POSITION EVICTED' not in ui.screen.text(), 'Jumping to available history reported eviction'
+        for _ in range(7):
+            ui.send(b'\x1b[6~')
+            ui.pump(.12)
+        ui.wait(lambda text: first_sequence(text) > 100)
+        ui.wait('READ')
+        anchor = first_sequence(ui.screen.text())
+        ui.choose('weapp')
+        ui.wait('Logs · STOPPED: weapp')
+        ui.choose('web')
+        ui.wait(lambda text: 'READ' in text and first_sequence(text) == anchor)
+        ui.send(b'r')
+        ui.pump(.3)
+        ui.wait(lambda text: 'Connected' in text and 'READ' in text and first_sequence(text) == anchor)
+
+        # The backend evicts the old records, but a paused client snapshot stays put.
+        (w.root / 'history-more').touch()
+        ui.wait('+4201 new')
+        assert first_sequence(ui.screen.text()) == anchor, 'New output moved paused history'
+        assert 'READ POSITION EVICTED' not in ui.screen.text(), 'Backend eviction invalidated a retained client snapshot'
+        assert len(w.starts('web')) == 1
+        ui.send(b'r')
+        ui.wait('READ POSITION EVICTED')
+        ui.wait(lambda text: first_sequence(text) > anchor)
+        ui.send(b'0p')
+        ui.wait('FOLLOW')
+        ui.wait('web-history-more-done')
+        ui.exit()
+        w.states(web='Running')
+        assert len(w.starts('web')) == 1
+    finally: w.close()
+
+
 def config_discovery():
     w = Workspace()
     try:
@@ -608,5 +675,5 @@ def config_discovery():
 
 {'lifecycle': lifecycle, 'reconnect': reconnect, 'slow': slow_stop_and_failure, 'high': high_output,
  'discovery': config_discovery, 'navigation': navigation, 'copying': copying,
- 'windows-copying': windows_copying}[sys.argv[2]]()
+ 'windows-copying': windows_copying, 'history': history}[sys.argv[2]]()
 print('PASS:', sys.argv[2])
