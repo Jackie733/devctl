@@ -20,6 +20,9 @@ pub struct Cli {
 
 #[derive(Debug, Subcommand)]
 pub enum Command {
+    /// Open the terminal interface.
+    Tui,
+
     /// Internal supervisor entry point.
     #[command(hide = true)]
     Supervise {

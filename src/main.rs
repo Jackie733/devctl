@@ -12,6 +12,7 @@ mod run_lock;
 mod service_task;
 mod startup;
 mod supervisor;
+mod tui;
 
 use std::{path::Path, process::ExitCode};
 
@@ -40,6 +41,7 @@ async fn execute(cli: Cli) -> Result<(), String> {
             println!();
             Ok(())
         }
+        Some(Command::Tui) => tui::run().await,
         Some(Command::Supervise { detached }) => supervisor::run(&cli.config, detached).await,
         Some(Command::Start { services, all }) => {
             client::execute(

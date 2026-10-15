@@ -36,7 +36,7 @@ fn version_uses_package_metadata() {
 
 #[test]
 fn subcommand_help_succeeds_without_loading_config() {
-    for command in ["validate", "plan"] {
+    for command in ["validate", "plan", "tui"] {
         let output = run(&[command, "--help"]);
         assert!(output.status.success(), "{output:?}");
         assert!(output.stderr.is_empty());
@@ -84,4 +84,15 @@ fn business_errors_exit_with_code_one() {
     assert!(output.stdout.is_empty());
     let stderr = String::from_utf8(output.stderr).expect("Errors must be UTF-8.");
     assert!(stderr.contains("Error: Unknown service 'missing'."));
+}
+
+#[test]
+fn tui_rejects_non_terminal_io_before_writing_escape_sequences() {
+    let output = run(&["tui"]);
+    assert_eq!(output.status.code(), Some(1));
+    assert!(output.stdout.is_empty());
+    assert_eq!(
+        String::from_utf8(output.stderr).unwrap(),
+        "Error: TUI requires a terminal on stdin and stdout.\n"
+    );
 }
