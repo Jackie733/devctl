@@ -3,7 +3,7 @@
 Keep current work and necessary handoff here; Git retains history. Collaboration
 rules are in [AGENTS.md](../AGENTS.md).
 
-## Current: native Mac implementation and local verification (X01, X03)
+## Current: native Mac local deployment complete; public release pending (X01, X03)
 
 Authorized on 2026-10-16, using the user's existing bogu repository. Source version
 is **1.5.0, unreleased**. Platform scope and acceptance remain owned by
@@ -41,7 +41,7 @@ actual evidence and public-release limitations.
   caller pipe. Added a deterministic inherited-pipe regression and fixed Mac startup;
   30 subsequent eight-client concurrency checks passed.
 
-## Validation and final local handoff
+## Validation and local handoff
 
 - `cargo fmt --check`; `cargo clippy --locked --all-targets -- -D warnings`;
   Linux cross-target clippy with `--target x86_64-unknown-linux-gnu`: passed.
@@ -61,13 +61,20 @@ actual evidence and public-release limitations.
   saved user configuration. Both managed ports are free and PostgreSQL is preserved.
 - `git diff --check`, Markdown links/anchors, Bash syntax, Python compilation and
   YAML parsing passed. Remote workflow execution is not claimed.
-- Final source bundles require a clean committed tree. Generate and verify the two
-  local Mac bundles after the implementation commit; do not publish them as 1.4.0.
+- Local Mac bundles are in `target/macos-release-bundles/arm64` and
+  `target/macos-release-bundles/intel`, built from implementation commit
+  `c564d6a652d5195a61e2e1ea7655b10efe759fff`. Both passed checksum, executable
+  version/signature and macOS 14 deployment-baseline checks. Their source archives
+  match `git archive` of that exact commit; shared files agree, and the installed
+  binary matches the packaged Apple Silicon artifact. The subsequent handoff
+  record is documentation-only. No local bundle has been published.
+- Final cleanup confirmed no verification supervisor or listeners on 5174/3001;
+  the original PostgreSQL process remains running. The bogu Git worktree is clean.
 
 ## Next steps
 
-1. Finish the local verification/package handoff above. Public 1.4.0 remains
-   Linux-only; actual remote CI, macOS 14/Intel-hardware checks and anonymous Mac
+1. Public 1.4.0 remains Linux-only. Actual remote CI, macOS 14/Intel-hardware
+   checks and anonymous Mac
    release/update verification remain pending. Do not equate local mock downloads
    or Rosetta execution with those checks. Do not push, tag or publish automatically.
 2. Retain real WSL U01/log and X03 cross-version update/rollback acceptance from
