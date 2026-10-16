@@ -91,6 +91,15 @@ pub struct LogWindow {
     pub oldest_retained: Option<u64>,
     pub pause_at: u64,
     pub requested: Option<LogQuery>,
+    pub storage: Option<crate::archive::StorageInfo>,
+    pub search: Option<Search>,
+}
+
+pub struct Search {
+    pub text: String,
+    pub upper: u64,
+    pub reverse: bool,
+    pub running: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -100,12 +109,30 @@ pub enum LogQuery {
     Before(u64),
     Restore(u64),
     Bounds,
+    Search(u64),
+    Context(u64),
 }
 
 impl LogQuery {
-    pub fn request(self, service: String) -> Request {
+    pub fn request(self, service: String, search: Option<&Search>) -> Request {
+        if let Self::Search(cursor) = self {
+            let search = search.expect("Search request has a search state");
+            return Request::ReadLogs {
+                query: crate::archive::Query {
+                    service,
+                    limit: 1,
+                    after: (!search.reverse).then_some(cursor),
+                    before: search.reverse.then_some(cursor),
+                    session: None,
+                    contains: Some(search.text.clone()),
+                    upper: Some(search.upper),
+                },
+            };
+        }
         let (after, before) = match self {
             Self::Tail => (None, None),
+            Self::Context(target) => (None, Some(target.saturating_add(1))),
+            Self::Search(_) => unreachable!(),
             Self::After(sequence) => (Some(sequence), None),
             Self::Before(sequence) => (None, Some(sequence)),
             Self::Restore(sequence) => (Some(sequence.saturating_sub(1)), None),
@@ -176,11 +203,13 @@ impl LogWindow {
     }
 
     fn metadata(&mut self, batch: &Batch) -> bool {
-        let changed = self.latest != batch.latest
+        let changed = self.storage != batch.storage
+            || self.latest != batch.latest
             || self.oldest_retained != batch.oldest
             || self.dropped != batch.dropped
             || self.incomplete != batch.incomplete
             || (!self.gap && batch.gap);
+        self.storage = batch.storage.clone();
         self.latest = batch.latest;
         self.oldest_retained = batch.oldest;
         self.dropped = batch.dropped;
@@ -210,7 +239,7 @@ impl LogWindow {
                 self.cursor = self.records.back().map(|record| record.sequence);
                 true
             }
-            LogQuery::Tail | LogQuery::Restore(_) => {
+            LogQuery::Tail | LogQuery::Restore(_) | LogQuery::Context(_) => {
                 let (top, reading) = (self.top, self.reading);
                 // A saved cursor may lie beyond this byte-limited page. Its absence
                 // from the first page is not evidence that the backend evicted it.
@@ -228,12 +257,26 @@ impl LogWindow {
                     self.top = self.records.front().map(|r| r.sequence);
                     self.reading = reading
                         .filter(|sequence| self.records.iter().any(|r| r.sequence == *sequence));
+                } else if let LogQuery::Context(target) = query {
+                    self.reading = self
+                        .records
+                        .iter()
+                        .find(|r| r.sequence == target)
+                        .map(|r| r.sequence);
+                    self.top = self
+                        .records
+                        .iter()
+                        .rev()
+                        .take(6)
+                        .next_back()
+                        .map(|r| r.sequence);
                 } else if self.paused {
                     self.top = top.or_else(|| self.records.front().map(|r| r.sequence));
                 }
                 true
             }
             LogQuery::After(_) => self.append(batch),
+            LogQuery::Search(_) => false,
         }
     }
 
@@ -466,7 +509,39 @@ impl LogWindow {
         }
     }
 
+    pub fn start_search(&mut self, text: String, reverse: bool, fresh: bool, height: usize) {
+        self.pause(height);
+        let upper = if fresh {
+            self.latest
+        } else {
+            self.search.as_ref().map_or(self.latest, |s| s.upper)
+        };
+        let cursor = if reverse {
+            self.reading.unwrap_or(upper.saturating_add(1))
+        } else {
+            self.reading.unwrap_or(0)
+        };
+        self.selection = None;
+        self.search = Some(Search {
+            text,
+            upper,
+            reverse,
+            running: true,
+        });
+        self.requested = Some(LogQuery::Search(cursor));
+    }
+
+    pub fn cancel_search(&mut self) {
+        if let Some(search) = &mut self.search {
+            search.running = false;
+        }
+        if matches!(self.requested, Some(LogQuery::Search(_))) {
+            self.requested = None;
+        }
+    }
+
     pub fn follow(&mut self) {
+        self.cancel_search();
         self.selection = None;
         self.reading = None;
         self.top = None;
@@ -495,6 +570,7 @@ pub struct App {
     pub connection_error: Option<String>,
     pub confirm_shutdown: bool,
     pub help: bool,
+    pub search_input: Option<String>,
 }
 
 impl App {
@@ -518,6 +594,7 @@ impl App {
             connection_error: None,
             confirm_shutdown: false,
             help: false,
+            search_input: None,
         }
     }
 
@@ -530,6 +607,7 @@ impl App {
     }
 
     fn reset_logs(&mut self) {
+        self.search_input = None;
         self.logs = LogWindow::default();
         if let Some(bookmark) = self.selected.as_ref().and_then(|id| self.bookmarks.get(id)) {
             self.logs.paused = true;
@@ -550,6 +628,41 @@ impl App {
     }
 
     pub fn apply_log_page(&mut self, query: LogQuery, batch: Batch) -> bool {
+        if let LogQuery::Search(previous) = query {
+            self.logs.storage = batch.storage.clone();
+            if let Some(record) = batch.records.first() {
+                self.logs.cancel_search();
+                self.logs.requested = Some(LogQuery::Context(record.sequence));
+                self.feedback = format!(
+                    "Match seq={}; n next / N previous; fixed upper={}.",
+                    record.sequence,
+                    self.logs.search.as_ref().map_or(0, |s| s.upper)
+                );
+            } else if !batch.search_complete
+                && batch.scanned_to.is_some_and(|cursor| cursor != previous)
+            {
+                self.logs.requested = batch.scanned_to.map(LogQuery::Search);
+                self.feedback = format!(
+                    "Searching retained history... scanned to {}; Esc cancels.",
+                    batch.scanned_to.unwrap_or(0)
+                );
+            } else {
+                self.logs.cancel_search();
+                self.feedback = if batch.gap
+                    || batch.incomplete
+                    || batch
+                        .storage
+                        .as_ref()
+                        .is_some_and(|s| s.state == "degraded")
+                {
+                    "No further match in available output; history has gaps."
+                } else {
+                    "No further match in this direction (fixed snapshot)."
+                }
+                .into();
+            }
+            return true;
+        }
         let changed = !self.logs_loaded || self.logs_error.is_some();
         self.logs_loaded = true;
         self.logs_error = None;
@@ -740,6 +853,7 @@ mod tests {
         Batch {
             records: sequences
                 .map(|sequence| Record {
+                    captured_ms: 0,
                     sequence,
                     instance: 1,
                     source: Source::Stdout,
@@ -1194,5 +1308,53 @@ mod tests {
         assert!(!logs.append(empty));
         assert!(logs.gap && logs.incomplete);
         assert_eq!(logs.dropped, 4);
+    }
+    #[test]
+    fn search_continues_empty_batches_and_opens_copyable_context_with_fixed_upper() {
+        let mut app = App::new();
+        app.logs.latest = 1000;
+        app.logs.start_search("needle".into(), false, true, 10);
+        app.apply_log_page(
+            LogQuery::Search(0),
+            Batch {
+                scanned_to: Some(300),
+                search_complete: false,
+                ..Batch::default()
+            },
+        );
+        assert_eq!(app.logs.requested, Some(LogQuery::Search(300)));
+        app.apply_log_page(LogQuery::Search(300), page(450..=450, 1, 1200));
+        assert_eq!(app.logs.requested, Some(LogQuery::Context(450)));
+        app.apply_log_page(LogQuery::Context(450), page(351..=450, 1, 1200));
+        assert_eq!(app.logs.reading, Some(450));
+        app.logs.keep_visible(2);
+        assert!(app.logs.start(2) + 2 >= app.logs.records.len());
+        app.logs.start_search("needle".into(), true, false, 2);
+        assert_eq!(app.logs.search.as_ref().unwrap().upper, 1000);
+        assert_eq!(app.logs.requested, Some(LogQuery::Search(450)));
+        app.logs.cancel_search();
+        assert_eq!(app.logs.query(), LogQuery::Bounds);
+        assert!(!app.logs.search.as_ref().unwrap().running);
+        app.logs.follow();
+        assert_eq!(app.logs.query(), LogQuery::Tail);
+    }
+
+    #[test]
+    fn search_reports_no_match_only_when_scan_completes_and_keeps_the_reading_snapshot() {
+        let mut app = App::new();
+        app.logs.apply_page(LogQuery::Tail, page(1..=100, 1, 100));
+        app.logs.start_search("absent".into(), false, true, 10);
+        let top = app.logs.top;
+        app.apply_log_page(
+            LogQuery::Search(0),
+            Batch {
+                search_complete: true,
+                ..Batch::default()
+            },
+        );
+        assert!(app.feedback.contains("No further match"));
+        assert_eq!(app.logs.top, top);
+        assert_eq!(app.logs.records.len(), 100);
+        assert!(app.logs.paused);
     }
 }

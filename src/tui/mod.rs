@@ -107,6 +107,36 @@ fn handle_key(app: &mut App, key: KeyEvent, area: ratatui::layout::Rect) -> Acti
     {
         return Action::None;
     }
+    if let Some(input) = &mut app.search_input {
+        match key.code {
+            KeyCode::Esc => {
+                app.search_input = None;
+                app.feedback = "Search input cancelled.".into();
+            }
+            KeyCode::Backspace => {
+                input.pop();
+            }
+            KeyCode::Char(c) if input.len() + c.len_utf8() <= 256 && !c.is_control() => {
+                input.push(c)
+            }
+            KeyCode::Enter => {
+                let text = input.clone();
+                app.search_input = None;
+                if !text.is_empty() {
+                    app.logs
+                        .start_search(text, false, true, view::log_height(area, app));
+                    app.feedback = "Searching retained history... Esc cancels.".into();
+                }
+            }
+            _ => {}
+        }
+        return Action::Redraw;
+    }
+    if key.code == KeyCode::Esc && app.logs.search.as_ref().is_some_and(|s| s.running) {
+        app.logs.cancel_search();
+        app.feedback = "Search cancelled.".into();
+        return Action::Redraw;
+    }
     if key.code == KeyCode::Char('q') {
         return Action::Quit;
     }
@@ -265,6 +295,20 @@ fn handle_key(app: &mut App, key: KeyEvent, area: ratatui::layout::Rect) -> Acti
         KeyCode::Right | KeyCode::Char('L') => {
             app.logs.horizontal = app.logs.horizontal.saturating_add(8)
         }
+        KeyCode::Char('/') if app.focus == Focus::Logs => {
+            app.logs.cancel_search();
+            app.search_input = Some(String::new());
+        }
+        KeyCode::Char('n' | 'N') if app.focus == Focus::Logs => {
+            if let Some(search) = &app.logs.search {
+                let text = search.text.clone();
+                app.logs
+                    .start_search(text, key.code == KeyCode::Char('N'), false, height);
+                app.feedback = "Searching retained history... Esc cancels.".into();
+            } else {
+                app.feedback = "Use / to enter search text first.".into();
+            }
+        }
         KeyCode::Char('v' | 'V') if app.focus == Focus::Logs => {
             if !app.logs.begin_selection(height) {
                 app.feedback = "No cached output to select.".into();
@@ -335,7 +379,7 @@ pub async fn run(path: &Path) -> Result<(), String> {
             {
                 let query = app.logs.query();
                 requests.spawn(&path, Context::Logs { epoch: app.epoch, selection: app.selection_epoch, service: service.clone(), query },
-                    query.request(service), false);
+                    query.request(service,app.logs.search.as_ref()), false);
                 logs_due = false;
             }
             tokio::select! {
@@ -460,9 +504,15 @@ pub async fn run(path: &Path) -> Result<(), String> {
                                 Ok(response) => {
                                     if let Some(error) = response.error {
                                         app.logs_error = Some(format!("{service}: {error}"));
+                                        app.logs.cancel_search();
                                         dirty = true;
                                     } else if let Some(batch) = response.logs {
                                         dirty |= app.apply_log_page(query, batch);
+                                        logs_due |= app.logs.requested.is_some();
+                                        if matches!(query,LogQuery::Context(_)) {
+                                            let size = terminal.size().map_err(|e| e.to_string())?;
+                                            app.logs.keep_visible(view::log_height(ratatui::layout::Rect::new(0,0,size.width,size.height),&app));
+                                        }
                                     } else {
                                         app.disconnect("Missing log response; refreshing state.".into());
                                         status_due = true;
@@ -546,6 +596,7 @@ mod tests {
         app.apply_logs(crate::logs::Batch {
             records: (1..=100)
                 .map(|sequence| crate::logs::Record {
+                    captured_ms: 0,
                     sequence,
                     instance: 1,
                     source: crate::logs::Source::Stdout,
@@ -954,5 +1005,32 @@ mod tests {
             ratatui::layout::Rect::new(0, 0, 120, 24),
         );
         assert!(!app.confirm_shutdown && app.pending.is_none());
+    }
+    #[test]
+    fn search_input_is_modal_unicode_bounded_and_escape_cancels_scanning() {
+        let mut app = connected();
+        app.focus(Focus::Logs);
+        handle_key(&mut app, key(KeyCode::Char('/')), area());
+        for c in ['q', '界', 's'] {
+            assert!(matches!(
+                handle_key(&mut app, key(KeyCode::Char(c)), area()),
+                Action::Redraw
+            ));
+        }
+        assert_eq!(app.search_input.as_deref(), Some("q界s"));
+        assert!(app.pending.is_none());
+        handle_key(&mut app, key(KeyCode::Backspace), area());
+        handle_key(&mut app, key(KeyCode::Enter), area());
+        assert_eq!(app.logs.search.as_ref().unwrap().text, "q界");
+        assert!(app.logs.paused);
+        handle_key(&mut app, key(KeyCode::Esc), area());
+        assert!(!app.logs.search.as_ref().unwrap().running);
+        assert_eq!(app.focus, Focus::Logs);
+        handle_key(&mut app, key(KeyCode::Char('/')), area());
+        app.search_input = Some("界".repeat(85));
+        handle_key(&mut app, key(KeyCode::Char('界')), area());
+        assert_eq!(app.search_input.as_ref().unwrap().len(), 255);
+        handle_key(&mut app, key(KeyCode::Esc), area());
+        assert!(app.search_input.is_none());
     }
 }

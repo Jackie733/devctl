@@ -20,7 +20,7 @@ pub const MAX_RECORD_BYTES: usize = 16 * 1024;
 pub const QUEUE_CAPACITY: usize = 256;
 const MAX_BUFFER_BYTES: usize = 2 * 1024 * 1024;
 const MAX_RECORDS: usize = 4096;
-const MAX_QUERY_BYTES: usize = 64 * 1024;
+pub const MAX_QUERY_BYTES: usize = 64 * 1024;
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -31,6 +31,8 @@ pub enum Source {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Record {
+    #[serde(default)]
+    pub captured_ms: u64,
     pub sequence: u64,
     pub instance: u64,
     pub source: Source,
@@ -73,6 +75,7 @@ impl Sink {
         let event = Event {
             service: self.service.clone(),
             record: Record {
+                captured_ms: now_ms(),
                 sequence: 0,
                 instance: self.instance,
                 source,
@@ -200,7 +203,7 @@ pub struct Store {
     buffers: BTreeMap<String, Buffer>,
 }
 
-#[derive(Debug, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Batch {
     pub records: Vec<Record>,
     pub dropped: u64,
@@ -212,6 +215,14 @@ pub struct Batch {
     pub oldest: Option<u64>,
     #[serde(default)]
     pub has_older: bool,
+    #[serde(default)]
+    pub evicted: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub storage: Option<crate::archive::StorageInfo>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scanned_to: Option<u64>,
+    #[serde(default)]
+    pub search_complete: bool,
 }
 
 pub fn channel(
@@ -249,21 +260,20 @@ pub fn channel(
 }
 
 impl Store {
-    pub fn push(&mut self, event: Event) {
-        let Some(buffer) = self.buffers.get_mut(event.service.as_ref()) else {
-            return;
-        };
+    pub fn push(&mut self, event: Event) -> Option<(String, Record)> {
+        let buffer = self.buffers.get_mut(event.service.as_ref())?;
         let mut record = event.record;
         record.sequence = buffer.next;
         buffer.next = buffer.next.saturating_add(1);
         buffer.bytes += record.text.len();
-        buffer.records.push_back(record);
+        buffer.records.push_back(record.clone());
         while buffer.bytes > MAX_BUFFER_BYTES || buffer.records.len() > MAX_RECORDS {
             if let Some(record) = buffer.records.pop_front() {
                 buffer.bytes -= record.text.len();
                 buffer.evicted += 1;
             }
         }
+        Some((event.service.to_string(), record))
     }
 
     pub fn query(
@@ -272,6 +282,18 @@ impl Store {
         limit: usize,
         after: Option<u64>,
         before: Option<u64>,
+    ) -> Result<Batch, String> {
+        self.query_matching(id, limit, after, before, None, None)
+    }
+
+    pub fn query_matching(
+        &self,
+        id: &str,
+        limit: usize,
+        after: Option<u64>,
+        before: Option<u64>,
+        needle: Option<&str>,
+        upper: Option<u64>,
     ) -> Result<Batch, String> {
         if !(1..=500).contains(&limit) {
             return Err("Log limit must be between 1 and 500.".into());
@@ -286,6 +308,11 @@ impl Store {
         let mut records = Vec::new();
         let mut bytes = 0;
         let mut append = |record: &Record| {
+            if upper.is_some_and(|upper| record.sequence > upper)
+                || needle.is_some_and(|needle| !record.text.contains(needle))
+            {
+                return true;
+            }
             if records.len() == limit || bytes + record.text.len() > MAX_QUERY_BYTES {
                 return false;
             }
@@ -322,6 +349,7 @@ impl Store {
             .is_some_and(|first| oldest.is_some_and(|oldest| oldest < first.sequence));
         Ok(Batch {
             records,
+            evicted: buffer.evicted,
             dropped: buffer
                 .evicted
                 .saturating_add(buffer.dropped.load(Ordering::Relaxed)),
@@ -333,8 +361,17 @@ impl Store {
             latest: buffer.next.saturating_sub(1),
             oldest,
             has_older,
+            ..Batch::default()
         })
     }
+}
+
+pub fn now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis()
+        .min(u128::from(u64::MAX)) as u64
 }
 
 #[cfg(test)]

@@ -153,6 +153,36 @@ pub async fn execute(path: &Path, request: &Request, create: bool) -> Result<Res
     Ok(response)
 }
 
+/// Read without creating a supervisor. The run lock, not a failed socket probe,
+/// proves that offline reading cannot race a live archive writer or cleanup.
+pub async fn read_logs(path: &Path, request: Request) -> Result<Response, String> {
+    let config = path.canonicalize().map_err(|e| e.to_string())?;
+    // A cold read with no archive must not create even a run-lock sidecar.
+    let archived = crate::archive::directory(&config).is_ok_and(|dir| dir.exists());
+    if !archived {
+        return execute(&config, &request, false).await;
+    }
+    if let Some(_guard) = RunLock::try_acquire(&config)? {
+        let settings = config::load_log_settings(&config)?;
+        return match request {
+            Request::ReadLogs { query } => {
+                crate::archive::offline(&config, &settings, &query).map(|logs| Response {
+                    logs: Some(logs),
+                    ..Response::default()
+                })
+            }
+            Request::LogSessions {} => crate::archive::directory(&config)
+                .and_then(|dir| crate::archive::sessions(&dir, &config, &settings))
+                .map(|sessions| Response {
+                    sessions,
+                    ..Response::default()
+                }),
+            _ => Err("Invalid offline log request.".into()),
+        };
+    }
+    execute(&config, &request, false).await
+}
+
 /// Preserve server feedback and workspace identity for interactive clients.
 pub async fn transact(
     path: &Path,

@@ -1,4 +1,4 @@
-use std::{io::Read, path::Path, time::Duration};
+use std::{io::Read, path::Path, sync::Arc, time::Duration};
 
 use tokio::{
     signal::unix::{SignalKind, signal},
@@ -8,6 +8,7 @@ use tokio::{
 };
 
 use crate::{
+    archive::{Archive, Query},
     config,
     control::{self, Command, Request, Response},
     control_socket::ControlSocket,
@@ -20,6 +21,7 @@ use crate::{
 const MAX_CLIENTS: usize = 16;
 
 struct PendingStop {
+    shutdown: bool,
     ids: Vec<String>,
     errors: Vec<String>,
     reply: oneshot::Sender<Response>,
@@ -46,6 +48,7 @@ fn dispatch(
     pending: &mut Vec<PendingStop>,
     shutting_down: &mut bool,
     logs: &Store,
+    archive: &Archive,
 ) {
     let Command { request, reply } = command;
     match request {
@@ -55,15 +58,41 @@ fn dispatch(
             after,
             before,
         } => {
-            let response = match logs.query(&service, limit, after, before) {
-                Ok(logs) => Response {
-                    logs: Some(logs),
-                    ..Response::default()
-                },
-                Err(error) => Response::failed(error),
+            let query = Query {
+                service: service.clone(),
+                limit,
+                after,
+                before,
+                session: None,
+                contains: None,
+                upper: None,
             };
-            let _ = reply.send(response);
+            match logs.query(&service, limit, after, before) {
+                Ok(memory) => archive.query(query, memory, reply),
+                Err(error) => {
+                    let _ = reply.send(Response::failed(error));
+                }
+            }
         }
+        Request::ReadLogs { query } => {
+            match logs.query_matching(
+                &query.service,
+                query.limit,
+                query.after,
+                query.before,
+                query.contains.as_deref(),
+                query.upper,
+            ) {
+                Ok(memory) => archive.query(query, memory, reply),
+                Err(_) if query.session.is_some() => {
+                    archive.query(query, logs::Batch::default(), reply)
+                }
+                Err(error) => {
+                    let _ = reply.send(Response::failed(error));
+                }
+            }
+        }
+        Request::LogSessions {} => archive.list(reply),
         Request::Status {} => {
             let _ = reply.send(snapshot(manager, None));
         }
@@ -86,6 +115,7 @@ fn dispatch(
                 let _ = reply.send(Response::failed("Too many pending stop requests."));
                 return;
             }
+            let shutdown = matches!(request, Request::Shutdown {});
             let ids = match request {
                 Request::Shutdown {} => {
                     *shutting_down = true;
@@ -122,15 +152,22 @@ fn dispatch(
                     })
                 })
                 .collect();
-            pending.push(PendingStop { ids, errors, reply });
+            pending.push(PendingStop {
+                shutdown,
+                ids,
+                errors,
+                reply,
+            });
         }
     }
 }
 
-fn complete_stops(manager: &mut Manager, pending: &mut Vec<PendingStop>) {
+fn complete_stops(manager: &mut Manager, pending: &mut Vec<PendingStop>, allow_shutdown: bool) {
     let mut index = 0;
     while index < pending.len() {
-        if pending[index].ids.iter().any(|id| manager.is_pending(id)) {
+        if (!allow_shutdown && pending[index].shutdown)
+            || pending[index].ids.iter().any(|id| manager.is_pending(id))
+        {
             index += 1;
             continue;
         }
@@ -170,7 +207,7 @@ async fn run_inner(path: &Path, detached: bool) -> Result<(), String> {
     let mut terminate = signal(SignalKind::terminate())
         .map_err(|error| format!("Failed to register SIGTERM handler: {error}"))?;
     let _run_lock = match RunLock::try_acquire(&path)? {
-        Some(guard) => guard,
+        Some(guard) => Arc::new(guard),
         None => {
             if detached {
                 startup::locked();
@@ -180,6 +217,7 @@ async fn run_inner(path: &Path, detached: bool) -> Result<(), String> {
     };
     let socket = ControlSocket::bind(&path, &_run_lock)?;
     let (sinks, mut output, mut logs) = logs::channel(config.services.keys().cloned());
+    let archive = Archive::start(&path, config.logs, workspace_id.clone(), _run_lock.clone())?;
     let mut manager = Manager::with_logs(config.services, sinks);
     let (commands, mut incoming) = mpsc::channel(32);
     let mut clients = JoinSet::new();
@@ -219,14 +257,14 @@ async fn run_inner(path: &Path, detached: bool) -> Result<(), String> {
             _ = sleep_until(accept_after), if !accepting => {}
             Some(command) = incoming.recv() => {
                 let shutdown_request = matches!(&command.request, Request::Shutdown {});
-                dispatch(command, &mut manager, &mut pending, &mut shutting_down, &logs);
+                dispatch(command, &mut manager, &mut pending, &mut shutting_down, &logs, &archive);
                 reply_on_shutdown |= shutdown_request && shutting_down;
             }
-            Some(event) = output.recv() => logs.push(event),
+            Some(event) = output.recv() => { if let Some((service, record)) = logs.push(event) {archive.push(service,record);} },
             completion = manager.wait_next(), if manager.has_pending_tasks() => {
                 // Drain at most one queue capacity before acknowledging completed stops.
                 for _ in 0..logs::QUEUE_CAPACITY {
-                    match output.try_recv() { Ok(event) => logs.push(event), Err(_) => break }
+                    match output.try_recv() { Ok(event) => {if let Some((service,record)) = logs.push(event) {archive.push(service,record);}}, Err(_) => break }
                 }
                 if let Some((id, Err(error))) = completion {
                     for command in &mut pending {
@@ -236,7 +274,7 @@ async fn run_inner(path: &Path, detached: bool) -> Result<(), String> {
             }
             Some(_result) = clients.join_next(), if !clients.is_empty() => {}
         }
-        complete_stops(&mut manager, &mut pending);
+        complete_stops(&mut manager, &mut pending, !shutting_down);
         if shutting_down && !manager.has_pending_tasks() {
             if manager.has_unconfirmed_cleanup() {
                 // Keep the ownership lock and diagnostics when safe exit cannot be proved.
@@ -249,6 +287,30 @@ async fn run_inner(path: &Path, detached: bool) -> Result<(), String> {
     }
 
     drop(incoming);
+    let stopped = manager.stop_all().await;
+    for _ in 0..logs::QUEUE_CAPACITY {
+        match output.try_recv() {
+            Ok(event) => {
+                if let Some((service, record)) = logs.push(event) {
+                    archive.push(service, record);
+                }
+            }
+            Err(_) => break,
+        }
+    }
+    let incomplete = manager.all_ids().iter().any(|id| {
+        logs.query(id, 1, None, None)
+            .is_ok_and(|b| b.incomplete || b.dropped > b.evicted)
+    });
+    let saved = archive.finish(incomplete).await;
+    if let Err(error) = &saved {
+        for command in &mut pending {
+            if command.shutdown {
+                command.errors.push(error.clone());
+            }
+        }
+    }
+    complete_stops(&mut manager, &mut pending, true);
     if !reply_on_shutdown
         || timeout(Duration::from_secs(3), async {
             while clients.join_next().await.is_some() {}
@@ -258,5 +320,5 @@ async fn run_inner(path: &Path, detached: bool) -> Result<(), String> {
     {
         clients.shutdown().await;
     }
-    manager.stop_all().await
+    stopped.and(saved)
 }

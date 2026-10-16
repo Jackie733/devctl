@@ -1,3 +1,4 @@
+mod archive;
 mod cli;
 mod client;
 mod config;
@@ -75,26 +76,82 @@ async fn execute(cli: Cli) -> Result<(), String> {
             }
             Ok(())
         }
+        Command::LogSessions => {
+            let response =
+                client::read_logs(&config_path, control::Request::LogSessions {}).await?;
+            for session in response.sessions {
+                println!(
+                    "{} created_ms={} {} services={}",
+                    session.id,
+                    session.created_ms,
+                    if session.complete {
+                        "closed"
+                    } else {
+                        "unclosed"
+                    },
+                    session
+                        .services
+                        .keys()
+                        .cloned()
+                        .collect::<Vec<_>>()
+                        .join(",")
+                );
+            }
+            Ok(())
+        }
         Command::Logs {
             service,
             limit,
             after,
             before,
+            session,
+            contains,
+            upper,
         } => {
-            let response = client::execute(
+            let searching = contains.is_some();
+            let response = client::read_logs(
                 &config_path,
-                &control::Request::Logs {
-                    service: service.clone(),
-                    limit: usize::from(limit),
-                    after,
-                    before,
+                control::Request::ReadLogs {
+                    query: archive::Query {
+                        service: service.clone(),
+                        limit: usize::from(limit),
+                        after,
+                        before,
+                        session,
+                        contains,
+                        upper,
+                    },
                 },
-                false,
             )
             .await?;
             let logs = response
                 .logs
                 .ok_or_else(|| "Missing log response.".to_owned())?;
+            if let Some(info) = &logs.storage {
+                eprintln!(
+                    "Session: {} | storage={} | {}",
+                    info.session, info.state, info.directory
+                );
+                if !info.warning.is_empty() {
+                    eprintln!("Warning: {}", info.warning);
+                }
+            }
+            if searching {
+                eprintln!(
+                    "Search upper={} complete={} scanned_to={}",
+                    upper.unwrap_or(logs.latest),
+                    logs.search_complete,
+                    logs.scanned_to.unwrap_or(0)
+                );
+                if !logs.search_complete {
+                    eprintln!(
+                        "Continue with --{} {} --upper {}.",
+                        if after.is_some() { "after" } else { "before" },
+                        logs.scanned_to.unwrap_or(0),
+                        upper.unwrap_or(logs.latest)
+                    );
+                }
+            }
             if logs.dropped > 0 {
                 eprintln!(
                     "Warning: {} log records were dropped or evicted.",
@@ -102,7 +159,7 @@ async fn execute(cli: Cli) -> Result<(), String> {
                 );
             }
             if logs.incomplete {
-                eprintln!("Warning: log capture ended early; output may be incomplete.");
+                eprintln!("Warning: captured or saved log output may be incomplete.");
             }
             if logs.gap {
                 eprintln!("Warning: requested log cursor precedes retained output.");
@@ -121,8 +178,8 @@ async fn execute(cli: Cli) -> Result<(), String> {
                 };
                 let marker = if record.truncated { " [truncated]" } else { "" };
                 println!(
-                    "[{service}#{} {source} seq={}] {}{marker}",
-                    record.instance, record.sequence, record.text
+                    "[{service}#{} {source} utc_ms={} seq={}] {}{marker}",
+                    record.instance, record.captured_ms, record.sequence, record.text
                 );
             }
             Ok(())

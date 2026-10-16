@@ -45,7 +45,9 @@ pub enum Command {
     },
     /// Show current background service states.
     Status,
-    /// Read bounded recent output from a background service.
+    /// List up to 100 retained log sessions without starting services.
+    LogSessions,
+    /// Read bounded service output; without a background, read the latest saved session.
     Logs {
         #[arg(value_name = "SERVICE")]
         service: String,
@@ -57,6 +59,15 @@ pub enum Command {
         /// Read the nearest records strictly before this sequence.
         #[arg(long, conflicts_with = "after")]
         before: Option<u64>,
+        /// Read this saved session (see log-sessions).
+        #[arg(long)]
+        session: Option<String>,
+        /// Case-sensitive literal text search across retained records.
+        #[arg(long)]
+        contains: Option<String>,
+        /// Fix the inclusive search upper bound (reported by the first page).
+        #[arg(long)]
+        upper: Option<u64>,
     },
     /// Stop all services and end the background workspace.
     Shutdown,

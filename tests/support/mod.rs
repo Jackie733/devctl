@@ -32,6 +32,13 @@ impl ConfigFixture {
                 .unwrap();
             project["path"] = toml::Value::String(resolved.to_str().unwrap().into());
         }
+        value.as_table_mut().unwrap().insert(
+            "logs".into(),
+            toml::Value::Table(toml::Table::from_iter([(
+                "enabled".into(),
+                toml::Value::Boolean(false),
+            )])),
+        );
         let path = dir.join("devctl.toml");
         fs::write(&path, toml::to_string(&value).unwrap()).unwrap();
         Self { dir, path }

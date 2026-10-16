@@ -76,17 +76,28 @@ fn diagnostics(app: &App) -> Vec<Line<'static>> {
         ));
     }
     let mut warnings = Vec::new();
+    if let Some(info) = &app.logs.storage {
+        lines.push(Line::from(format!(
+            "Saving: {} | session {} | {}",
+            clean(&info.state),
+            clean(&info.session),
+            clean(&info.directory)
+        )));
+        if !info.warning.is_empty() {
+            warnings.push(clean(&info.warning));
+        }
+    }
     if app.logs.dropped > 0 {
         warnings.push(format!("backend lost/evicted={}", app.logs.dropped));
     }
     if app.logs.local_evicted > 0 {
-        warnings.push(format!("local evicted={}", app.logs.local_evicted));
+        warnings.push(format!("client cache trimmed={}", app.logs.local_evicted));
     }
     if app.logs.gap {
         warnings.push("GAP".into());
     }
     if app.logs.incomplete {
-        warnings.push("CAPTURE INCOMPLETE".into());
+        warnings.push("OUTPUT INCOMPLETE".into());
     }
     if app.logs.selection_lost {
         warnings.push("SELECTION EVICTED: select again".into());
@@ -121,6 +132,14 @@ fn status_line(app: &App) -> Line<'static> {
     if cleanup_unknown {
         flags.push("Cleanup UNCONFIRMED");
     }
+    if app
+        .logs
+        .storage
+        .as_ref()
+        .is_some_and(|s| s.state == "degraded")
+    {
+        flags.push("SAVE DEGRADED");
+    }
     if app.logs.selection_lost {
         flags.push("SELECTION EVICTED");
     }
@@ -128,12 +147,12 @@ fn status_line(app: &App) -> Line<'static> {
         flags.push("GAP");
     }
     if app.logs.incomplete {
-        flags.push("CAPTURE INCOMPLETE");
+        flags.push("OUTPUT INCOMPLETE");
     }
     if app.logs.anchor_lost {
         flags.push("READ POSITION EVICTED");
     }
-    if app.logs.dropped > 0 || app.logs.local_evicted > 0 {
+    if app.logs.dropped > 0 {
         flags.push("LOG LOSS");
     }
     if app.logs_error.is_some() {
@@ -157,7 +176,11 @@ fn status_line(app: &App) -> Line<'static> {
         text.push_str(&clean(error));
         text.push_str(" | ");
     }
-    text.push_str(&clean(&app.feedback));
+    if let Some(input) = &app.search_input {
+        text.push_str(&format!("/{} | Enter search | Esc cancel", clean(input)));
+    } else {
+        text.push_str(&clean(&app.feedback));
+    }
     Line::styled(text, style)
 }
 
@@ -323,7 +346,7 @@ pub fn render(frame: &mut Frame, app: &App) {
     } else if area.width < 60 {
         "j/k v p G Esc".into()
     } else {
-        "j/k move | v select | p pause | G follow | Esc projects".into()
+        "/ search | n/N match | v select | p pause | G follow".into()
     };
     let [context_area, global] =
         Layout::horizontal([Constraint::Min(0), Constraint::Length(17)]).areas(screen.footer);
@@ -479,7 +502,13 @@ fn logs_view(frame: &mut Frame, area: Rect, app: &App) {
     frame.render_widget(block, area);
     frame.render_widget(
         Paragraph::new(Line::styled(
-            format!("{status} | {notice}"),
+            format!(
+                "{status} | {notice} | save={}",
+                app.logs
+                    .storage
+                    .as_ref()
+                    .map_or("unknown", |s| s.state.as_str())
+            ),
             Style::default().fg(color).add_modifier(Modifier::BOLD),
         )),
         notice_area,
@@ -546,7 +575,19 @@ fn logs_view(frame: &mut Frame, area: Rect, app: &App) {
             } else {
                 ""
             };
+            let timestamp = if area.width >= 100 && record.captured_ms != 0 {
+                let seconds = record.captured_ms / 1000;
+                format!(
+                    "UTC {:02}:{:02}:{:02} ",
+                    (seconds / 3600) % 24,
+                    (seconds / 60) % 60,
+                    seconds % 60
+                )
+            } else {
+                String::new()
+            };
             Line::from(vec![
+                Span::styled(timestamp, Style::default().fg(Color::DarkGray)),
                 Span::styled(
                     format!(
                         "{pointer}[{source} #{}{history} seq={}] ",
@@ -662,7 +703,6 @@ fn help_lines(app: &App) -> Vec<Line<'static>> {
         "CURRENT PANEL",
         context,
         panels,
-        "",
         "SELECTED PROJECT",
         "s: start selected | x: stop selected",
         "",
@@ -671,16 +711,18 @@ fn help_lines(app: &App) -> Vec<Line<'static>> {
         "Q: confirm ending workspace | r: sync existing background",
         "",
         "LOGS",
+        "Running means process alive, not business readiness.",
         "Ctrl-u/d: half page | PageUp/PageDown: page; edges load history",
         "Home/gg: oldest retained | End/G: follow | p: pause/resume",
         "j/k: move log cursor; v: select from cursor; j/k: extend selection",
+        "/: literal case-sensitive search; Enter runs; Esc cancels; n/N next/previous",
+        "Search fixes latest seq; / refreshes. Match opens context for v/y copy.",
         "In V-LINE: y copies log text; Esc cancels and stays in logs.",
         "Local WSL: copy via clip.exe; elsewhere: terminal clipboard (OSC 52).",
         "Copy feedback names the method; verify by pasting. Failures keep selection.",
         "Selected logs stay anchored; eviction cancels selection.",
         "Log header/banner shows service state; FOLLOW/READ is only scrolling.",
         "STOPPED/FAILED logs are retained history; old marks an earlier run.",
-        "Running means process alive, not business readiness.",
         "H/L or Left/Right: pan | Bounded logs; gaps/losses are reported.",
         "",
         "LEAVING",
@@ -801,6 +843,7 @@ mod tests {
                 .into_iter()
                 .enumerate()
                 .map(|(index, instance)| crate::logs::Record {
+                    captured_ms: 0,
                     sequence: index as u64 + 1,
                     instance,
                     source: Source::Stdout,
@@ -859,6 +902,7 @@ mod tests {
         app.apply_logs(crate::logs::Batch {
             records: (1..=100)
                 .map(|sequence| crate::logs::Record {
+                    captured_ms: 0,
                     sequence,
                     instance: 1,
                     source: Source::Stdout,
@@ -897,6 +941,7 @@ mod tests {
         app.apply_logs(crate::logs::Batch {
             records: (1..=3)
                 .map(|sequence| crate::logs::Record {
+                    captured_ms: 0,
                     sequence,
                     instance: 1,
                     source: Source::Stdout,
@@ -1140,5 +1185,13 @@ mod tests {
     #[test]
     fn external_names_and_diagnostics_cannot_emit_terminal_controls() {
         assert_eq!(clean("name\x1b[2J\r\n\t"), "name\\u{1b}[2J\\r\\n    ");
+    }
+    #[test]
+    fn trimming_a_retrievable_client_window_is_not_reported_as_log_loss() {
+        let mut app = App::new();
+        app.logs.local_evicted = 100;
+        assert!(!status_line(&app).to_string().contains("LOG LOSS"));
+        app.logs.dropped = 1;
+        assert!(status_line(&app).to_string().contains("LOG LOSS"));
     }
 }

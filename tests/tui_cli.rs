@@ -62,3 +62,8 @@ fn wsl_copy_handles_unicode_failure_and_in_flight_navigation_without_touching_ho
 fn history_pages_pause_bookmarks_and_expiry_work_in_a_real_terminal() {
     scenario("history");
 }
+
+#[test]
+fn disk_history_search_copy_and_fresh_entry_follow_work_in_a_real_terminal() {
+    scenario("disk-history");
+}

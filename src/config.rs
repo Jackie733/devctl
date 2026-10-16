@@ -13,6 +13,9 @@ pub struct Config {
     pub workspace: Workspace,
 
     #[serde(default)]
+    pub logs: crate::archive::Settings,
+
+    #[serde(default)]
     pub projects: BTreeMap<String, Project>,
 
     #[serde(default)]
@@ -132,12 +135,32 @@ pub enum DependencyCondition {
     Started,
 }
 
+/// Historical reading needs storage settings, not working project directories.
+pub fn load_log_settings(path: &Path) -> Result<crate::archive::Settings, String> {
+    let content =
+        fs::read_to_string(path).map_err(|e| format!("Failed to read {}: {e}", path.display()))?;
+    #[derive(Deserialize)]
+    struct LogConfig {
+        version: u32,
+        #[serde(default)]
+        logs: crate::archive::Settings,
+    }
+    let config: LogConfig = toml::from_str(&content).map_err(|e| e.to_string())?;
+    if config.version != 1 {
+        return Err("Unsupported config version.".into());
+    }
+    config.logs.validate()?;
+    Ok(config.logs)
+}
+
 pub fn load(path: &Path) -> Result<Config, String> {
     let content = fs::read_to_string(path)
         .map_err(|error| format!("Failed to read {}: {error}", path.display()))?;
 
     let mut config: Config = toml::from_str(&content)
         .map_err(|error| format!("Failed to parse {}: {error}", path.display()))?;
+
+    config.logs.validate()?;
 
     if config.version != 1 {
         return Err(format!(
@@ -356,6 +379,7 @@ mod tests {
 
         Config {
             version: 1,
+            logs: crate::archive::Settings::default(),
             workspace: Workspace {
                 name: "test".to_string(),
             },

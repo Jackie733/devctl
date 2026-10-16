@@ -18,6 +18,10 @@ pub const MAX_RESPONSE: usize = 1024 * 1024;
 #[serde(tag = "action", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Request {
     Status {},
+    ReadLogs {
+        query: crate::archive::Query,
+    },
+    LogSessions {},
     Start {
         targets: Vec<String>,
         all: bool,
@@ -47,6 +51,8 @@ pub struct Response {
     pub services: BTreeMap<String, ServiceStatus>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub logs: Option<Batch>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub sessions: Vec<crate::archive::Session>,
 }
 
 impl Response {
