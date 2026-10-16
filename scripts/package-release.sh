@@ -54,7 +54,7 @@ text = Path('CHANGELOG.md').read_text()
 match = re.search(r'^## ' + re.escape(version) + r'[^\n]*\n(.*?)(?=^## |\Z)', text, re.M | re.S)
 if not match:
     raise SystemExit('CHANGELOG.md has no entry for this release.')
-notes = match.group(1).strip() + f'\n\n构建提交：`{revision}`。\n'
+notes = match.group(1).strip() + f'\n\nBuild commit: `{revision}`.\n'
 (output / 'release-notes.md').write_text(notes)
 PY
 (

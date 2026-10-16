@@ -1,42 +1,87 @@
-# 发布维护
+# Release maintenance
 
-对应 X03，发布流程由 [release.yml](../.github/workflows/release.yml) 执行；目标为 Linux / WSL2 x86_64。发布授权、实际结果和用户验收进度记录在 [tasks.md](tasks.md)。
+Public distribution and self-update implement X03. The
+[release workflow](../.github/workflows/release.yml) produces Linux/WSL2 x86_64
+artifacts. [tasks.md](tasks.md) records publication authorization, actual outcomes,
+and pending real-environment acceptance.
 
-## 准备与触发
+## Prepare and trigger
 
-1. 同步 Cargo.toml、Cargo.lock、CHANGELOG 和当前安装文档的版本；完成本地检查并提交。稳定版标签必须为 `vMAJOR.MINOR.PATCH`，且与 Cargo 包版本相等。
-2. 确认目标提交在主分支，取得本次推送、标签和发布授权后，创建带说明的标签并推送主分支与该标签。不移动或覆盖已发布标签。
-3. 推送 `v*` 标签触发发布。手动运行默认只进行测试、构建和产物上传，不创建或公开 Release，可用于发布前验证。若标签推送未触发运行，可在主分支手动选择已有版本标签并显式设置 publish=true 补发，无需移动标签；缺少版本标签时拒绝手动发布。
+1. Update Cargo.toml, Cargo.lock, CHANGELOG, and current installation/version examples.
+   Keep English and Chinese READMEs consistent. Run applicable checks and commit.
+   Stable tags use `vMAJOR.MINOR.PATCH` and must match the Cargo package version.
+2. Confirm the target commit is on main and publication is authorized for this task.
+   Create an annotated tag and push main plus that tag. Never move or overwrite a
+   published tag or reuse a version to replace program bytes.
+3. A `v*` tag push triggers publication. Manual dispatch defaults to build-only,
+   including tests and intermediate artifact upload, without creating a Release.
+   If a tag event does not run, dispatch on main with the existing `tag` and explicit
+   `publish=true`. Manual publication without a version tag is rejected.
 
-手动补发使用当前分支的工作流配置，但 checkout、编译与源码归档均取自指定标签；发布说明始终记录实际构建提交。中间产物按工作流运行 ID 隔离，发布任务只读取同一次运行的附件。
+Manual retry may use a newer workflow definition, but checkout, compilation, and
+source archive come from the selected tag. Release notes record the full build
+commit. Intermediate artifacts are isolated by run ID and consumed only by that run.
 
-## 工作流与产物
+## Checks and artifacts
 
-构建任务只持 contents: read，使用固定提交的官方 checkout/upload-artifact，在 Ubuntu 22.04、Rust 1.98.1 下执行 fmt、clippy、完整 Rust 测试和安装器测试，再编译 x86_64-unknown-linux-musl。打包测试使用临时 Git 仓库，从真实程序生成清单并由真实更新客户端消费，覆盖安装与回退；另检查脏工作区、标签不符及输出目录覆盖保护。静态程序须通过无动态加载器/依赖检查、隔离安装/重复安装/错误摘要/回退检查及全部 10 个真实 PTY 场景。
+Build has `contents: read`, uses pinned official actions, and runs on Ubuntu 22.04
+with Rust 1.98.1. It checks fmt, clippy, all Rust tests, and installer tests, then
+builds `x86_64-unknown-linux-musl`. The actual static artifact must pass dynamic-loader/
+dependency checks, isolated install/reinstall/bad-digest/rollback checks, generated
+manifest consumption by a real client, and ten real PTY scenarios.
 
-[打包脚本](../scripts/package-release.sh) 要求工作区干净、可执行程序版本与 Cargo 版本及发布标签一致，输出目录必须尚不存在。程序、脚本和源码归档都来自同一提交；源码由 git archive HEAD 生成，顶层为 `devctl-<版本>/`，不包含 .git 或 target。输出：
+The [packager](../scripts/package-release.sh) requires a clean worktree, matching
+binary/package/tag versions, and a new output directory. `git archive HEAD` produces
+source from the same commit, rooted at `devctl-VERSION/`, excluding .git and target.
+The new [MIT license](../LICENSE) and documentation are included in normal source archives.
 
-- `devctl-v<版本>-x86_64-unknown-linux-musl`
-- `devctl-update`
-- `devctl-v<版本>-source.tar.gz`
-- `update.json`（从实际程序生成版本、平台文件名、字节数和 SHA-256，格式见 [设计说明](../DESIGN.md#81-更新清单与下载约定)）
-- `SHA256SUMS`（覆盖上述四个附件）
+| Public attachment | Purpose |
+| --- | --- |
+| `devctl-vVERSION-x86_64-unknown-linux-musl` | Static executable |
+| `devctl-update` | External bootstrap, migration, and recovery installer |
+| `devctl-vVERSION-source.tar.gz` | Exact source tree |
+| `update.json` | Version/platform/name/size/digest from the actual executable |
+| `SHA256SUMS` | SHA-256 for the four attachments above |
 
-另外生成内部 release-notes.md，从 CHANGELOG 当前版本条目提取说明并追加完整构建提交。工作流中间产物保留 7 天，最终下载入口为 GitHub Release。
+The manifest contract is owned by [DESIGN.md](../DESIGN.md#update-manifest-contract).
+Internal `release-notes.md` extracts the current changelog section and appends the
+build commit in English. Intermediate workflow artifacts are retained for seven days;
+GitHub Releases are the permanent download entry point.
 
-发布任务依赖构建任务成功，使用内置 GITHUB_TOKEN 的 contents: write 与 actions: read，不需要新增个人令牌。下载同一次运行的产物并复核校验值，先创建草稿并上传全部附件，再公开并标记为 Latest。测试、构建或上传失败不会公开本次新版本，Latest 保持原版本；清单不单独发布。客户端解析清单后使用其中明确版本的附件路径，不受随后 Latest 切换影响。
+## Publication and public verification
 
-公开后调用 [匿名验证工作流](../.github/workflows/verify-release.yml)，实际下载公开附件、核对摘要和静态程序，再在临时 HOME 使用发布程序执行匿名版本查询、指定版本安装、回退与外部恢复，不使用 GitHub 认证请求。该验证也可对已经发布的标签单独手动运行，不修改 Release；若公开后的网络验证失败，版本已发布，需检查运行日志并修复或重试，不能将其误报为尚未公开。
+Publish depends on successful build, with `contents: write` and `actions: read`
+using the built-in GITHUB_TOKEN; no personal token is required. Download and verify
+the same run's artifacts, upload all attachments to a draft, then publish and mark
+Latest. Failed testing/build/upload leaves the previous Latest unchanged. A manifest
+is never published separately from its program. Clients pin downloads to the
+manifest's version even if Latest changes afterward.
 
-同一标签的运行串行执行，不取消正在发布的任务。重试只允许更新同标签的草稿附件；已公开的 Release 拒绝覆盖。若发布后发现问题，修复并发布新版本；不要用同版本号替换程序。
+Same-tag runs are serialized without cancelling an active publication. Retrying may
+replace a same-tag draft, but an already published release is never overwritten.
+Fix a published problem with a new version.
 
-## 发布后核对与交接
+After publication, the reusable [public verifier](../.github/workflows/verify-release.yml)
+checks anonymous attachments/checksums, static executable, no-config latest/explicit
+checks, explicit online installation, offline rollback, external recovery, and
+configuration preservation in a temporary HOME. It can run manually for an existing
+manifest-format release. A failure here occurs **after** publication; investigate or
+retry without claiming the release stayed private.
 
-- 检查 Actions 构建与发布任务均成功，标签、构建提交和 Release 版本一致，五个下载附件齐全。
-- 匿名下载程序、外部更新器和校验值，核对摘要、版本、静态链接及 update 帮助；用临时 HOME 验证实际附件安装和回退。
-- 使用发布程序匿名执行 update --check、指定版本检查与安装，确认清单与对应版本的附件下载正常；不以认证查询成功替代匿名客户端验收。
-- 将 Release 与工作流运行链接交给用户，按 [WSL 指南](wsl.md#42-121-安装与自更新验收) 下载、安装、验证。目标 WSL 的真实项目体验由用户确认，自动化及发布成功不代表该项已通过。
+## Handoff checklist
 
-1.0/1.1 不含 update 子命令，因此首次安装 1.2.0 仍用外部更新器。回退至旧版本后，可继续用已下载的外部更新器恢复新版；无需通过旧程序调用不存在的 update 命令。两个已发布版本间的默认自动升级，可在下一次正常发布时继续验证，不为验收制造空版本。
+- Confirm build, publish, and verify success, tag/build identity, Latest status, and
+  all five uploaded attachments.
+- Download anonymously; verify digests, manifest, binary version/static linking,
+  and the source archive against the build commit.
+- For a cross-version update claim, install the real prior public binary in a
+  temporary HOME, run its default `devctl update`, and verify new program bytes,
+  previous-version backup, no-config checks, rollback, and configuration preservation.
+  A new binary reinstalling itself is not a cross-version upgrade test.
+- Share Release/run links and [installation](install.md) / [WSL verification](wsl.md#verify-updates)
+  instructions. Controlled success does not establish target WSL project acceptance.
 
-1.2.1 起交付清单协议：不修改已公开的 1.2.0 标签、程序或附件。当前匿名验证脚本要求新清单格式；历史无清单版本沿用其原验证记录和外部安装入口。1.2.0 客户端仍调用 REST API，受限流影响时先通过外部更新器安装 1.2.1 或后续版本。
+Clients 1.0/1.1 lack `update`; 1.2.0 still uses anonymous REST API discovery. Use
+fixed attachments and the external installer to migrate when needed. New clients
+also use the external installer for legacy releases without manifests. Preserve
+historical release attachments and records instead of retrofitting published versions.

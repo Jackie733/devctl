@@ -1,72 +1,167 @@
 # devctl
 
-Rust 开发项目管理工具：在一个终端界面中启动 web、小程序和 Node.js 中台，查看各项目日志、单独或全部启停；离开界面后后台继续运行，结束开发时统一停止。
+A terminal workspace manager for local development services, written in Rust.
+Start projects, inspect their logs, and stop them from one place. Leave the terminal
+interface without stopping your services, then reconnect when you need it.
 
-1.0.0 为首个 MVP 稳定版，2026-10-15 用户确认 Windows WSL2 的三个真实项目验收通过。已实现配置校验、依赖计划、配置运行锁、前台运行，以及独立后台的单项/全部启停、状态查询和有界项目日志。关闭客户端终端后服务继续运行，后续命令连接原后台。TUI 支持项目选择、单项/全部启停、近期日志滚动与复制、重连和结束工作区。验证证据见[任务记录](docs/tasks.md)，版本说明见 [CHANGELOG.md](CHANGELOG.md)；MVP 后规划另有标注。
+[![Release](https://img.shields.io/github/v/release/Jackie733/devctl)](https://github.com/Jackie733/devctl/releases/latest)
+[![Release workflow](https://github.com/Jackie733/devctl/actions/workflows/release.yml/badge.svg)](https://github.com/Jackie733/devctl/actions/workflows/release.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-当前版本为 **1.2.1**，通过 Release 清单进行命令内自更新，避开匿名 REST API 配额，包含已有日志保存、历史查询、搜索高亮与浮窗优化。WSL 下载、安装及验收见 [安装指南](docs/wsl.md#0-安装-121-发布程序无需-rust)，自行构建见 [源码安装](docs/wsl.md#2-构建测试并安装-121-源码版)。
+**English** | [简体中文](README.zh-CN.md)
 
-`devctl update` 支持检查、安装最新稳定版/指定版本与离线回退，无需工作区配置；详见 [操作与边界](docs/interaction.md#4-命令内自更新120)。旧 1.0/1.1 用户首次升级仍使用外部更新器；1.2.0 用户若受 API 限流影响，也先用外部更新器迁移至 1.2.1。仓库与发布附件已公开，目标 WSL 的 1.2.1 安装和完整体验仍待用户验收。
+## Features
 
-## 项目规划
+- **One workspace, multiple projects.** Run independent development commands from
+  their own directories; start or stop selected services or your default group.
+- **Persistent background services.** Closing the TUI or its terminal keeps services
+  running. Reconnect to the same supervisor instead of starting duplicate processes.
+- **A keyboard-driven TUI.** Navigate with Vim-style keys, switch between projects
+  and logs, and use contextual help in wide or compact terminals.
+- **Logs for daily debugging.** Read stdout/stderr, pause and page through retained
+  history, search literal text, and copy complete lines with their surrounding context.
+- **Bounded storage.** Keep recent logs in memory and save history with configurable
+  disk limits and retention. Inspect past sessions without starting services.
+- **Verified updates.** Download public release manifests, verify SHA-256 and the
+  candidate version, and keep an offline rollback copy.
 
-- [开发协作规范](AGENTS.md)：直接实现、审查、验证与提交的协作流程。
-- [开发任务记录](docs/tasks.md)：实际进度、验证证据与下一步。
-- [需求与验收标准](docs/requirements.md)：产品边界、优先级和验收标准。
-- [交互流程](docs/interaction.md)：首版终端界面、单项与全部启停、离开与结束工作区。
-- [技术架构](DESIGN.md)：配置、后台控制、并发进程管理、可靠停止与有界日志。
-- [实施路线](docs/roadmap.md)：阶段状态、需求映射与剩余工作优先级。
-- [发布维护](docs/releasing.md)：标签发布、草稿重试、附件校验与交接。
+## Platform support
 
-开发主线：跨目录配置 → 可靠单项启停 → 多项目管理 → 后台控制 → TUI 与日志 → 真实项目试用。其他扩展在 MVP 完成后再评估，清单见需求文档。
+The supported release target is **Linux x86_64**, including **Windows WSL2**.
+Release binaries use musl and do not require Rust or a particular glibc version.
+Native Windows and macOS are not currently supported release targets.
 
-## 当前运行方式
+Commands must run without interactive input. Dependency validation and planning
+are available, but runtime dependency orchestration, readiness probes, automatic
+restarts, and recovery after a machine reboot are not implemented. See the
+[roadmap](docs/roadmap.md) for the distinction between delivered and proposed work.
 
-从 [v1.2.1 Release](https://github.com/Jackie733/devctl/releases/tag/v1.2.1) 获取 Linux x86_64 静态程序、源码和 SHA-256 校验值。仓库已公开，下载无需登录。Windows WSL2 的安装、三个真实项目配置和验收步骤见 [WSL2 安装指南](docs/wsl.md)。
+## Installation
 
-终端界面（将配置路径替换为自己的配置）：
+Get the binary, external installer, and checksums from
+[GitHub Releases](https://github.com/Jackie733/devctl/releases/latest), then follow
+the [installation guide](docs/install.md#prebuilt-binary) to verify and install them
+into `~/.local/bin/devctl`. No GitHub account, token, or local compilation is needed.
 
-```sh
-cargo run -- --config /path/to/devctl.toml
-```
-
-配置放在当前目录的 `devctl.toml`、`~/devctl.toml` 或 `~/.config/devctl/devctl.toml` 时，直接运行 `devctl` 进入 TUI，`devctl tui` 也继续可用；`devctl validate` 等子命令执行各自操作，`--help` / `--version` 输出信息后退出。显式 `--config` 优先，其次按上述顺序选择第一个存在的配置；缺少配置会报错。完整规则见[交互方案](docs/interaction.md)。
-
-首次进入可创建空闲后台，不自动启动项目；`autostart = true` 表示纳入 `a` / `start --all` 的默认组合。`j/k` 在当前面板选择项目或移动日志阅读光标，`h/l` 或 Tab 切换面板，`Enter/Esc` 进入日志或返回项目；`gg/G` 跳转首尾，`Ctrl-u/d` 半屏滚动。`s/x` 启停选中项，`a` 启动默认组合、`X` 停止全部；`PageUp/PageDown` 滚动日志，`End` 跟随，`?` 查看可滚动的帮助与完整诊断。日志面板独立显示当前服务状态，停止后明确标为保留日志；底部固定两行；先用 `j/k` 定位日志，再用 `v` 从该行开始整行选择、`j/k` 扩展、`y` 请求复制、`Esc` 取消。本机 WSL 使用 clip.exe，其他环境及 SSH 使用 OSC 52；限制与失败处理见[交互方案](docs/interaction.md#整行选择与复制)，复制后请实际粘贴核对。窄窗口显示活动面板。`q` 或 Ctrl-C 离开后服务保留；`Q` 经确认后结束工作区。
-
-后台控制（将服务 ID 替换为自己的配置）：
-
-```sh
-cargo run -- --config /path/to/devctl.toml start web
-cargo run -- --config /path/to/devctl.toml start --all
-cargo run -- --config /path/to/devctl.toml status
-cargo run -- --config /path/to/devctl.toml logs web --limit 100
-cargo run -- --config /path/to/devctl.toml stop web
-cargo run -- --config /path/to/devctl.toml stop --all
-cargo run -- --config /path/to/devctl.toml shutdown
-```
-
-`start` 和首次进入 TUI 可按需创建后台；`stop`、`status` 和 `shutdown` 连接已有实例；`logs` 也可离线读历史。`start` 返回请求已受理，进程结果通过 `status` 和日志查看。`stop --all` 保留后台，`shutdown` 完成清理后结束后台；清理无法确认时返回错误并保留后台及运行锁供排查。已有后台沿用创建时配置和环境，修改配置后需先结束工作区，再重新创建。
-
-1.1.0 增加以下日志能力。从 1.0.0 升级时需先显式结束旧工作区、安装新程序，再重新进入 TUI；更换文件不会更新正在运行的旧后台：
-
-- 默认独立落盘、容量轮转和期限清理；具体位置和预算见[存储设计](DESIGN.md#持久身份格式与预算)。可在配置中增加 `[logs]`，设置 `enabled = false` 关闭保存，或调整 `max_mib` / `retain_days`。
-- TUI 在内存之外继续翻阅当前会话的磁盘历史；`p` 暂停/恢复、`G/End` 跟随；重新进入默认查看最新输出。同一 TUI 内切换项目或短暂断连恢复阅读视口。
-- 日志焦点 `/` 输入字面文本并预览高亮，`Enter` 定位、`n/N` 跳转匹配行，保留前后普通日志；`Esc` 清除高亮，仍可 `v/y` 复制上下文。
-- CLI 的 `log-sessions` 列出近期保存会话；`logs web --session <ID>` 显式查旧会话，`--before` / `--after` 分页，`--contains 'Error'` 查文本。无后台时默认该服务最近保存会话，不启动项目。输出可重定向保存本页，范围与缺口提示在 stderr。
-
-操作、搜索上界和导出限制见[日志交互](docs/interaction.md#28-日志保存会话与文本查找110)。日志增强已包含在 1.1.0 发布附件中；目标 WSL 的真实项目完整试用仍待确认。
-
-保留前台运行：
+Already running **1.2.1 or later**? Check for an update:
 
 ```sh
-cargo run -- --config /path/to/devctl.toml run web
-cargo run -- --config /path/to/devctl.toml run web weapp middle
-cargo run -- --config /path/to/devctl.toml run --all
+devctl update --check
 ```
 
-启动的 `--all` 选择 `autostart = true` 的默认组合，与显式 ID 互斥。前台用 Ctrl-C/SIGTERM 清理所选服务；前后台共享同一运行锁，不能同时托管同一配置。操作规则见[交互方案](docs/interaction.md)。
+Before installing or rolling back a version, shut down each active workspace and
+leave its TUI. Then run `devctl update`. Updating a file does not replace an already
+running supervisor. For 1.0/1.1 installations, or a 1.2.0 client affected by API rate
+limits, use the [external installer](docs/install.md#prebuilt-binary) first.
 
-运行锁使用 Rust 1.89+ 的标准库文件锁，目前在 Linux 本机文件系统验证。配置目录需可创建锁文件和私有运行目录；运行期间不要删除 `.devctl.lock` 或 `.devctl/`。锁文件存在不代表被占用。详细机制与限制见[设计](DESIGN.md)。
+## Quick start
 
-验证命令：`cargo test --locked --offline`、`cargo fmt --check`、`cargo clippy --locked --offline --all-targets -- -D warnings`。进程与 Unix socket 测试需要允许创建本地 socket 和发送信号的 Linux 环境，测试还使用 `sh`、`sleep` 与 Python 3 构造受控场景。MVP 的真实项目验收已由用户确认，验证范围与限制见任务记录。
+Put a `devctl.toml` beside your project directories:
+
+```text
+workspace/
+├── devctl.toml
+├── web/
+└── api/
+```
+
+```toml
+version = 1
+
+[workspace]
+name = "local-dev"
+
+[projects.web]
+path = "./web"
+
+[projects.api]
+path = "./api"
+
+[services.web]
+project = "web"
+cmd = ["npm", "run", "dev"]
+
+[services.api]
+project = "api"
+cmd = ["npm", "run", "dev"]
+```
+
+Replace the directories and commands with your own. Commands are argument arrays;
+no shell is inserted. Relative project paths resolve from the configuration file,
+not the directory from which you invoke devctl.
+
+From `workspace/`, run:
+
+```sh
+devctl validate
+devctl
+```
+
+The TUI connects to an idle workspace without starting services. Press `s` to start
+the selected service, or `a` to start the default group. Services join that group
+unless configured with `autostart = false`.
+
+With no `--config`, devctl looks for `./devctl.toml`, `~/devctl.toml`, then
+`~/.config/devctl/devctl.toml`, using the first existing file. To select a workspace
+explicitly, use `devctl --config /path/to/devctl.toml`.
+
+## Everyday commands
+
+| Command | Purpose |
+| --- | --- |
+| `devctl` | Open or reconnect the TUI; do not start services automatically |
+| `devctl start web` | Start one service, creating the background workspace if needed |
+| `devctl start --all` | Start the default group (`autostart = true`) |
+| `devctl status` | Inspect the existing background workspace |
+| `devctl logs web --limit 100` | Read a bounded page of service output |
+| `devctl log-sessions` | List retained log sessions |
+| `devctl logs web --after 0 --contains 'Error'` | Search retained output for literal text |
+| `devctl stop web` | Stop one service and clean up its process group |
+| `devctl stop --all` | Stop all services while keeping the supervisor available |
+| `devctl shutdown` | Stop all services and end the background workspace |
+| `devctl update --rollback` | Exchange the installed program and its previous version offline |
+
+All workspace commands accept `--config PATH`. `update`, `--help`, and `--version`
+do not need workspace configuration. For foreground operation, use
+`devctl run web` or `devctl run --all`; Ctrl-C cleans up the selected services.
+
+## TUI shortcuts
+
+| Keys | Action |
+| --- | --- |
+| `j/k`, `↑/↓` | Select a project or move through logs, depending on focus |
+| `h/l`, `Tab`, `1/0` | Switch between projects and logs |
+| `Enter`, `Esc` | Enter logs or return to projects, subject to the current mode |
+| `s/x` | Start or stop the selected project |
+| `a`, `X` | Start the default group or stop all services |
+| `gg/G`, `PageUp/PageDown` | Navigate logs; `G` resumes following outside selection mode |
+| `p` | Pause or resume following logs |
+| `/`, `n/N` | Search literal text and jump between matches |
+| `v`, `j/k`, `y` | Select complete log lines and request clipboard copy |
+| `?` | Open contextual help |
+| `q`, `Ctrl-C` | Leave the client; services keep running |
+| `Q` | Confirm stopping all services and ending the workspace |
+
+Clipboard copy uses `clip.exe` in local WSL sessions and OSC 52 elsewhere, including
+SSH. OSC 52 requires terminal support. See the [usage guide](docs/interaction.md)
+for selection modes, search boundaries, pagination, and failure feedback.
+
+## Documentation
+
+- [Installation, updates, rollback, and source builds](docs/install.md)
+- [Configuration, CLI, TUI, and log reference](docs/interaction.md)
+- [WSL setup and hands-on verification](docs/wsl.md)
+- [Architecture and resource limits](DESIGN.md)
+- [Requirements and acceptance criteria](docs/requirements.md)
+- [Roadmap](docs/roadmap.md) and [changelog](CHANGELOG.md)
+- [Release maintenance](docs/releasing.md)
+
+## Contributing
+
+Bug reports, documentation fixes, and focused pull requests are welcome. Read
+[CONTRIBUTING.md](CONTRIBUTING.md) for setup, checks, and how to report a problem.
+Please discuss substantial behavior changes before implementing them.
+
+## License
+
+devctl is licensed under the [MIT License](LICENSE).

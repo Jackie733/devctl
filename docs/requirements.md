@@ -1,120 +1,168 @@
-# devctl 产品需求
+# Product requirements
 
-本文是产品范围与验收依据；操作细节见 [interaction.md](interaction.md)，实现机制见 [DESIGN.md](../DESIGN.md)，当前任务见 [tasks.md](tasks.md)。
+This document owns scope, priorities, and acceptance. See [usage](interaction.md)
+for operations, [DESIGN.md](../DESIGN.md) for mechanisms, [roadmap](roadmap.md) for
+sequence, and [tasks.md](tasks.md) for current evidence.
 
-## 1. 已确认的使用场景
+## Confirmed scenario
 
-2026-10-10，用户确认日常同时开发三个独立目录中的项目：
+Manage independent development projects from one terminal:
 
-| 项目 | 开发命令 |
+| Project | Example development command |
 | --- | --- |
-| web 端 | `npm run dev` |
-| 微信小程序端 | `npm run dev:weapp` |
-| Node.js 中台 | `npm run dev` |
+| Web application | `npm run dev` |
+| Mini-program | `npm run dev:weapp` |
+| Node.js API/middleware | `npm run dev` |
 
-当前痛点是逐个打开项目终端、执行启动命令，停止时又要切换终端。目标是在一个终端界面中集中管理：能同时启动全部项目，也能从全部停止状态只启动任意一个项目并查看日志。用户进一步确认需要后台运行：默认退出界面后项目继续运行；结束开发时显式全部停止。
+These commands may start independently and concurrently; the initial scenario does
+not require the API to become ready first. Users must be able to start only one
+project from an all-stopped workspace, inspect its logs, and stop it without affecting
+others. Leaving the client or closing its terminal keeps managed services running;
+ending development is an explicit stop/shutdown action.
 
-2026-10-15 用户更正 web 端的开发命令为 `npm run dev`。三个命令可以同时启动，不需要 devctl 等待中台就绪。首版以这个实际场景验收，不以通用服务编排能力作为目标。
+The confirmed primary environment is WSL2, Ubuntu 22.04.5 LTS, x86_64, using Linux
+runtimes and project directories. The initial complete MVP workflow was accepted
+on 2026-10-15 and released as 1.0.0. Native Windows/macOS acceptance is not implied.
+Vim-style navigation, compact terminal layout, complete-line copying, and Windows
+Terminal/WSL clipboard behavior refine U01/L01 without expanding platform guarantees.
 
-同日用户要求完善 TUI 的快捷键、布局与提示，参考 lazygit 并支持 Vim 风格导航，选择先优化快捷键与界面。该要求细化 U01，设计见 [interaction.md](interaction.md) §2.2–§2.6；不据此提前纳入 §4 的日志搜索或重启，也不增加 `:` 命令行。
+## Initial scope and acceptance
 
-用户在 TUI 试用反馈中进一步确认：底部信息缩减，日志支持整行与多行选择复制，主要使用 Windows Terminal 中的 WSL2，同时考虑 Linux、macOS 终端。该需求细化 U01、L01；剪贴板约定见交互文档，当前不因此宣称 macOS 平台整体验证通过。
+Preserve the original requirement IDs. Post-MVP proposals below do not become
+initial-release acceptance criteria merely because their validation code exists.
 
-## 2. 首版范围与验收
-
-沿用已有需求编号。下表记录已确认的首版主线；MVP 后的计划与待评估扩展见 §4，不作为首版验收条件。
-
-| 编号 | 首版能力 | 可观察的验收结果 |
+| ID | Capability | Observable acceptance |
 | --- | --- | --- |
-| W01 | 配置多个项目目录与命令 | 一份配置包含上述三个项目，无需切换目录逐个运行 |
-| W02 | 路径解析与配置发现 | 相对路径基于选中配置的目录；绝对路径、空格路径可用；省略 --config 可发现默认配置，优先级与失败反馈见 [interaction.md](interaction.md) §1 |
-| W03 | 启动前校验 | 无效目录、空命令、未知字段或项目引用在启动前报错，校验不执行命令 |
-| P01 | 单项目启动与停止 | 无需先启动全部，可只启动 web、weapp 或 middle；单项停止不影响其他项目，重复启动不创建第二实例 |
-| P07 | 全部启动与停止 | 三个命令均被启动，不等待任一命令结束或业务就绪；停止全部覆盖正在启动的实例 |
-| P02 | 失败反馈 | 标明哪个项目启动失败或意外退出，显示原因、退出码或信号；其他项目保留运行 |
-| P04 | 可靠停止 | 单项停止、停止全部、结束后台管理时清理对应进程组并回收直接子进程；超时强杀；离开界面不触发停止 |
-| P05 | 后台运行与重新连接 | 退出界面或关闭客户端终端后服务继续运行；再次连接能查看原实例的状态和近期日志，并单项或全部停止 |
-| L01 | 查看与复制项目日志 | 可查看选中项目的 stdout/stderr，来源明确；保留近期输出供查看，明确区分当前服务状态与保留日志；支持定位任意缓存日志行后开始整行、多行选择复制，说明剪贴板通道兼容性与结果限制 |
-| L03 | 有界日志 | 大量输出、超长行或坏编码不造成无限内存增长；截断和丢弃有提示 |
-| U01 | 终端管理界面 | 默认执行 devctl 即进入界面；显示三个项目的状态，支持选择、单项启停、全部启停、查看日志和退出；支持 Vim 风格导航、明确的面板焦点、上下文键位提示与窄窗口布局 |
+| W01 | Multiple project directories and commands | One configuration expresses the independent projects without switching terminals |
+| W02 | Path resolution and discovery | Paths resolve from the selected config; absolute/space-containing paths and explicit/default discovery work |
+| W03 | Validate before execution | Invalid paths, commands, unknown fields, and references fail before spawning |
+| P01 | Individual start/stop | Start one service from all-stopped; repeated start does not duplicate it; stop leaves others alone |
+| P07 | Group start/stop | Start independent default-group commands concurrently; stop all includes starting/manual instances |
+| P02 | Failure feedback | Identify the project, reason, exit code/signal where available; unrelated projects continue |
+| P04 | Reliable stop | Clean the corresponding process group and reap the direct child, escalating after a timeout; leaving the client does not stop services |
+| P05 | Background and reconnect | Keep services alive without clients; reconnect to existing state/logs and control it |
+| L01 | Read and copy logs | Distinguish stdout/stderr, instances, live state, and retained output; select complete lines and explain copy-channel limits |
+| L03 | Bounded logs | High output, long lines, and invalid encoding cannot cause unlimited growth; loss/truncation is visible |
+| U01 | Terminal interface | Default entry, project/state/log panels, single/group controls, leave/shutdown distinction, Vim navigation, focus, help, and compact layout |
 
-为了可靠完成上述体验，首版同时遵守以下工程约束：
+Engineering constraints:
 
-- R02：同一配置只允许一个持有进程的后台管理实例；再次打开客户端连接已有管理实例，不重复启动。并发创建后台实例也不得产生两套服务。
-- X01：先验证当前 Linux 环境；实际试用目标为 Windows WSL2、Ubuntu 22.04.5 LTS、x86_64。2026-10-15 用户明确确认完整项目流程验收通过，并授权以 1.0.0 发布 MVP；其他平台不据此视为已验证。
-- 客户端退出、断开或崩溃不停止后台服务，客户端负责恢复自己的终端；后台管理进程收到停止信号或发生可处理的致命错误时清理托管进程。
-- 只管理本次创建的进程，不接管或终止其他终端启动的程序。主动脱离进程组的 daemon 不属于首版清理保证。
-- 日志缓冲、单条记录及队列必须有上限；具体初始预算属于设计参数，不把容量数字当成用户需求。
+- R02: one owning runner/supervisor per canonical configuration; concurrent creation
+  cannot produce two sets of managed services.
+- X01: verify the initial Linux/WSL2 target before claiming other platforms.
+- Client exit, disconnect, or crash does not stop services. The client restores its
+  terminal; normal supervisor stop signals and handled fatal errors clean services.
+- Manage only processes created for the current instance. Deliberately detached
+  descendants are outside normal process-group cleanup guarantees.
+- Logs, records, channels, and responses are bounded. Concrete limits belong to
+  [DESIGN.md](../DESIGN.md), not to a promise of unlimited retention.
 
-## 3. 首版使用验收
+## Initial workflow acceptance
 
-1. 配置三个真实项目，进入界面但不启动服务；只启动 web，确认小程序和中台仍停止。再启动全部，三者在正确目录运行，web 不重复创建。
-2. 切换项目查看输出，能够判断启动情况；进程存活不等于业务就绪，不显示未经检测的“就绪”。
-3. 停止 web 项目，中台和小程序保持运行；再次启动 web，只产生一个新实例。
-4. 某个命令不存在、端口冲突或程序退出，界面指出项目及原因，其他项目可继续使用；不自动重启失败项目。
-5. 退出界面或关闭客户端终端后服务仍运行；重新进入时显示原来的实例与近期日志，不重新运行开发命令。
-6. 结束开发时执行“全部停止”，三个项目及其托管后代全部停止；再次启动不因本轮残留进程占用端口。需要结束后台管理进程时，明确执行“结束工作区”。
+1. Open an all-stopped workspace, start only web, then the default group. All commands
+   run in the intended directories and web is not duplicated.
+2. Read each project's output; do not confuse a live process with application readiness.
+3. Stop/restart web while other projects continue, with one new instance only.
+4. A missing executable, occupied port, or command failure identifies its source;
+   other services keep running and no automatic restart occurs.
+5. Leave or close the client terminal; reconnect to the same supervisor and recent
+   output without replaying startup commands.
+6. Stop all managed processes, including descendants, without leaving this instance's
+   ports occupied. Explicit shutdown then ends the background manager.
 
-先用受控测试程序验证进程清理和失败行为，再由用户在真实项目上完成以上流程。2026-10-15 用户明确确认全部通过，M1–M6 首版验收完成，发布版本为 1.0.0。自动化验证与用户试用分别记录在 [tasks.md](tasks.md)，测试通过不能代替用户确认操作体验。
+M1–M6 were accepted for the initial real-project workflow. Automated checks establish
+mechanisms; later logging/updater changes still need their own real-environment
+acceptance. Do not treat a release or consistent documentation as user acceptance.
 
-## 4. MVP 后计划与评估清单
+## Post-MVP scope
 
-用户已确认：下列扩展安排在 MVP 完成并试用后推进，不阻塞首版、不提前实现。公开发布、自更新与日志增强已确认后续实施；其余标为待评估的扩展不代表以后必定实现。已纳入首版的后台运行仍按首版范围验收。
+Logging and public release/self-update are confirmed follow-up work. Other entries
+remain candidates for assessment; retaining a proposal is not scheduling it, and
+simplifying documentation must not silently cancel it.
 
-| 原编号/范围 | 功能 | 当前状态 |
+| ID/scope | Capability | Status |
 | --- | --- | --- |
-| P05 | 后台运行、离开与重新连接、独立控制入口 | 已确认纳入首版，关闭客户端不停止服务 |
-| P01、P07 | 单项/批量重启快捷操作 | MVP 后评估；单项及全部启动、停止已保留 |
-| D01–D03 | 依赖顺序、TCP/exec 就绪、阻塞链和依赖降级 | 当前三个命令已确认无需等待中台；通用依赖能力在 MVP 后评估；独立并发及失败互不影响已保留 |
-| P03 | 崩溃自动重启、退避及重试上限 | MVP 后评估 |
-| R01 | 后台退出或重启机器后，恢复上次工作区和服务选择 | MVP 后评估；连接仍存活的后台进程属于 P05，不依赖此功能 |
-| L01、L02 | 历史分页、同一 TUI 内阅读恢复、暂停跟随、单项目文本搜索与导出 | 1.1.0 已实现并发布，目标 WSL 真实项目试用待确认；范围与验收见 §4.2；跨退出书签不纳入本轮，聚合和复杂组合筛选为低优先级候选 |
-| L04 | 日志落盘、轮转、保留期限和跨后台重启查询 | 1.1.0 已实现并发布，目标 WSL 真实项目试用待确认；范围与验收见 §4.2 |
-| W04 | 工作区别名、列表、profiles 服务组合 | MVP 后评估 |
-| D04、D05 | HTTP 探针、一次性任务、持续健康检查、级联启停 | MVP 后评估 |
-| U01、P07 | 多服务项目展开与工作区/项目/服务三级聚合界面 | MVP 后评估；当前每项目一个命令的选择与管理已保留 |
-| U02 | 无 TUI 的长期前台输出模式 | MVP 后评估；后台控制 CLI 与配置校验不依赖 TUI，纳入当前主线 |
-| X01、X02 | macOS、Windows 原生支持 | 扩展平台在 MVP 后评估；用户已确认 WSL2 的 M6 验收通过 |
-| X03 | 公开发布与 `devctl update` 自更新 | 仓库已公开；1.2.0 交付命令内更新与自动发布流程，1.2.1 改用 Release 清单，目标 WSL 验收待用户完成，X03 尚未整体验收，见 §4.1 |
-| P06 | PTY、向子进程输入、交互式命令 | MVP 后评估 |
-| W05 | package.json/Procfile 导入、由 devctl 监听文件并重启 | MVP 后评估 |
-| 原配置扩展 | 路径环境变量与 `~/` 展开、env_files/env 覆盖 | MVP 后评估；已有路径与配置行为保留 |
+| P05 | Background, leave/reconnect, independent CLI control | Included in the initial release |
+| P01, P07 | Dedicated single/group restart shortcuts | Assess after MVP; existing explicit stop/start remains |
+| D01–D03 | Dependency execution order, TCP/exec readiness, blocking chains and degradation | Assess after MVP; current independent commands need no readiness dependency |
+| P03 | Automatic crash restart, backoff, retry limits | Candidate |
+| R01 | Restore workspace/service choices after supervisor exit or reboot | Candidate; reconnecting to a still-live supervisor is already P05 |
+| L01, L02 | Paging, in-client reading restoration, pause, literal search and export | Delivered in 1.1.0; target WSL experience pending; no cross-exit bookmarks |
+| L04 | Persistent logs, rotation, expiry, cross-supervisor history | Delivered in 1.1.0; target WSL experience pending |
+| W04 | Workspace aliases/listing and profiles | Candidate |
+| D04, D05 | HTTP probes, one-shot tasks, sustained health checks, cascaded control | Candidate |
+| U01, P07 | Multiple services per project and aggregate workspace/project/service UI | Candidate; current one-command-per-project scope remains |
+| U02 | Expanded non-TUI foreground presentation | Candidate; existing foreground run and control CLI remain available |
+| X01, X02 | Native macOS and Windows | Candidate |
+| X03 | Public distribution and self-update | Public releases and updater delivered; full target WSL acceptance pending |
+| P06 | Service PTYs, stdin forwarding, interactive commands | Candidate |
+| W05 | package.json/Procfile import and devctl-managed file-watch restart | Candidate |
+| Configuration extensions | Environment/tilde path expansion, env_files/env overrides | Candidate; existing literal path/environment behavior remains |
 
-原先针对 20 服务的性能预算也调整为工程提案，尚未有测试证明。若扩大规模，需重新约定负载与验收预算。
+An earlier 20-service performance budget is a proposal, not measured evidence.
+Existing configuration and planning code remain; unsupported runtime dependencies
+must be rejected before startup rather than silently ignored. Historical detailed
+proposals are available in Git. Cross-project aggregation, complex filters, and AI
+log assistance remain candidates, with logging foundations preceding AI assessment.
 
-已有配置与计划代码没有删除；新的运行流程不得悄悄忽略已有依赖配置，遇到不支持的执行配置须在启动前明确拒绝。历史详细方案保存在 Git，不为保留候选清单而重新铺开全部设计。
+### Public releases and self-update (X03)
 
-### 4.1 X03：公开发布与命令内自更新
+Users should obtain a supported precompiled version from `devctl update` in WSL,
+without cloning source or installing Rust for routine updates.
 
-目标：用户在 WSL 中通过 `devctl update` 获取并安装已发布版本，日常更新无需拉取源码、安装 Rust 或本地编译。M1–M6 已验收；1.0.0、1.1.0 已发布预编译产物。2026-10-16 用户已将现有 `Jackie733/devctl` 仓库转为 Public，沿用其 Releases，不另建产物仓库。公开入口、命令内更新代码、自动构建发布及目标 WSL 验收分别记录，不将仓库公开或已有版本发布视为 X03 整体完成。
+- Publish distinguishable stable versions with source identity, executable Linux
+  artifacts, checksums, and notes in the existing public `Jackie733/devctl` repository.
+- Test/build before publication. Generate the update manifest from the artifact;
+  upload a complete draft before exposing it as Latest. Normal client discovery
+  and downloads must not depend on anonymous REST API quotas.
+- Support check-only, latest stable installation, explicit stable versions, and one
+  offline rollback. Select the supported artifact and digest without user-supplied URLs.
+- Preserve the current program on download/validation failure, retain workspace
+  configuration, and work without any workspace config for updater operations.
+- Keep a separate bootstrap/external installer. Version 1.0/1.1 lacks the updater;
+  1.2.0 API discovery may need external migration; 1.2.1 introduced manifests.
+- Clearly separate file replacement from already-running supervisors. Initially users
+  explicitly shut down each workspace before switching versions. Automatic discovery
+  or restart of all workspaces requires separate assessment.
+- Current target is Linux x86_64 musl installed in `~/.local/bin`. Hashes trust the
+  same public HTTPS source. Private authentication, package-manager distribution,
+  additional platforms, and new publication authorization are separate concerns.
 
-- 发布：使用现有仓库的公开 GitHub Releases；采用可区分的版本号并关联提交，按已确认的目标架构提供 Linux 预编译程序、校验值和版本说明。建立测试、构建与发布流程，发布附件应为可执行产物。
-- 更新：计划支持版本检查、安装最新稳定版或指定版本、回退上一版；自动选择受支持的产物并获取校验值。用户已确认改用随构建产物一同发布的下载清单，日常检查与下载不依赖匿名 GitHub REST API 配额；完整草稿附件上传成功后才公开，不要求用户手动传入下载地址与校验值。
-- 验收：兼容的目标 WSL 可完成安装与回退；下载或校验失败时当前程序可继续使用；已有工作区配置保留。更新不依赖工作区配置存在，首次安装仍需独立入口。
-- 运行边界：新文件不会替换正在运行的旧后台逻辑；切换前明确处理各工作区后台、服务停止与内存日志丢失的影响。初期沿用用户显式结束后台的方式，自动发现或重启全部工作区需另行评估。
-- 当前实现沿用已交付的 Linux x86_64 musl 产物与 `~/.local/bin` 安装位置，校验值来自同一公开发布。线上验收前仍需确认目标 WSL 的 HTTPS 访问、目录可写与新版本发布授权；私有源认证、包管理器安装及扩展平台另行评估。
+Commands are defined in [self-update](interaction.md#self-update); release mechanics
+in [releasing.md](releasing.md); actual results in [tasks.md](tasks.md). WSL acceptance
+covers HTTPS access, permissions, installation, rollback, and real project behavior.
 
-命令内更新的当前实现与操作见 [interaction.md](interaction.md) §4，机制与保护边界见 [DESIGN.md](../DESIGN.md) §8；1.2.0 发布附件包含新命令，1.2.1 改用 Release 清单，旧 1.0/1.1 附件不包含新命令。自动发布机制见 [releasing.md](releasing.md)，实际发布与验证证据见 [tasks.md](tasks.md)；目标 WSL 下载、安装和更新/回退由用户按 [wsl.md](wsl.md) §4.2 验收，发布完成不代表 X03 整体验收完成。
+### Logging enhancements (L01–L04)
 
-### 4.2 L01–L04：日志增强
+Delivered in 1.1.0 after the initial MVP, with scope refined around daily debugging:
 
-2026-10-16 用户明确重新进入 TUI 应默认查看最新输出；本轮不实现跨退出阅读书签。跨项目聚合和复杂组合筛选不作为本轮日志增强的完成条件，保留为低优先级候选，仅在出现明确场景后重新评估。该确认覆盖下表对应范围调整，当前已授权助手直接完成这轮功能；实际存储参数和机制见 [DESIGN.md](../DESIGN.md#53-mvp-后日志增强方案)，设计取舍见 [logging-proposal.md](logging-proposal.md)。
-
-2026-10-15，用户根据实际试用确认以下范围，目标是能连续回看开发日志，并在多个项目之间定位问题。1.1.0 已实现并发布本轮日志增强，受控自动化验证已通过，目标 WSL 三个真实项目的完整体验仍待用户确认。架构方案见 [DESIGN.md](../DESIGN.md#53-mvp-后日志增强方案)，后续顺序见 [roadmap.md](roadmap.md) §4；用户确定优先完善日志，再考虑 AI，X03 继续保留。当前验证与交接见 [tasks.md](tasks.md)，操作约定见 [interaction.md](interaction.md) §2.7–§2.8。
-
-| 范围 | 能力 | 可观察的验收结果 |
+| Scope | Capability | Observable acceptance |
 | --- | --- | --- |
-| L01 | 历史分页与同一 TUI 内阅读恢复 | 向上滚动可继续加载仍被保留的更早记录；同一 TUI 内切换项目或短暂断连后保留阅读/跟随模式；退出后重新打开默认读取所选项目最新输出并跟随，不恢复旧阅读书签；记录过期时明确提示 |
-| L01、L02 | 独立暂停跟随 | 阅读历史时仍收集新日志，显示新增提示，原阅读位置不漂移；用户可明确恢复尾部跟随 |
-| L04 | 本地持久化与历史查询 | 已持久化记录在结束工作区、后台重启后仍可查询；历史会话与本次服务实例清楚区分，查询不自动启动项目 |
-| L03、L04 | 轮转与保留策略 | 支持容量和保留期限限制；持续输出时内存与磁盘均有上限，已被清理的历史及游标失效可识别 |
-| L02 | 单项目文本搜索 | 可在选中项目的保留日志中定位文本并高亮关键词，保留前后非匹配日志与上下文；来源、实例和采集时间作为记录信息保留，复杂组合筛选不作为本轮验收条件 |
-| L02 | 导出 | 可导出选区或过滤结果；导出范围与历史缺失情况明确，不把当前窗口内容误称为全部历史 |
+| L01 | History paging and reading restoration | Load retained earlier pages; preserve position across project switches/short reconnects within one TUI; a new TUI follows the latest output |
+| L01, L02 | Independent pause | Keep capturing/counting new output while a reader's position stays fixed; explicitly resume following |
+| L04 | Disk history and old sessions | Query persisted output after supervisor shutdown/recreation without starting services or mixing sessions |
+| L03, L04 | Rotation and retention | Bound memory/disk growth; make expired history and invalid cursors explicit |
+| L02 | Literal text search and context | Find/highlight retained per-service text without hiding ordinary surrounding records |
+| L02 | Export | Copy a selection or redirect a CLI page with clear session, scope, and missing-history feedback |
 
-验收重点：重新进入默认查看当前所选项目的尾部输出，不恢复旧阅读位置；同一 TUI 内重连后能找回超出初始尾部页的缓存记录；超过内存预算的已持久化记录仍可查询；轮转、保留清理后旧游标有明确反馈；连续输出时历史阅读与选择稳定；写盘失败或过载时反馈缺口，项目启停仍可响应。自动化测试覆盖机制和边界，最后仍在三个真实项目上由用户验收。
+Users confirmed new TUI clients should follow current output, not restore old
+cross-exit bookmarks. Cross-project aggregation and complex combined filters are
+lower-priority candidates, not part of this delivered increment. No independent
+export panel or multi-format exporter is required.
 
-实施边界：保留当前单条记录、队列和查询有界的约束；持久化不承诺从未采集成功的输出或异常断电前所有输出都可恢复。实际保存目录、默认预算与持久化边界由 DESIGN.md §5.3 维护；命令及反馈见 interaction.md §2.8。导出通过选区复制或 CLI 查询页文本重定向交付，不增加独立导出面板或多格式导出。历史日志保存不等于恢复上次服务选择或自动运行项目，R01 状态不因此改变。
+Verify pause under continuous output, past-memory history, session isolation,
+rotation/expiry feedback, search continuation/bounds/context/copy, missing data,
+and degraded saving while controls remain responsive. Records may be lost before
+capture or before durable sync on abnormal exit; persistence does not guarantee
+complete recovery or restore selected/running services. Storage budgets and failure
+semantics are owned by [DESIGN.md](../DESIGN.md#persistent-history), and operation
+feedback by [interaction.md](interaction.md#logs-and-search).
 
-## 5. 已确认环境与边界
+## Environment and boundaries
 
-2026-10-15 用户确认 WSL2、Ubuntu 22.04.5 LTS、x86_64 与路径：`~/code/deepmdt-frontend-pc`、`~/code/deepmdt-miniprogram-pro`、`~/code/rtc-middleware/api-proxy`，分别对应 web、小程序、中台；Node v24.18.0、npm 11.16.0，三个实际开发脚本已核对并完成非交互运行验收。安装配置见 [wsl.md](wsl.md)。微信开发者工具、编辑器、依赖安装和项目自身构建配置由用户照常管理。后台常驻不等于开机自启，也不等于断电后恢复服务；后两者尚未确认。
+The accepted scenario uses Linux Node/npm commands inside WSL; exact versions,
+package managers, dependencies, editors, and mini-program tooling belong to each
+project. devctl does not install project dependencies or manage editor configuration.
+Background execution is not boot startup, machine-restart recovery, or adoption of
+processes created outside devctl. Target-environment verification remains a user
+workflow, distinct from controlled tests on a build runner.

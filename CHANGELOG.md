@@ -1,44 +1,83 @@
-# 版本记录
+# Changelog
+
+User-facing changes are grouped by released version. Download artifacts from
+[GitHub Releases](https://github.com/Jackie733/devctl/releases).
+
+## 1.2.2 — 2026-10-16
+
+- Rework the public project documentation in English, with a matching Simplified
+  Chinese README, feature overview, quick start, command reference, and platform scope.
+- Add the MIT license, Cargo package metadata, and contributor guidance. Separate
+  general installation/update instructions from WSL integration and hands-on checks.
+- Translate architecture, requirements, roadmap, logging decisions, release maintenance,
+  and historical changelog entries while preserving delivered/candidate distinctions.
+- Publish English release notes and provide a real stable version for exercising
+  manifest-based updates from 1.2.1. Service-management behavior is unchanged.
 
 ## 1.2.1 — 2026-10-16
 
-- 命令内更新改为直接读取 GitHub Release 的 update.json，最新与指定版本均不调用匿名 REST API；固定版本下载并验证字节数、SHA-256 和候选版本，保留原安装、备份与离线回退保护。
-- 自动打包从实际程序生成清单，SHA256SUMS 覆盖清单；GitHub Actions 将清单与其他附件一同上传草稿，完整上传后才公开为 Latest。增加真实客户端消费生成清单的隔离验证。
-- 历史无清单版本使用外部安装器；已发布的 1.2.0 程序与附件保持原样，这项修复由 1.2.1 交付，1.2.0 用户受限流影响时先使用外部更新器迁移。
+- Discover latest or explicit releases through `update.json` attachments instead of
+  anonymous GitHub REST API requests. Pin the program to the selected version and
+  check byte length, SHA-256, and candidate version before installation.
+- Generate the manifest from the actual program, include it in SHA256SUMS, and upload
+  it with all other attachments to a draft before publication. Test generated manifests
+  using the real client in an isolated environment.
+- Preserve published 1.2.0 artifacts. Legacy releases without manifests use the external
+  installer; API-limited 1.2.0 users can migrate through fixed release attachments.
 
 ## 1.2.0 — 2026-10-16
 
-- 增加独立于工作区配置的 `devctl update`，支持检查最新稳定发布、安装指定稳定版本及离线回退，目标为 Linux / WSL2 x86_64。
-- 从现有仓库的公开 Releases 自动选择 musl 程序与校验值，限制下载大小与期限，核对 SHA-256 和候选版本，复用原安装器的锁、备份及替换规则。
-- 识别 GitHub API 限流响应，明确提示等待额度恢复后重试，并保留已安装程序和备份。
-- 增加 GitHub Actions 标签发布流程：完整检查、musl 静态构建、真实发布程序的安装/回退和 PTY 验证、同提交源码包及校验值生成；附件全部上传草稿后公开，已发布版本不自动覆盖。
-- 支持手动运行工作流只构建并验证产物，不发布。发布说明记录实际构建提交，测试任务只读，发布任务使用内置令牌的最小权限。
+- Add workspace-independent `devctl update` for stable release checks, explicit/latest
+  installation, and offline rollback on Linux/WSL2 x86_64.
+- Select the public musl artifact and digest, bound downloads by size/time, check SHA-256
+  and candidate version, and reuse installer locking, backup, and replacement rules.
+- Diagnose GitHub API rate limits without modifying the installation or backup.
+- Add tag-triggered GitHub Actions with complete checks, static builds, actual artifact
+  install/rollback and PTY tests, same-commit source archives, and draft-first publication.
+- Support manual build-only verification, record build identity, use a read-only build
+  job, and restrict write permissions to publication.
 
-[v1.2.0 Release](https://github.com/Jackie733/devctl/releases/tag/v1.2.0) 提供 Linux x86_64 musl 静态程序、外部更新器、源码包和 SHA256SUMS。仓库已公开，无需登录下载。旧 1.0/1.1 程序没有 update 子命令，首次升级至 1.2.0 仍使用外部更新器；此后可使用命令内更新。更换版本前显式结束各工作区后台，新文件不会替换已运行后台；回退至旧版后可用外部更新器恢复新版。
-
-目标 WSL 的下载、安装、真实项目使用及更新/回退体验留待用户验收，受控测试与发布成功不代表目标环境已经验收。
+Old 1.0/1.1 clients require the external installer for initial migration. Replacing
+files does not update active supervisors; shut down workspaces first. Publication
+and controlled checks did not establish full target WSL acceptance of these changes.
 
 ## 1.1.0 — 2026-10-16
 
-- 后台默认保存日志到独立用户状态目录，支持有界分段轮转、期限清理和保存失败退化。
-- TUI 双向翻阅内存与磁盘历史，暂停/恢复跟随，同一客户端切换与重连恢复阅读；重新进入默认跟随最新输出。
-- 增加单项目字面搜索、匹配跳转与上下文复制；TUI 在普通日志中高亮关键词并保留前后非匹配行，支持输入预览和 Esc 清除；CLI 会话列表、离线历史查询、固定上界分页文本检索及结果重定向。
-- 记录 UTC 采集时间，明确会话、缺口、过期和不完整尾部；历史查询不启动项目。
-- 修复 WSL 慢文件同步和 shell 启动提示引起的测试失败：历史保留测试按有界批次推进，安装测试在 shell 内校验实际路径和版本。
-- 优化帮助与结束工作区浮窗：背景日志压暗并留白隔离，帮助按键分组对齐、保留换行颜色，确认范围和操作分层显示，窄窗口不显示无法完整呈现的确认操作。
+- Save background logs in an independent user state directory with bounded segments,
+  capacity/age cleanup, and explicit saving degradation.
+- Add bidirectional memory/disk history, pause/follow, reading restoration within one
+  TUI across switches/reconnects, and latest-follow behavior for newly opened clients.
+- Add per-project literal search, match navigation, ordinary context/highlights, and
+  complete-line copy. Add CLI session listings, offline history, fixed-bound search
+  continuation, and page redirection.
+- Preserve UTC capture timestamps, session identity, gaps, expiry, and incomplete tails;
+  historical queries never start services.
+- Fix tests affected by slower WSL synchronization and shell startup notices, with
+  bounded retention batches and in-shell path/version assertions.
+- Improve help/shutdown popups, dimmed backgrounds, spacing, wrapping, action hierarchy,
+  and narrow-window confirmation behavior.
 
-[v1.1.0 Release](https://github.com/Jackie733/devctl/releases/tag/v1.1.0) 提供 Linux x86_64 musl 静态程序、更新器、源码包及 SHA-256 校验值。升级需安装新客户端；从 1.0.0 升级还需显式结束旧工作区并重新创建后台，旧内存日志无法补存。已完成受控自动验证，目标 WSL 的真实项目完整试用仍待确认。
+From 1.0.0, recreate the supervisor after installation to use persistence/history.
+Old memory-only logs cannot be saved retroactively. Controlled verification passed;
+the complete three-project WSL logging experience remained pending user acceptance.
 
 ## 1.0.0 — 2026-10-15
 
-首个 MVP 稳定版。用户已确认 Windows WSL2、Ubuntu 22.04.5 LTS、x86_64 上 web、小程序与 Node.js 中台的完整使用验收通过。
+Initial stable MVP, accepted with three real projects on Ubuntu 22.04.5 LTS,
+WSL2 x86_64.
 
-- 默认执行 `devctl` 进入 TUI；保留显式子命令、配置发现与启动前校验。
-- 支持单项和全部启停、重复启动保护、失败隔离、进程组清理。
-- 离开界面或关闭客户端终端后服务继续运行；重连原后台，显式结束工作区。
-- 提供 Vim 风格导航、自适应布局、按内容调整的帮助弹窗和顶栏版本号。
-- 按项目查看近期日志，从任意缓存行用 `v` 开始选择、`y` 复制；本机 WSL 使用 `clip.exe`。
+- Open the TUI by default; preserve explicit CLI commands, configuration discovery,
+  and validation before execution.
+- Start/stop selected or default-group services, prevent duplicates, isolate failures,
+  and clean process groups.
+- Keep services running after leaving/closing a client; reconnect and explicitly end
+  the background workspace.
+- Provide Vim-style navigation, adaptive layout, content-sized help, and client version.
+- Read recent per-project logs and copy complete lines from any cached position with
+  `v/y`, using `clip.exe` in local WSL.
 
-发布附件提供 Linux x86_64 musl 静态程序、外部更新器、源码归档与 SHA-256 校验值。仓库保持私有，安装见 [WSL2 指南](docs/wsl.md)。
-
-日志仍为有界内存缓存，结束后台后丢失；历史分页、持久化、搜索聚合与 `devctl update` 留在 MVP 后计划。macOS 与 Windows 原生运行尚未验收。升级前需显式结束旧后台，新文件不会替换已经运行的后台逻辑。
+The original distribution provided a Linux musl binary, external installer, source
+archive, and checksums while the repository was private. Logs were memory-only and
+lost at supervisor shutdown; disk history, search, and self-update were follow-up work.
+Native Windows and macOS were not accepted platforms. Current installation instructions
+are in [docs/install.md](docs/install.md); historical release files remain unchanged.

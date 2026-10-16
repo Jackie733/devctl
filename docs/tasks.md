@@ -1,25 +1,49 @@
-# 当前开发任务
+# Current task
 
-这里只保留当前任务与必要交接；历史见 Git，协作规则见 [AGENTS.md](../AGENTS.md)。
+Keep the current task, necessary handoff, and next step here. Git retains history;
+collaboration rules are in [AGENTS.md](../AGENTS.md).
 
-## 当前状态：1.2.1 已发布，待用户 WSL 迁移验收（X03）
+## Current: public documentation and 1.2.2 release (X03)
 
-- 用户已明确授权发布新版本，以便从受匿名 API 限流影响的 1.2.0 迁移。本轮完成版本准备、提交、推送、带说明标签、Actions 发布与匿名验证；未修改用户实际安装、停止真实项目或改变仓库可见性。
-- [v1.2.1 Release](https://github.com/Jackie733/devctl/releases/tag/v1.2.1) 已公开，为 Latest、非草稿、非预发布。五个附件：devctl-v1.2.1-x86_64-unknown-linux-musl、devctl-update、devctl-v1.2.1-source.tar.gz、update.json、SHA256SUMS。
-- 带说明的 v1.2.1 标签指向构建提交 9f76c8da2d1fe562608387009e8bc5c6e96a40ce；源码归档、程序版本、清单、摘要与发布说明中的提交身份已核对。1.2.0 及更旧的标签与附件未覆盖。
-- [自动发布运行 38868608804](https://github.com/Jackie733/devctl/actions/runs/38868608804) 由标签推送触发，build、publish、verify / verify 全部成功，无需手动补发。清单与全部产物上传草稿后才公开并设为 Latest。
+- The user authorized English public documentation, a Chinese README, version
+  publication/push, and a real self-update exercise. They explicitly selected MIT.
+- Prepared an English README and matching README.zh-CN, contributor guidance, MIT
+  license and Cargo metadata. Reworked user/maintainer references in English,
+  replaced personal project paths with generic examples, and kept confirmed scope,
+  engineering invariants, and candidate features distinct.
+- Installation now lives in [install.md](install.md); [wsl.md](wsl.md) owns Windows
+  integration and hands-on checks. Architecture, usage, requirements, roadmap,
+  logging decisions, changelog, and release notes use English.
+- Version 1.2.2 is a documentation/license patch, with no service-management behavior
+  change. The new public artifact enables a real 1.2.1 → 1.2.2 default update test.
+  Previous tags/releases must not be modified. Publishing, checks, and final public
+  upgrade evidence are pending; preparation is not publication.
 
-## 验证证据
+## Validation evidence and release next step
 
-- 本地和 GitHub 托管环境的 1.2.1 均通过 235 项 Rust 测试（142 单元、93 集成，含 10 个真实 PTY）；云端另通过 11 项安装器测试、4 项真实程序打包/清单消费测试及最终 musl 产物全部 10 个 PTY 场景。fmt、clippy、静态链接与隔离安装/重复安装/错误摘要/回退/配置保留检查通过。
-- 本地干净源码打包通过；清单由实际程序生成，SHA256SUMS 覆盖四个附件，源码归档与标签构建源一致。预检产物 /tmp/devctl-v1.2.1-preflight-eghvuziy/bundle。
-- 发布后的五个附件已在本地匿名下载，四条 SHA-256 及清单内容通过，实际程序版本为 devctl 1.2.1，静态链接通过；公开源码归档的 Cargo.toml、Cargo.lock、src/update.rs 和发布工作流与构建提交一致。
-- 本地用经旧 Release 校验的真实 1.2.0 静态程序，在临时 HOME 按外部安装器迁移至 1.2.1；备份与配置保留通过。新版匿名 latest/指定版本检查、指定版在线重装、默认无新版保护、离线回退至真实 1.2.0 和外部更新器恢复全部通过；不依赖 REST API 或 GitHub 凭据。
-- 云端发布后匿名客户端验证也成功，覆盖公开下载/摘要、无配置查询、指定版实际下载/安装、离线回退、外部恢复和配置保留，见上述运行的 verify 作业。
-- 本地日志：/tmp/devctl-v1.2.1-tests.log、/tmp/devctl-v1.2.1-actions.log、/tmp/devctl-v1.2.1-public-verification.log；临时文件不保证长期保留，Actions 链接为持久证据入口。文档链接、围栏和最终差异检查通过。
+- Local `cargo test --locked --offline`: 235 passed (142 unit, 93 integration,
+  including ten real PTY scenarios). Log: /tmp/devctl-v1.2.2-tests.log.
+- `cargo fmt --check` and `cargo clippy --locked --offline --all-targets -- -D warnings`
+  passed. Installer tests: 11 passed. The 1.2.2 musl build, four real-artifact
+  packaging/manifest tests, and static-link/install/reinstall/bad-digest/rollback/
+  configuration-preservation checks passed.
+- All 15 Markdown documents passed 104 local-link/anchor checks and fence checks.
+  Both READMEs contain matching TOML, validated/planned by the real 1.2.2 parser
+  from a different working directory. All 25 shell blocks passed Bash syntax checks;
+  documented update/log flags agree with CLI help. English content, MIT text,
+  package metadata, Bash packaging syntax, and actionlint checks passed.
+- Next: commit, inspect the clean-source bundle and English release notes, then push
+  main and a new annotated v1.2.2 tag. Monitor build/publication/anonymous verification.
+- After publication, download all five public assets, verify checksums/source identity,
+  and use the real 1.2.1 binary in a temporary HOME for default online upgrade to
+  1.2.2, backup/config preservation, offline rollback, and external recovery.
 
-## 用户迁移与待验收
+## Previous release and handoff
 
-1. 按 [固定附件安装](wsl.md#0-安装-121-发布程序无需-rust) 下载并校验 1.2.1；安装前由用户显式结束各工作区后台并退出旧 TUI，再用外部更新器迁移。1.2.0 在线更新仍可能被限流，不要求用户配置 Token、安装 Rust 或编译源码。
-2. 按 [1.2.1 验收](wsl.md#42-121-安装与自更新验收) 核对实际路径、版本、清单检查、回退及三个项目体验。回退至旧程序后，用已下载的外部更新器恢复，不依赖旧 API。测试和发布成功不代表目标 WSL 已验收，X03 尚未整体验收。
-3. 新客户端安装无清单的历史版本仍使用外部更新器。下一次正常发布继续验收从 1.2.1 到更新版本的默认清单升级，同版本重装不冒充跨版本升级。日常发布机制见 [releasing.md](releasing.md)，后续新发布按对应任务授权执行。
+- [v1.2.1](https://github.com/Jackie733/devctl/releases/tag/v1.2.1) is the previous stable
+  manifest-format release. Its build commit is 9f76c8da2d1fe562608387009e8bc5c6e96a40ce;
+  [run 38868608804](https://github.com/Jackie733/devctl/actions/runs/38868608804) passed
+  build, publication, and anonymous verification.
+- Complete target WSL experience remains user acceptance, separate from controlled
+  tests. This task does not alter real installations, stop real projects, or mark
+  X03 fully accepted. Follow [WSL update checks](wsl.md#verify-updates) after release.

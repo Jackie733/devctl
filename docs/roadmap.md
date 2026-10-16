@@ -1,46 +1,50 @@
-# 实施路线
+# Roadmap
 
-主线：三个项目的统一终端管理。范围以 [requirements.md](requirements.md) 为准，当前任务记录在 [tasks.md](tasks.md)。首版已验收，日志增强已随 1.1.0 发布；以下区分已交付、待验收与待开发工作。
+The main goal is one terminal for independent local development projects. Scope is
+owned by [requirements.md](requirements.md); current work and evidence live in
+[tasks.md](tasks.md). Delivered, awaiting acceptance, and candidate work are distinct.
 
-## 1. 首版阶段
+## Delivered milestones
 
-| 阶段 | 交付物 | 完成标准 | 需求 |
-| --- | --- | --- | --- |
-| M1 配置 | 项目目录、命令、路径解析与校验 | 三个项目可表达；从任意目录校验；无效配置不启动进程 | W01–W03 |
-| M2 单项生命周期 | 启动、信号停止、进程组清理与退出报告 | 派生后代被清理；忽略 TERM 时超时强杀；退出可解释 | P01、P02、P04 |
-| M3 多项目管理 | 并发运行、单项与全部控制、运行锁 | 可只启动一项或全部；单项停止互不影响；关闭管理器时全部清理 | P01、P07、P04、R02 |
-| M4 后台管理 | 独立 supervisor、本地控制通道、实例发现与后台日志读取 | 关闭客户端终端服务继续运行；重连原实例；并发启动不重复创建；无客户端日志有界 | P05、R02、P04、L01、L03 |
-| M5 终端界面与日志 | 连接后台、项目列表、状态、日志与操作键 | 单项/全部控制；离开不停止；结束工作区全部清理；终端恢复 | U01、P01、P07、P05、L01、L03 |
-| M6 真实项目试用 | web、小程序、中台完整流程 | 用户完成单项、全部、后台、重连和停止验收 | X01、首版全部需求 |
+| Milestone | Result | Requirements |
+| --- | --- | --- |
+| M1: configuration | Project/command schema, path resolution, discovery, preflight validation | W01–W03 |
+| M2: single-service lifecycle | Process-group stop, descendant cleanup, timeout escalation and exit feedback | P01, P02, P04 |
+| M3: multiple services | Concurrent independent commands, selected/group control and run lock | P01, P07, P04, R02 |
+| M4: background manager | Detached supervisor, bounded local IPC, discovery, reconnect and background logs | P05, R02, P04, L01, L03 |
+| M5: terminal interface | Project/state/log panels, controls, leave/shutdown distinction and terminal restoration | U01, P01, P07, P05, L01, L03 |
+| M6: real-project acceptance | Three-project WSL2 workflow accepted; MVP released as 1.0.0 | X01, initial scope |
+| Logging follow-up | 1.1.0 delivered history, persistence, pause, literal search, context and page/selection export | L01–L04 |
+| Public distribution | Public Releases, static artifacts, checksums, source identity and tested publication workflow | X03 |
+| Self-update | 1.2.0 introduced independent update/rollback; 1.2.1 switched to Release manifests | X03 |
 
-## 2. 推进规则
+The initial MVP was accepted on 2026-10-15. Controlled tests establish coverage of
+subsequent work, not final acceptance of those changes in every target environment.
+The 1.2.2 documentation/license release provides the next real version for testing
+1.2.1 → 1.2.2 updates without inventing additional runtime features.
 
-- 功能改动必须关联相应需求，并说明它改善哪个已确认场景；必要的进程和日志安全边界也要关联到对应验收。
-- 已有配置与计划代码继续保留，不把已有代码等同于整个阶段已验收。
-- M1–M5 已完成代码与受控验证，M5 包含真实 PTY 的控制、日志、离开、重连和结束工作区流程。2026-10-15 用户确认 M6 的三个真实项目完整流程全部通过，MVP 以 1.0.0 发布；发布与验证历史见 Git 中的任务记录。
-- 产品行为或首版范围变化先与用户核对；局部 Rust 实现由助手按最小可维护方案推进。
-- 当前推进需求文档 §4 的已确认计划，并结合用户试用反馈评估其他扩展；候选功能未经确认不自动排入实施。
+## Next steps
 
-## 3. 剩余工作的评估
+| Priority | Work | Acceptance basis |
+| --- | --- | --- |
+| 1 | Real WSL log and UI feedback | Follow the [WSL checks](wsl.md#verify-logs) with actual project output, search, copy, reconnect and shutdown |
+| 2 | Real WSL cross-version update/rollback | Follow [update verification](wsl.md#verify-updates); confirm paths, versions, backups and retained configuration |
+| 3 | Fix demonstrated usability or reliability issues | Reproduce the issue and connect the smallest fix to an existing requirement |
+| Later | Assess candidates when concrete scenarios justify them | Preserve the complete [candidate list](requirements.md#post-mvp-scope); do not schedule automatically |
 
-2026-10-16 按当前仓库代码与发布交接评估：
+Dedicated restart shortcuts may be worth assessing if explicit stop/start becomes
+frequent. Dependency orchestration, probes, crash restart, reboot recovery, expanded
+platforms, workspace profiles, interactive services, aggregation, and AI assistance
+remain candidates. Existing planning code does not establish runtime dependency
+support. A candidate's presence is neither a promise nor authorization to implement it.
 
-- 日志增强已经交付，剩余是目标 WSL 的真实项目试用及反馈修复，不再安排一轮重复实现。受控测试不能替代实际终端、输出频率和复制体验的确认。
-- X03 已进入开发：1.2.0 交付命令内版本检查、安装与离线回退，自动构建发布流程已接入。目标 WSL 的下载安装和真实项目验收由用户随后完成，发布与受控测试不代表 X03 整体验收。
-- 用户已将现有 `Jackie733/devctl` 转为 Public，直接使用其 Releases，不另建产物仓库。已有 1.1.0 附件已匿名下载、校验并在隔离环境完成安装/回退；目标环境已遇到匿名 API 限流，1.2.1 改为 Release 固定清单。目标仍为 Linux x86_64 musl，其他前提按需求文档 §4.1 落实。
-- Update 分支已在配置发现前独立处理，复用现有安装器保护逻辑与测试。剩余重点是发布流程与真实产物验收，更新不能替换已运行后台；实现与边界见 [DESIGN.md](../DESIGN.md) §8。
-- 单项/批量重启快捷操作可作为后续候选优先评估：现有启停能力可支撑，是否需要新增入口仍取决于使用频率。依赖编排、自动重启、恢复、扩展平台与 AI 等保留在需求清单；当前场景未提供新增实施依据。依赖计划已有代码不代表依赖执行已实现。
+## How work advances
 
-## 4. MVP 后已确认计划
+Tie functional changes to confirmed scenarios and requirement IDs. Preserve existing
+configuration/planning behavior unless a change is explicitly agreed. Discuss
+scope/behavior changes before implementing them; make routine local choices using
+existing conventions. Keep current state in the task record and history in Git.
 
-下表是基于当前完成状态的建议推进顺序，不增加产品范围或授权发布操作。范围、前提与验收统一见 [requirements.md](requirements.md) §4。
-
-| 顺序 | 工作 | 当前结论与完成依据 | 需求 |
-| --- | --- | --- | --- |
-| 已交付 | 历史分页、暂停/恢复、持久化、轮转与单项目搜索/导出 | 1.1.0 已发布并完成受控验证；跨退出书签不纳入本轮，聚合和复杂筛选保留候选 | L01–L04 |
-| 1 | 1.1.0 目标 WSL 试用与反馈收敛 | 用户按 [WSL 指南](wsl.md#41-110-日志功能的真实项目试用) 确认三个项目日志体验；实际问题优先修复 | L01–L04、U01 |
-| 已落实 | 公开下载入口 | 现有仓库已 Public，1.1.0 程序、安装器与校验值可匿名下载；隔离安装/回退通过 | X03 |
-| 3 | 自动构建发布 | 1.2.0 接入标签触发、完整验证、静态构建、同提交打包和草稿完整上传后公开；结果见任务记录，机制见 [发布维护](releasing.md) | X03 |
-| 4 | `devctl update` 与更新/回退验收 | 1.2.0 包含无配置检查、安装稳定版/指定版、离线回退及失败保护；用户随后按 WSL 指南 §4.2 验收 | X03 |
-
-目标 WSL 试用由用户完成；不影响独立的 X03 方案准备。AI 仍处于候选讨论，用户原定顺序为先完善日志、再评估 AI，本次评估不将 AI 纳入已确认功能。完整候选清单由需求文档 §4 维护，日志机制与取舍见 [DESIGN.md](../DESIGN.md#53-mvp-后日志增强方案) 和 [日志后续设计取舍](logging-proposal.md)。
+Logs were prioritized before AI assessment. This documentation work does not expand
+AI scope, silently remove historical requirements, or equate a published release
+with acceptance of the full X03 user workflow.

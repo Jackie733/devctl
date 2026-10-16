@@ -1,32 +1,33 @@
-# 开发协作规范
+# Development collaboration
 
-## 开发原则
+## Principles
 
-- 先理解现有代码，遵循仓库约定，采用最小、安全、易读的改动。
-- 保持 API 小而明确；不提前引入抽象、框架、依赖或重构。
-- 保持现有架构与兼容性，不修改无关代码、秘密或部署配置。
-- 使用符合 Rust 习惯的实现，说明必要的取舍，不追求技巧。
+- Understand the existing code, follow repository conventions, and make the smallest safe, readable change.
+- Keep APIs small and explicit. Avoid speculative abstractions, frameworks, dependencies, or refactors.
+- Preserve architecture and compatibility; leave unrelated code, secrets, and deployment configuration alone.
+- Use idiomatic Rust and explain consequential tradeoffs without prioritizing cleverness.
 
-## 开发流程
+## Workflow
 
-1. 阅读任务记录、Git 状态和相关实际代码，确认任务目标与现有实现。按需求编号和章节定位所需文档，不默认重读全部规划。
-2. 在已授权范围内直接完成代码、测试与必要文档改动。审查正确性、错误路径、边界条件和可读性，采用最小、安全、易维护的方案。
-3. 检查已有测试，仅为有实际价值的行为和缺口补充测试。覆盖关键正常、失败及边界场景，不重复实现细节，不为凑数量引入测试框架。纯文档改动通常只需文档检查。
-4. 功能代码改动运行相关测试、`cargo fmt --check`、`cargo clippy --all-targets -- -D warnings`；按影响范围决定是否运行完整测试。纯文档改动检查差异、链接与内容一致性即可。记录实际命令、结果及未验证项。检查失败先修复，无法验证时如实记录，不能宣称通过。
-5. 任务状态、阻塞或下一步变化时更新 `docs/tasks.md`，保留必要的验证证据。检查 diff，仅暂存并提交本次任务相关代码、测试和文档；不混入其他未完成改动，不自动推送。用户已授权这一提交流程，无需每次再询问。
-6. 汇报实际完成的改动、验证结果、提交短哈希及未完成事项。遇到阻塞先处理或说明，不跳过必要验证，不将建议误报为已实现。
+1. Read the current task record, Git status, and relevant implementation. Locate planning documents by requirement ID and section instead of rereading every plan.
+2. Implement the authorized code, tests, and necessary documentation directly. Review correctness, failure paths, boundaries, and readability.
+3. Reuse existing tests. Add tests only for meaningful behavior gaps, including important success, failure, and boundary cases. Documentation-only changes generally need documentation checks.
+4. For functional changes, run relevant tests, `cargo fmt --check`, and `cargo clippy --all-targets -- -D warnings`; choose the full suite according to impact. For documentation, inspect diffs, links, and consistency. Record actual commands, results, and unverified items. Fix failed checks before claiming success.
+5. Update `docs/tasks.md` when status, blockers, or next steps change. Inspect the diff; stage and commit only the current task's code, tests, and documentation. Do not automatically push. This incremental local commit workflow is already authorized and does not need repeated confirmation.
+6. Report the changes, validation evidence, short commit hash, and remaining work. Address or explain blockers before continuing; do not describe a suggestion as implemented.
 
-表达简洁、直接，以结果、必要取舍和验证证据为主；仅在用户要求或理解改动确有需要时展开解释。
+Communicate concisely and directly. Explain implementation details when requested or necessary for understanding.
 
-## 文档维护
+## Documentation ownership
 
-- `requirements.md` 定义需求、优先级与验收；`interaction.md` 集中定义操作范围和界面反馈；`DESIGN.md` 说明实现机制、不变量与取舍；`roadmap.md` 只维护阶段顺序与需求映射。
-- 一项规则只有一个主要维护位置，其他文档用链接或简短引用关联。验收场景可以验证同一规则，但不再展开第二份规则说明。
-- `docs/tasks.md` 只保留当前任务、必要的上一轮交接与下一步，关联里程碑和需求编号；历史由 Git 保存，不追加会话流水账。
-- 仅在对应内容变化时更新文档，不要求每次提交改动全部文档。新增测试同样按行为缺口决定，不以每轮新增为目标。
+- `docs/requirements.md` owns scope, priorities, and acceptance criteria; `docs/interaction.md` owns operation scope and feedback; `DESIGN.md` owns mechanisms, invariants, and tradeoffs; `docs/roadmap.md` owns phase order and requirement mapping.
+- Maintain a rule in one primary location. Link or briefly reference it elsewhere. Acceptance scenarios can verify the same rule without duplicating its full definition.
+- `docs/tasks.md` contains the current task, necessary handoff, and next steps, linked to milestone and requirement IDs. Git stores history; do not append a session diary.
+- Update a document only when its subject changes. Add tests for behavior gaps, not to meet a per-commit quota.
+- Keep public reference documents in English, with a matching Chinese overview in `README.zh-CN.md`.
 
-## 主线约束
+## Scope and acceptance
 
-- 功能改动关联 `docs/requirements.md` 的相应需求编号，说明它解决哪个已确认场景；不因实现便利新增产品功能。
-- 用户确认的场景优先于历史规划。未提及的历史功能保持待确认，不能据此擅自取消或移出首版；精简文档不等于删减功能。候选功能不自动进入下一阶段；改变产品行为或首版范围时先与用户核对，日常局部实现无需反复确认。
-- 测试验证约定行为；完整使用流程由用户试用验收。不要把测试通过、局部实现或文档一致当成产品已经符合用户预期。
+- Connect functional changes to the appropriate requirement ID and a confirmed use case. Implementation convenience is not a reason to invent a product feature.
+- Confirmed user scenarios take precedence over historical plans. Unmentioned historical features remain pending assessment; do not silently cancel them or remove them from the original scope. Simplifying documentation is not reducing functionality. Candidate features require confirmation before implementation; routine local choices do not require repeated questions.
+- Tests verify defined behavior. Users accept complete workflows in their real environment. Passing tests, a partial implementation, or consistent documentation do not establish user acceptance.

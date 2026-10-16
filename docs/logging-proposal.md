@@ -1,30 +1,49 @@
-# 日志后续设计取舍
+# Logging design decisions
 
-2026-10-16，用户要求按产品定位收敛日志功能，并授权助手直接实现。1.1.0 已落实并发布下列范围；实际机制与参数由 [DESIGN.md](../DESIGN.md#53-mvp-后日志增强方案) 维护，需求验收见 [requirements.md](requirements.md) §4.2，操作见 [interaction.md](interaction.md) §2.7–2.8，验证及交接见 [tasks.md](tasks.md)。
+This records the product tradeoffs delivered in 1.1.0. The
+[architecture](../DESIGN.md#persistent-history) owns mechanisms and budgets,
+[requirements](requirements.md#logging-enhancements-l01l04) own acceptance, and
+[usage](interaction.md#logs-and-search) owns operations. Current evidence is in
+[tasks.md](tasks.md).
 
-## 产品目标
+## Product goal
 
-devctl 服务于本机三个开发项目的集中启停和排错。日志围绕两个结果：结束或重启后台后能找回近期输出；在一个项目中找到问题并复制上下文。
+Help users recover recent output after ending/recreating a supervisor, locate a
+problem in one project, and copy enough ordinary context to investigate it.
 
-| 能力 | 本轮选择 | 理由 |
+| Capability | Decision | Reason |
 | --- | --- | --- |
-| 实时查看、暂停、翻页、选区复制 | 交付并保留有界窗口 | 支持日常阅读，不积累无界客户端缓存 |
-| 独立落盘、容量轮转与保留清理 | 一起交付 | 保存历史同时限制磁盘增长 |
-| 内存之外的历史回看、跨后台查询 | 交付 | 报错不会只因近期缓存淘汰或正常结束后台而丢失 |
-| 单项目字面文本搜索与上下文 | 交付 | 在保留历史内定位问题，避免不断手动滚动 |
-| 同一 TUI 内切换项目、短暂断连的阅读恢复 | 保留 | 不打断当前阅读任务 |
-| 退出 TUI 后恢复旧阅读位置 | 不实施 | 用户已明确重新进入默认查看最新输出 |
-| 跨项目聚合、复杂组合筛选 | 低优先级候选，不纳入本轮 | 三个项目可直接切换；当前没有值得增加界面和索引的具体场景 |
-| 导出 | 选区复制或 CLI 查询页重定向 | 提供必要分享入口，范围、会话和缺口可核对；不新增多格式或独立导出界面 |
+| Live output, pause, paging and selection copy | Deliver with a bounded client window | Read comfortably without accumulating unlimited client memory |
+| Disk history, rotation and expiry | Deliver together | Preserve output while bounding storage growth |
+| History beyond memory and across supervisors | Deliver | Memory eviction or normal shutdown should not erase all recent evidence |
+| Per-project literal search and context | Deliver | Find retained errors without constant manual scrolling |
+| Reading restoration across switches/short reconnects in one TUI | Preserve | Avoid interrupting an active reading task |
+| Cross-exit reading bookmarks | Do not implement | A fresh TUI should show current latest output |
+| Cross-project aggregation and combined filters | Keep as lower-priority candidates | No confirmed scenario justifies extra UI/indexing yet |
+| Export | Selection copy or one CLI page redirected to files | Make scope and missing data clear without a new export UI or format system |
 
-AI 日志诊断继续是候选，不能替代采集、保存和查询的基础能力，也不为其提前建立模型接口。
+AI log analysis remains a candidate. It does not replace trustworthy capture,
+saving, and querying, and does not justify speculative model interfaces.
 
-## 工程选择
+## Engineering choices
 
-Linux/WSL 使用独立用户状态目录，依据 [XDG Base Directory Specification](https://specifications.freedesktop.org/basedir/latest/)，避免在项目目录写入需忽略的无限增长日志。容量与期限先达到者清理，工程取舍参考 [Docker 的交付与轮转说明](https://docs.docker.com/engine/logging/configure/)；devctl 的默认数值属于自身选择，并非行业强制参数。
+Use an independent Linux/WSL user state directory following the
+[XDG Base Directory Specification](https://specifications.freedesktop.org/basedir/latest/),
+rather than growing logs inside project directories. Capacity and age independently
+trigger cleanup; [Docker's logging guidance](https://docs.docker.com/engine/logging/configure/)
+informs the tradeoff, not devctl's specific numeric defaults.
 
-实现继续使用仓库已有的 TOML 依赖，采用带双向长度的结构化 `.dlog` 分段，替代原先 JSONL 提议。这样可以直接反向分页、不需要数据库或逐记录索引；代价是需通过 CLI 阅读，不能将分段当纯文本直接 tail。记录版本、身份、采集时间和缺口仍保留。
+Reuse TOML with bidirectional frame lengths in `.dlog` segments instead of the earlier
+JSONL proposal. Reverse paging needs no database or per-record index, at the cost
+of reading through the CLI rather than plain `tail`. Preserve format version,
+identity, capture time, and missing-data feedback.
 
-后台独占文件写入、清理及在线历史查询，离线读取持同一工作区运行锁。磁盘故障时保留内存查看及进程控制；正常关闭会确认保存收尾，异常退出不承诺未同步尾部完整。搜索按固定上界逐批扫描，不把空的一批结果误称为查完。
+The supervisor's storage worker owns writes, cleanup, and online queries; offline
+reads hold the same workspace lock. Storage failure preserves memory/control.
+Normal shutdown checks storage completion; abnormal exits cannot promise unsynced
+tails. Search scans bounded batches with a fixed upper bound, and an empty batch
+is not evidence that scanning finished.
 
-范围完成与目标环境验收分开记录：自动化验证机制，用户在 WSL 三个实际项目上验证体验。跨项目聚合、组合筛选和其他候选不因本轮完成而自动排入下一阶段。
+Record mechanism tests and actual WSL project acceptance separately. Finishing
+this scope does not automatically schedule aggregation, combined filters, or other
+candidates for the next increment.

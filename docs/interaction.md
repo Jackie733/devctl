@@ -1,276 +1,302 @@
-# 首版交互方案
+# Configuration and usage reference
 
-已确认：TUI、单项与全部启停、按项目日志、后台运行；默认离开界面后服务继续运行，结束开发时显式全部停止。2026-10-14 用户确认首版采用左右分栏：左侧项目列表，右侧选中项目日志，底部操作与连接反馈。后台控制和 TUI 已实现；受控验证与真实项目试用进度见 [任务记录](tasks.md)。
+This document owns command behavior, operation scope, keyboard controls, and user
+feedback. Mechanisms and numeric resource budgets are defined in [DESIGN.md](../DESIGN.md).
+For installation and version switching, see [install.md](install.md).
 
-## 1. 启动与连接
+## Configuration
 
-省略子命令时，`devctl` 或 `devctl --config PATH` 直接进入 TUI，保留 `devctl tui` 作为显式入口。指定 validate、plan、start、stop、status、logs、shutdown、run 等子命令时只执行对应操作；未知子命令报错，不回退到 TUI。`--help` / `-h` 和 `--version` / `-V` 直接输出信息并退出。
+With no subcommand, `devctl` opens the TUI. `devctl tui` is the explicit equivalent.
+Other subcommands perform only their named operation; an unknown command is an error.
+Help and version exit without loading workspace configuration, as does the independent
+`update` path.
 
-所有需要工作区的命令（包括默认 TUI 入口、validate、plan、tui 与后台控制）统一按以下顺序选择配置，第一个存在的配置生效，不合并：
+Workspace commands select the first existing configuration, without merging:
 
-1. 显式 `--config PATH`。
-2. 当前目录的 `devctl.toml`，兼容原有用法。
-3. `~/devctl.toml`。
-4. `~/.config/devctl/devctl.toml`。
+1. Explicit `--config PATH`.
+2. `devctl.toml` in the current directory.
+3. `~/devctl.toml`.
+4. `~/.config/devctl/devctl.toml`.
 
-后两项基于 HOME 查找。找不到时列出查找位置并报错，不创建文件；高优先级位置是目录/无效符号链接或路径检查失败时直接报错。发现只选择路径，各命令仍沿用原有加载规则：需要读取时，解析或读取失败不回退到其他工作区；连接已有后台不重载磁盘配置。帮助和版本不要求配置；默认进入 TUI 需要配置与终端输入/输出，没有 TTY 时明确报错，不输出界面控制序列。
+Home candidates use an absolute `HOME`. Missing files are skipped; directories,
+broken symlinks, inspection errors, or an invalid selected file are errors. An explicit
+path never falls back. A missing configuration reports searched paths instead of
+creating an empty workspace. Connecting to an existing supervisor does not reload
+the file; shutdown and recreate the supervisor to apply changes.
 
-配置在默认位置时可直接执行 `devctl`、`devctl validate` 等短命令；需要固定工作区时，仍可给下列命令加上 `--config /path/to/devctl.toml`：
+Configuration version is `1`. The [README](../README.md#quick-start) has a minimal
+multi-project example. Supported fields are:
 
-| 命令 | 行为 |
+| Table | Fields and defaults |
 | --- | --- |
-| `devctl` / `devctl tui` | 连接或创建后台管理实例，显示界面，不自动启动服务 |
-| `devctl start web` | 只启动 web，其他项目保持原状态；需要时创建后台管理实例 |
-| `devctl start weapp` / `devctl start middle` | 分别只启动小程序或中台 |
-| `devctl start --all` | 启动默认组合，已运行项目不重复启动 |
-| `devctl stop web` | 停止 web，其他项目保持原状态 |
-| `devctl stop --all` | 停止所有项目，后台管理实例保留，可重新启动 |
-| `devctl logs web --limit 100` | 读取 web 的近期日志快照，区分 stdout/stderr 与运行实例，不创建后台 |
-| `devctl status` | 查询已有后台的服务状态及失败原因，不创建实例 |
-| `devctl shutdown` | 停止全部托管进程并结束后台管理实例 |
+| Root | `version = 1`; `workspace`; optional `projects`, `services`, `logs` |
+| `[workspace]` | Nonempty `name` |
+| `[projects.ID]` | Nonempty existing directory `path` |
+| `[services.ID]` | Known `project`; nonempty argument array `cmd`; optional `cwd`; `autostart = true`; optional `depends_on` for validation/planning |
+| `[logs]` | `enabled`, `max_mib`, `retain_days`; see [storage budgets](../DESIGN.md#storage-identity-format-and-budgets) |
 
-本场景项目与服务 ID 相同，一项目一个命令；上述目标参数沿用 Service ID，未来扩展多服务项目时显式增加项目选择参数，不混用两类 ID。
+Unknown fields, invalid references, empty executable names, and invalid directories
+fail validation. Project paths resolve from the selected configuration's directory;
+relative service `cwd` resolves from its project. The default cwd is the project
+directory. TOML paths do not expand `~` or environment variables. Commands execute
+as argument arrays without an implicit shell, inheriting the supervisor's original
+environment. Manage runtime versions and dependencies outside devctl.
 
-`start` 返回请求是否受理，不能把受理称为业务就绪；`stop` 和 `shutdown` 需明确报告清理成功或失败。再次打开 TUI 连接已有实例，不依据默认配置重新启动已被用户停止的项目。`stop`、`shutdown` 在后台不存在时不创建新实例。
+`autostart = true` means membership in the default start group. Opening or reattaching
+the TUI does not automatically start that group. The current runtime supports one
+service per project and independent commands. Dependency graphs can be validated and
+planned; unsupported runtime dependencies are rejected before any selected command
+starts. They are not silently ignored. See [dependency examples](../examples/dependencies/README.md).
 
-配置中的 `autostart = true` 表示该服务属于 `a` / `start --all` 的默认启动组合，不表示进入 TUI 就执行启动命令。进入界面后可按 `a` 启动该组合，也可以先执行 `devctl start --all` 再执行 `devctl tui`。
+## Commands and service lifecycle
 
-现有前台命令为 `run <service>...` 或 `run --all`。前者至少显式选择一项，重复 ID 只启动一次；后者选择配置中 `autostart = true` 的默认组合，不可同时传入显式 ID，默认组合为空时显示无服务被选择并成功退出。整批选择先校验，未知 ID 或未支持的依赖在任何服务启动前拒绝；某项启动失败或意外退出立即显示原因，其他项继续运行。Ctrl-C/SIGTERM 清理所选服务；全部自然结束或显式停止后退出，本轮有失败则退出码为 1，否则为 0。
+Add `--config /path/to/devctl.toml` to select a workspace explicitly.
 
-前台模式已使用配置运行锁，同一配置的第二个运行者会在启动任何服务前报错。后台复用同一锁，前后台不能同时托管同一工作区。`validate` 和 `plan` 继续只读。
+| Command | Behavior |
+| --- | --- |
+| `devctl` / `devctl tui` | Connect to or create an idle background workspace; requires a TTY |
+| `devctl validate` | Validate fields, paths, and references without executing commands |
+| `devctl plan [SERVICE...]` | Preview dependency-first order; defaults to the default group; does not execute commands |
+| `devctl start SERVICE...` | Start selected services; create the supervisor if needed |
+| `devctl start --all` | Start the default group; do not duplicate already running services |
+| `devctl stop SERVICE...` | Stop selected services and confirm process-group cleanup |
+| `devctl stop --all` | Stop every active service, including manually started non-default services; keep the supervisor |
+| `devctl status` | Inspect existing service states and reasons; do not create a supervisor |
+| `devctl shutdown` | Stop all managed processes, finish log saving, and end the supervisor |
+| `devctl run SERVICE...` / `devctl run --all` | Run explicit services or the default group in the foreground |
 
-日志快照默认返回尾部；`--after <序号>` 按升序读取该序号之后的记录，`--before <序号>` 读取该序号之前最近的一页，返回仍按升序排列。两个参数互斥，边界记录不重复返回。向前继续翻页使用本页第一条序号，向后继续使用本页最后一条序号；不能用后台最高序号跳过未读取的页。输出中的 `#实例` 和 `seq=序号` 用于区分运行轮次和分页位置；有更早记录时 CLI 提示下一次 `--before`，到达保留开头与游标过期分别提示。结束并重建后台后旧游标失效。截断、丢弃、缓存缺口和读取不完整会明确提示；预算和传输规则见 [DESIGN.md](../DESIGN.md) §5。
+Explicit selection and `--all` are mutually exclusive; `run` requires one of them.
+An empty default group exits successfully. Selection is validated as a batch before
+starting any service. A start response means the request was accepted, not that the
+application is ready. `Running` only means the process was observed alive. A failed
+service does not stop or restart others. Starting a running service is a no-op;
+a stopping or cleanup-unconfirmed instance cannot be started again.
 
-停止或结束工作区无法确认清理时返回错误，后台保留运行锁与失败原因供查询，避免再次托管同一配置。该状态不自动恢复，不宣称工作区已经结束。
+A foreground runner and background supervisor cannot manage the same configuration
+at the same time. Foreground Ctrl-C/SIGTERM stops selected process groups. Natural
+completion or explicit stop ends the foreground run; any failure makes its exit
+status 1, otherwise 0. Background `stop` and `shutdown` do not create a missing
+supervisor. Unconfirmed cleanup reports failure and preserves ownership and diagnostics
+rather than pretending shutdown completed. Reconnection never replays a control request.
 
-## 2. 界面与操作
+## Terminal interface
 
-### 2.1 界面入口与操作范围
+The wide layout shows projects on the left and selected-project logs on the right.
+The selected project is independent of panel focus. Service controls always name
+that selected project; workspace controls explicitly affect all services or the
+default group. There is no `:` command mode or stdin forwarding to services.
 
-2026-10-15 已实现本节的焦点导航、Vim 风格键位、自适应布局、上下文帮助及整行选择复制，用户已确认三个真实项目的 WSL2 试用通过；受控验证见 [tasks.md](tasks.md)。首版不加入 `:` 命令行。
+### Keys
 
-进入 TUI 后直接显示项目管理界面与连接反馈，不播放启动动画。宽屏左侧项目、右侧日志；窄屏显示当前活动面板。`s/x` 操作选中项目，`a` 启动默认组合，`X` 停止全部并保留后台，`q/Ctrl-C` 只离开客户端，`Q` 经确认后结束工作区。
+These keys describe the main view outside popups, search input, and line selection.
 
-已运行项目重复启动不创建新进程；停止中的项目先清理，再允许启动。失败显示项目与原因，其他项目继续运行。“运行中”仅表示进程存活，不承诺编译成功或业务就绪。当前一项目一个服务，多服务聚合仍按需求文档评估。无 TTY 时明确报错，可使用控制 CLI。
-
-### 2.2 交互原则与参考
-
-对应 U01、L01、L03、P01、P02、P07、P05：更快选择三个项目、阅读日志、判断失败，并明确每次操作的对象和结果。保持 §1 的后台与启停语义。
-
-参考 lazygit 的面板导航、上下文帮助及主视图滚动方式，来源为其[默认键位配置](https://github.com/jesseduffield/lazygit/blob/master/pkg/config/user_config.go)和[键位文档](https://github.com/jesseduffield/lazygit/blob/master/docs/keybindings/Keybindings_en.md)（2026-10-15 核对）。以下是 devctl 的设计选择，并非 lazygit 键位的完整复制；`gg/G` 是补充的 Vim 风格导航。
-
-- 焦点只有“项目”和“日志”，初始为项目。选中项目与面板焦点独立：切换焦点不换项目、不清空日志、不发后台控制请求。
-- 活动面板用强调边框和标题 `[1] Projects · ACTIVE` / `[0] Logs · ACTIVE` 标识；选中行始终保留 `>`，失焦时降低背景强调。颜色之外仍能区分焦点、选择和状态。
-- 面板键负责导航，单项键始终作用于标题中明确显示的选中项目；全部操作明确标为工作区范围。
-- 不采用按空格切换启停：启动和停止保留独立动作，避免状态更新时同一按键改变含义。
-- 本轮根据试用反馈补充整行与多行选择复制。日志增强的已确认计划及单项/批量重启等候选项的状态统一见 [requirements.md](requirements.md) §4；`/`、`n/N`、`:`、字符选择与编辑模式和数字次数指令不进入本轮实现，也不出现在可用键提示中。
-
-### 2.3 键位
-
-下表针对没有弹窗且未进入 V-LINE 选择模式的主界面。上下键随焦点操作；原有日志翻页、首尾和横移入口保留。
-
-| 范围 | 按键 | 行为与边界 |
+| Scope | Keys | Action |
 | --- | --- | --- |
-| 面板焦点 | `Tab` / `Shift-Tab` | 循环切换项目与日志；只有两个面板，两者均切到另一面板 |
-| 面板焦点 | `h` / `l` | 分别聚焦左侧项目 / 右侧日志，到边界不循环 |
-| 面板焦点 | `1` / `0` | 直接聚焦项目 / 日志 |
-| 项目面板 | `j/k` 或 `↓/↑` | 选择下一项 / 上一项，到边界停住；无项目时不操作 |
-| 项目面板 | `gg` / `G` | 选择第一项 / 最后一项；列表沿用 Service ID 排序 |
-| 项目面板 | `Enter` | 聚焦当前项目日志，不启动项目 |
-| 日志面板 | `j/k` 或 `↓/↑` | 向下 / 向上移动阅读光标，到可见区边缘时滚动，不切换项目 |
-| 日志面板 | `gg` / `G` | 查看可用缓存最旧记录 / 回到底部并恢复跟随；历史加载见 §2.7 |
-| 日志面板 | `Esc` | 返回项目面板，保留当前阅读位置 |
-| 日志面板 | `v` | 从阅读光标所在行开始选择，尚未定位时选第一条可见日志；没有日志时提示，保持原模式 |
-| 主界面任一面板 | `Ctrl-u/d` | 向上 / 向下滚动日志半屏，至少一条，不改变焦点 |
-| 主界面任一面板 | `PageUp/PageDown` | 滚动日志一屏，保留一条重叠，至少一条 |
-| 主界面任一面板 | `Home/End` | 最旧可用缓存日志 / 底部跟随，与焦点无关 |
-| 主界面任一面板 | `p` | 暂停 / 恢复尾部跟随；选择模式内不生效，见 §2.7 |
-| 主界面任一面板 | `H/L` 或 `←/→` | 日志向左 / 向右横移 8 列；`h/l` 专用于面板焦点 |
-| 单项操作 | `s/x` | 启动 / 停止选中项目；日志面板中也可使用，反馈必须包含项目 ID |
-| 工作区操作 | `a` | 启动默认组合，即 `autostart = true` 的服务，不误标为启动全部配置项 |
-| 工作区操作 | `X` | 停止全部项目，保留后台与界面；沿用现有直接执行行为 |
-| 工作区操作 | `Q` | 打开结束工作区确认框 |
-| 查询 | `r` | 同步现存后台；不重载配置、不创建后台、不重放控制 |
-| 帮助 | `?` | 打开分组帮助，首先展示当前面板可用键 |
-| 离开 | `q` / `Ctrl-C` | 在主界面、帮助和确认框中均只离开客户端，后台继续运行 |
+| Focus | `Tab` / `Shift-Tab` | Switch between the two panels |
+| Focus | `h/l`, `1/0` | Focus projects/logs; h/l stop at the boundary |
+| Projects | `j/k`, `↓/↑` | Select next/previous service; stop at list boundaries |
+| Projects | `gg/G` | Select first/last service; sorted by service ID |
+| Projects | `Enter` | Focus selected-project logs without starting it |
+| Logs | `j/k`, `↓/↑` | Move the reading cursor, scrolling at the viewport edge |
+| Logs | `gg/G` | Read oldest retained history / resume following the latest output |
+| Logs | `Esc` | Return to projects after handling active selection/search modes |
+| Logs | `v` / `V` | Begin complete-line selection at the reading cursor or first visible line |
+| Either panel | `Ctrl-u/d` | Scroll logs half a page without changing focus |
+| Either panel | `PageUp/PageDown` | Scroll logs a page with one overlapping line |
+| Either panel | `Home/End` | Oldest retained history / latest output and follow |
+| Either panel | `p` | Pause/resume following, outside line selection |
+| Either panel | `H/L`, `←/→` | Scroll long log lines horizontally by eight columns |
+| Service | `s/x` | Start/stop the selected service |
+| Workspace | `a`, `X` | Start the default group / stop all and keep the supervisor |
+| Workspace | `Q` | Open shutdown confirmation |
+| Connection | `r` | Reconnect to an existing supervisor; do not create or reload it |
+| Help | `?` | Open contextual help |
+| Leave | `q`, `Ctrl-C` | Leave the client, including from popups; keep services running |
 
-`gg` 的第一个 `g` 只建立一个待完成前缀，反馈栏显示 `g …（g 到顶部，Esc 取消）`，不触发选择或请求。第二个 `g` 执行跳转；`Esc` 仅取消前缀；其他有效按键清空前缀后按原含义处理，例如 `g` 后按 `x` 仍只执行一次单项停止。切换焦点、打开弹窗、断连或工作区改变时清除前缀；不依赖按键速度，不增加超时配置。
+The first `g` waits for a second `g` and shows a pending prefix; `Esc` cancels it.
+Other valid keys cancel the prefix and retain their normal meaning. Focus changes,
+popups, disconnection, and workspace changes clear it. There is no timing requirement.
+Control requests are not queued while another is pending; navigation, help, and leaving
+remain responsive. Disconnected service states are `Unknown`, and controls are disabled.
 
-操作等待期间仍可导航、读日志、查看帮助和离开；新控制操作不排队，明确提示当前正在等待的动作。断连后仍可选择已知项目和查看帮助，状态统一标为未知，启停及 `Q` 不可执行。无选中项目时禁用单项启停并说明原因。
+### Line selection and copying
 
-#### 整行选择与复制
+`j/k` first positions a reading cursor. `v` anchors complete-line selection there;
+use `j/k` to extend or shrink it in either direction. `gg/G`, `Home/End`, half-page,
+and page keys move its endpoint within the current client window. `H/L` changes only
+the horizontal view; complete records remain selected.
 
-小写 `v` 为主要选择键，大写 `V` 保留为兼容别名。
+`y` requests copy; success exits the unchanged selection, while failure or exceeding
+the copy limit preserves it. `v/Esc` cancels selection. `?` opens help and returns to
+the selection afterward. Service/focus keys do not pass through selection mode.
+`q/Ctrl-C` still leaves. Evicting either endpoint cancels with `SELECTION EVICTED`;
+project, connection, and workspace changes also clear selection.
 
-日志面板按 `j/k` 后，以行高亮和 `>` 显示阅读光标，首次移动以第一条可见日志为基准；可先定位中间行，再按 `v` 从该行开始整行选择。选择中仍以行高亮和 `>` 标记当前端点，标题显示 `V-LINE` 与选中条数。不提供字符级选择。普通翻页、半屏滚动或 Home 清除原阅读光标，以新视口为下一次定位起点；`G/End` 清除阅读光标并恢复跟随。
+Copy includes selected bodies in order, with a newline after each, including text
+outside the horizontal viewport and `[truncated]` where applicable. It excludes
+source/instance/sequence prefixes, UI padding, and status labels. The limit is
+64 KiB; partial copies are not sent. A later copy completion cannot clear a new
+selection. Only one copy is in flight, and cancelling selection does not retract
+an already issued clipboard request.
 
-| 选择模式按键 | 行为 |
+Local WSL uses `clip.exe` through Windows interoperability. SSH and other supported
+Linux sessions use OSC 52 to the display terminal, subject to terminal/multiplexer
+support. A failed `clip.exe` operation is reported without channel fallback. Copy
+never reads the clipboard and occurs only on `y`. Success reports a completed
+`clip.exe` process or an OSC 52 send; paste manually to verify the actual clipboard.
+
+### Layout, help, and confirmation
+
+The header shows client version, connection state, and supervisor identity. Projects
+show `Stopped`, `Starting`, `Running`, `Stopping`, `Failed`, or disconnected `Unknown`.
+Log state is displayed separately from `FOLLOW`/`READ` and saving status. Stopped
+services retain output labeled as retained logs; stale “ready” text does not imply
+current readiness. Earlier process instances are marked `old` only when confirmed.
+Unconfirmed cleanup and unknown control completion retain their own diagnostics.
+
+The bottom is always two rows: feedback and relevant shortcuts. Full IDs, errors,
+saving paths, and operation details are available in scrollable help. Logs do not
+wrap; one record occupies one row. The viewport remains anchored while reading.
+
+| Terminal size | Layout |
 | --- | --- |
-| `j/k`、`↓/↑` | 移动当前端点、向下/向上扩展或收缩连续选区，支持反向选择 |
-| `gg/G`、`Home/End` | 当前端点到缓存首/尾；仍在选择模式，不恢复跟随 |
-| `Ctrl-u/d`、`PageUp/PageDown` | 当前端点移动半屏/一屏，自动滚动以保持可见 |
-| `H/L`、左右键 | 横向查看长行，选区仍按整条记录保存 |
-| `y` | 请求复制所选日志正文；成功后退出仍未改变的选区，保留阅读位置；失败或超限时保留选区 |
-| `v/Esc` | 取消选择，仍在日志面板；再次 `Esc` 才返回项目面板 |
-| `?` | 打开帮助，关闭后恢复选区；帮助内 `y` 不复制 |
-| `q/Ctrl-C` | 保持全局离开语义，后台继续运行 |
+| At least 80 columns and 12 rows | Two panels, with a roughly 30% project panel constrained to 24–32 columns |
+| At least 36 columns and 10 rows, below the wide threshold | One active panel; focus and controls retain their meanings |
+| Smaller | Size/connection/leave feedback; service and shutdown controls disabled until resized |
 
-选择模式中其他面板和服务控制键不穿透，先取消选择再启停或换项目。后台继续采集新日志，客户端按 §2.7 固定阅读窗口，不推动位置，也不自动扩展选区；缩放窗口保持当前端点可见。翻页造成客户端窗口淘汰选区的任一端点时取消选择并显示 `SELECTION EVICTED`，不静默复制新的行。断连、后台身份或项目变化时清除选区。
+Help groups panel controls, service/workspace actions, logs, search/copy, leaving,
+and diagnostics. Navigate with `j/k`, arrows, pages, `gg/G`; close with `?/Esc`.
+Background service keys do not pass through popups. Popups dim the view, preserve
+text styles, and wrap according to terminal columns and grapheme boundaries.
 
-复制正文按日志顺序拼接、每条末尾添加换行；包含横向视口之外的完整缓存文本，保留正文中的制表符，不包含 stdout/stderr、实例号、序号、old 标记、状态说明或界面填充。缓存本身截断的记录附上 `[truncated]` 标记。一次最多 64 KiB，超限不发送部分内容，提示缩小选区。
+`Q` names the workspace-wide effect: all services stop and the supervisor ends.
+Only `y` confirms; `n/Esc` cancels, and `q/Ctrl-C` only leaves. Enter does not confirm.
+If the connection, current control request, or available space prevents safe
+confirmation, no shutdown request is sent. A successful TUI shutdown exits only
+after cleanup and supervisor termination are confirmed.
 
-本机 WSL 优先通过 [clip.exe](https://learn.microsoft.com/en-us/windows-server/administration/windows-commands/clip) 写入 Windows 剪贴板，[微软 WSL 互操作说明](https://learn.microsoft.com/en-us/windows/dev-environment/wsl-interop)提供同类管道用法；复制失败或超时明确报错，保留选区，不静默改用其他通道。其他环境及 SSH 会话使用 Crossterm 的 [OSC 52 接口](https://docs.rs/crossterm/0.29.0/crossterm/clipboard/struct.CopyToClipboard.html)，目标为显示终端的主机剪贴板，依赖终端及 tmux 等中间层支持。只在按 `y` 后写入，不读取剪贴板；反馈标明使用的通道并提示粘贴核对，OSC 52 只能确认已发送，clip.exe 成功退出也不等同于已独立读取剪贴板验证。
+## Logs and search
 
-复制执行期间仍可导航、查看帮助和离开，重复 `y` 不排队。成功完成时只退出原选区；如果用户已改变选区、项目或连接，完成结果不得清除新的选区。取消选择不会撤回已经发出的复制请求。
+Scrolling, moving the reading cursor, or entering selection pauses following.
+While paused, the supervisor keeps capturing; the client polls boundaries and counts
+without shifting the text. `+N new` counts newly numbered records, not capture-queue
+drops. At a window edge, adjacent pages load one at a time while preserving sequence
+anchors. Old pages evict the opposite end rather than expanding memory indefinitely.
+`G/End`, `p`, or forward paging to the actual tail resumes following outside selection.
 
-### 2.4 布局与信息层次
+`Home/gg` can request the retained start. Selection-mode endpoints stay within the
+current window. Feedback distinguishes loading, earlier available, retained start,
+snapshots older than retained history, evicted reading positions, and missing records.
+The retained start does not mean no earlier output ever existed.
 
-宽屏示意（内容为虚构示例；实际列表沿用 Service ID 排序，界面标签先沿用现有英文）：
+Reading positions survive project switches and short reconnects within the same TUI
+and supervisor identity. Expired anchors report a gap and move to available history.
+A new supervisor clears bookmarks; a new TUI starts at the current session's tail.
+Selections do not survive switching or reconnecting. A running service with no output
+does not silently borrow an older session's text.
 
-```text
-devctl 1.0.0 | Connected | workspace 8f12ab34
-┌ [1] Projects · ACTIVE ───┐┌ [0] Logs · FAILED: web | #6 ─────────────────────┐
-│   middle   Stopped       ││ FAILED | Process ended; retained logs.           │
-│   weapp    Running       ││ [stdout #6 seq=148] Starting dev server          │
-│ > web      Failed        ││ [stderr #6 seq=149] Port 5173 is in use          │
-│                          ││ [stdout #6 seq=150] Process exited               │
-│ Selected: web            ││                                                  │
-│ Failed: exit code 1      ││                                                  │
-└──────────────────────────┘└FOLLOW────────────────────────────────────────────┘
-ERROR web: exit code 1 | cleanup confirmed
-s/x web  j/k select  Enter logs  a default  X stop ALL       ? help  q leave
-```
+### Saved sessions and literal search
 
-- 顶栏一行：devctl 客户端版本号（与 --version 一致）、连接状态与后台工作区身份。没有来源可靠的工作区名称时沿用短 ID，不把 ID 伪装成名称；初次连接中与连接失败分开表达。
-- 主体：左侧项目列表、选中项目简要诊断；右侧日志。宽屏项目栏约占 30%，限制在 24–32 列；其余给日志。不额外添加占用整行高度的重复选择摘要。
-- 项目列表每行显示 ID 与状态；选中项尽量完整，过长时截断，完整 ID 保留在帮助详情。固定保留状态列，状态包含 Stopped、Starting、Running、Stopping、Failed，断连时全部 Unknown。失败状态不依赖选中才能看到。
-- 日志上边框在项目 ID 前明确标出服务状态（STOPPED、STARTING、RUNNING、STOPPING、FAILED、UNKNOWN），随后显示后台已知实例号。正文顶部固定一行状态说明：停止后显示 `STOPPED | Retained logs`，明确旧的 ready/URL 输出属于保留日志；这行不随滚动或横移，不参与选中与复制。各状态都保留同一行高度，状态切换不会改变正文高度。
-- 停止中只显示清理进行中；失败且清理未确认时明确标记 `Cleanup UNCONFIRMED`，不能显示进程已结束。断连时统一显示 UNKNOWN，不用缓存状态宣称仍在运行或已停止。RUNNING 仍只表示进程存活。
-- `FOLLOW` / `READ` 移到日志下边框，只表示尾部跟随或阅读位置；阅读时显示可见记录范围与本地总条数，例如 `21–40 / 120 cached`，新增记录和历史边界反馈见 §2.7。横移后显示 `col +16`，避免误以为行首丢失。
-- 来源、实例号和序号继续保留在每条记录前缀，降低其视觉强调；已确认较早实例的记录增加 `old` 标记，区别于最近一轮。正文继续保留正常对比度，便于排错与复制。stderr 标明来源，不把 stderr 本身视为服务失败。日志不自动折行，一条记录占一行。
-- 底部固定两行，不因诊断增加高度：第一行显示连接/清理未知、日志缺口、选区淘汰等异常标记、当前项目错误摘要与最近操作反馈，完整原因与计数在 `?` 当前详情查看。错误不因成功反馈而失去异常标记。
-- 第二行只显示当前面板常用动作，右侧为 `? help | q leave` 保留宽度。日志焦点提示阅读与 `v` 选择，选择模式提示 `j/k`、`y` 和 `Esc`；更多全局与面板键位放在帮助。按终端列宽裁剪，不挤掉离开与帮助入口。
+Background output is saved by default; foreground `run` is not archived. Change
+saving settings only after shutting down and recreating the supervisor. The
+`save=saving/disabled/degraded` indicator is independent of process and follow state.
+`saving` is not a per-record durability acknowledgment. Help shows the directory,
+session, and failure reason; `SAVE DEGRADED` signals potentially incomplete storage.
 
-自适应规则按终端列与行计算，不按像素：
+Normal TUI history combines current-session memory and disk. Historical sessions
+remain explicit CLI queries rather than being mixed into current output. Wide views
+show UTC time; CLI records retain UTC Unix capture milliseconds, not parsed application time.
 
-| 尺寸 | 布局与操作 |
+| Log-focused keys | Behavior |
 | --- | --- |
-| 宽 ≥80 且高 ≥12 | 左右分栏；反馈和提示先压缩次要内容，主体日志至少保留四行 |
-| 宽 ≥36 且高 ≥10，但不满足宽屏条件 | 单面板布局：显示活动项目列表或活动日志；顶栏持续保留选中 ID、状态与 `1 Projects / 0 Logs`，导航语义不随窗口变化 |
-| 宽 <36 或高 <10 | 显示窗口过小、连接状态及可容纳的 `q/Ctrl-C` 离开提示；暂停启停与结束工作区，提示放大窗口。尺寸恢复后保留选择、焦点和日志阅读位置 |
+| `/` | Enter a case-sensitive literal query, up to 256 UTF-8 bytes; preview highlights while typing |
+| `Enter` | Search forward after the reading cursor, or from the retained start; pause and fix the search upper bound |
+| `n/N` | Next/previous matching record within the same fixed bound; do not wrap |
+| `Esc` | Cancel input, or cancel search/highlights while keeping ordinary context; help/selection close first |
+| `G/End`, resume follow | Cancel scanning and reload the tail; keep visible highlights; a new `/` refreshes the bound |
 
-切换紧凑/宽屏布局只改变可见区域，不改变焦点、选择或后台状态。日志滚动量始终使用实际日志内容区高度；紧凑项目面板下的全局日志滚动键使用切到日志后可用的内容高度。
-
-### 2.5 反馈、帮助与确认
-
-反馈应同时包含“对象、动作、结果、下一步”。以下文案是语义示例，英文界面保持同等信息：
-
-| 场景 | 必须表达的信息 |
-| --- | --- |
-| 初次进入 | 已连接；没有自动启动项目；`s` 启动选中项，`a` 启动默认组合 |
-| 启动请求成功 | `web：启动请求已受理，等待进程状态`，不能直接显示业务就绪 |
-| 等待停止 | `正在停止 web；仍可浏览或按 q 离开`；后来选中 weapp 不改变请求目标 |
-| 停止成功 | `web：已停止，清理已确认`；右侧明确标为 STOPPED / Retained logs，保留正文；全部停止明确写 `全部项目已停止；后台保留` |
-| 忙时再次控制 | `正在等待停止 web，本次启动 weapp 未发送`，不静默丢键或排队 |
-| 项目失败 | 项目 ID、原始失败原因、退出码/信号（后台提供时）及清理是否确认；其他项目状态仍独立显示 |
-| 控制中断连 | `停止 web：完成情况未知；恢复连接后核对状态，本次请求不会重放`，不改写为“未执行” |
-| 连接失败 | `后台已断开，状态未知；自动尝试重连，r 立即同步`；后台不存在时说明重新进入才能按需创建 |
-| 日志为空 | 区分未选项目、连接/读取中、已停止且无近期输出、运行但尚无输出、读取失败；不把一次请求尚未返回显示成“没有日志” |
-| 缓存受限 | 分别标明后台丢弃/淘汰、本地淘汰、序号缺口、读取不完整、单条截断；最旧仅指现存缓存 |
-
-优先保留连接未知、清理未确认、操作完成未知等诊断；一般成功反馈不能覆盖这些事实。长诊断在反馈区给摘要，`?` 的“当前详情”展示完整项目 ID、连接错误、选中项目原始错误和最近操作结果，可滚动阅读。没有数据就明确说明，不新增 PID、启动耗时、端口就绪等未经后台提供的指标。
-
-帮助弹窗按“当前面板 → 项目与工作区 → 日志阅读 → 搜索与复制 → 离开 → 当前详情”组织。快捷键与作用按两列对齐，一行一个操作；分组标题用黄色加粗、按键用青色加粗、正文白色、补充说明灰色，错误与警告保留红/黄色。保存状态、会话与目录分行显示，不与控制键提示混排。`j/k`、`↑/↓`、`PageUp/PageDown` 在弹窗内滚动，`gg/G` 到帮助首尾；`?/Esc` 关闭并恢复原焦点及阅读位置；`q/Ctrl-C` 保留全局离开语义。帮助打开后，`s/x/a/X/Q` 不穿透到主界面。
-
-两类浮窗统一使用实色背景、强调边框、内边距和框外一格空白隔离带；弹窗打开时主界面压暗，清除日志搜索与选择的背景强调，持续日志刷新也不能覆盖浮窗。关闭后主界面恢复正常显示，日志采集不受影响。
-
-帮助框居中，宽度最多 80 列，屏幕两侧各留至少两列；高度按正文换行后的行数计算，屏幕上下各留至少一行。框内左右各留两列、上下各留一行，底部两行固定显示滚动、关闭和离开提示，有空间时显示当前滚动位置。内容超出可用高度时滚动，翻页距离按弹窗实际正文高度计算，大窗口不拉伸出多余空白。优先按单词换行，超长 ID/路径按终端列宽拆分，保留中文、组合字符与文字颜色。
-
-`Q` 确认框使用红色边框，按“全部项目数量 → 停止全部并结束后台的影响 → 确认/取消 → 仅离开界面提示”排列；确认键红色强调，取消键青色，窄窗口将两个操作分行。宽度最多 72 列，高度按内容计算，内外留白沿用帮助框。只用 `y` 确认，`n/Esc` 取消，`q/Ctrl-C` 只离开。保留现有显式确认，不让 `Enter` 或普通导航触发结束。断连、已有控制在途或窗口无法完整显示说明与确认键时，不允许提交结束请求；空间不足时改为提示放大窗口及取消入口，不显示可执行的确认键。取消后恢复原焦点；成功清理并确认后台结束后才退出，失败保留界面和原始错误。
-
-### 2.6 验收场景
-
-以下为行为验收依据。状态转换、TestBackend 和真实 PTY 的受控验证记录见任务文档；2026-10-15 用户已明确确认真实项目验收通过：
-
-1. 全部停止时，用 `j/k` 选 web、`s` 启动；`Enter` 进入日志后 `j/k` 移动日志阅读光标，到边缘滚动，不切换项目；`Esc` 回列表。验证 P01、U01、L01。
-2. `h/l`、`Tab/Shift-Tab`、`1/0` 只改焦点；列表首尾不越界；无项目时导航与单项操作有明确反馈。验证 U01。
-3. `gg/G` 在列表与日志分别生效；`Home/End`、左右键保留旧日志行为；前缀取消、前缀后控制、弹窗隔离均不造成多余请求。验证 U01、L01、P04。
-4. 停止后保留日志，但标题与固定说明明确显示 STOPPED；正文含旧 ready 信息也不改变状态判断。再次启动时识别较早实例；停止中、清理未知和断连不能误报停止完成。连续输出期间上滚后锚点不漂移，`G/End` 恢复跟随；容量淘汰、断线和重连的警告真实且可读。验证 L01、L03、P05。
-5. 帮助里按启停键不操作服务；`Q` 后取消不停止；任意弹窗 `q/Ctrl-C` 只离开；停止等待期间仍能导航、看帮助和退出。验证 P04、P05、U01。
-6. 在 120×30、80×12、60×16、36×10、20×6、0×0，以及长 ID、中文、长错误下检查布局与恢复；窄屏切换面板后焦点与提示一致。验证 U01、P02。
-7. 先用 j/k 定位中间日志行，再用 v 从该行开始选择、j/k 双向扩展；y 只复制所选正文，不触发服务控制。检查中文、长行、截断、64 KiB 限制、选区淘汰、帮助与取消，以及两行底栏；核对 WSL 的 clip.exe 和其他环境的 OSC 52 通道、失败保留选区及复制期间导航/退出，在目标终端实际粘贴核对。
-8. 最后在用户 WSL2 的三个真实项目上完成选择、启停、日志、离开重连和结束流程，确认键位及提示符合使用习惯。受控测试不替代此验收。
-
-### 2.7 日志历史分页与暂停（1.1.0）
-
-对应 L01–L03：在初始尾部页之外继续阅读当前后台仍保留的日志。普通上滚、移动阅读光标或进入选择会暂停跟随；`p` 也可独立暂停。暂停时后台继续采集，客户端仅轮询日志边界与计数，固定已有正文；下边框显示 `+N new`，表示暂停以来新采集并编号的记录数，不包括采集入口已丢弃的输出。
-
-向上或向下移动到客户端窗口边缘时请求相邻页，返回后保留当前序号锚点，继续按键可进入新加载内容；一次只加载一页，不因长按排队无界请求。`Home/gg` 可直接请求后台最早保留位置；选择模式中的首尾键仍只移动到当前窗口首尾。`G/End`、再次 `p` 或普通向下翻页到实际尾部恢复跟随，重新获取最新尾页。选择模式需先取消选择。
-
-下边框区分 `loading history`、`earlier available`、`retained start`；后台已淘汰但客户端仍持有的暂停快照标为 `snapshot predates retained history`。已经保留到开头不代表项目从未产生更早输出，丢弃/淘汰提示仍保留。翻页继续受条数与字节预算限制，旧数据不能在当前客户端中无限积累。
-
-同一个 TUI 进程按项目保存轻量书签，不保存每个项目的整份正文。切换项目或重新连接同一后台时重新查询书签位置，恢复视口与横向位置；阅读光标仅在返回页包含该记录时恢复，未包含不误报淘汰。书签记录已过期时落到当前保留开头，并显示 `READ POSITION EVICTED` 和缺口提示。后台身份改变会丢弃全部旧书签；选区不随切换或重连恢复。退出 TUI 后不保存阅读书签；重新打开默认读取所选项目在当前后台中的最新输出并跟随。项目已停止时明确显示保留日志，运行中尚无输出时显示等待，不自动借用旧会话输出。
-
-这部分需要更新后的后台；新 TUI 连接 1.0.0 后台仍可读取实时日志，但无法从该后台取得历史边界，帮助详情会提示更新。新 CLI 的日志/会话命令需要更新后的后台；使用增强功能前由用户显式结束旧工作区并重新创建后台，不能据此自动停止项目。1.1.0 已接入磁盘历史与单项目检索，见 §2.8；跨项目聚合与复杂组合筛选不纳入本轮。
-
-### 2.8 日志保存、会话与文本查找（1.1.0）
-
-后台默认将输出保存到独立状态目录；开关、容量、期限及保存格式只在 [DESIGN.md](../DESIGN.md#持久身份格式与预算) 定义。`run` 前台模式仍直接输出终端，不接入后台归档。修改保存设置后需显式结束旧后台再创建新后台。日志说明行显示 `save=saving/disabled/degraded`，表示正在保存、已关闭保存或保存降级；`saving` 不表示每一条已完成同步。降级时底部显示 `SAVE DEGRADED`，`?` 查看目录、会话和原因。服务状态、滚动状态和保存状态相互独立。
-
-TUI 的普通翻页覆盖当前会话的内存与磁盘保留记录；结束或重建后台后旧会话通过 CLI 显式访问，不自动混到当前输出。宽日志面板显示 UTC 时分秒，CLI 保留 UTC Unix 毫秒，均为 devctl 的采集时间，不解析正文时间。
-
-| 日志焦点操作 | 行为 |
-| --- | --- |
-| `/` | 输入大小写敏感的字面文本，最多 256 UTF-8 字节；输入时预览当前可见正文的匹配高亮，q/s 等仍是普通字符，退格删除一个字符 |
-| `Enter` | 非空文本从阅读光标之后向后搜索，无光标时从保留开头搜索；自动暂停，固定当时最高序号 |
-| `n/N` | 在同一固定上界中跳到下一条/上一条匹配记录，不循环；同一行内所有匹配词一起高亮，无上一搜索时提示先输入文本 |
-| `Esc` | 输入中取消本次输入；已有搜索时取消扫描并清除关键词高亮，保留当前位置与普通日志；帮助或选区优先按原规则关闭/取消，再次 Esc 才清除搜索 |
-| `G/End` 或恢复跟随 | 取消扫描并重新读取最新尾部，保留可见正文的关键词高亮；之后重新 `/` 才刷新 n/N 的搜索上界 |
-
-扫描只涉及选中服务与当前会话，覆盖仍保留的磁盘记录。未完成时显示 Searching 和扫描进度；命中后显示 `Match seq=...`，在普通日志中定位并高亮关键词，不隐藏非匹配行。缓存内命中仅移动视口，缓存外命中加载前后普通上下文；通常把命中置于视口中部，靠近首尾时尽量填满可用行，长行命中会自动横移到可见位置。正文中所有可见的匹配词均高亮，当前命中行更醒目；选区背景优先，关键词改用强调文字和下划线，`v/y` 仍只复制原始正文。底栏显示当前搜索词和 n/N、Esc 操作；扫完该方向才显示 No further match，存在缺口时说明只查到可用输出。清理、切换或重连会使旧请求失效，不将旧项目的结果应用到新项目。输入模式中的 `Ctrl-C` 仍全局离开；取消只能停止后续批次，已在执行的有界文件读取可以完成。
-
-CLI 入口：
+During input, q/s and other printable keys are query text; Ctrl-C still leaves.
+Search scans only the selected service and current session. Matches are positioned
+in ordinary context rather than hiding nonmatching lines; long-line matches scroll
+into view. Selection highlighting takes precedence, and copying still uses original
+bodies. Searches are cancellable between bounded batches. Expiry, switching, and
+reconnection invalidate stale results. “No further match” is shown only after the
+available range in that direction was scanned, with any known gaps reported.
 
 ```sh
 devctl log-sessions
-devctl logs web --session <会话ID> --limit 100
+devctl logs web --session SESSION_ID --limit 100
 devctl logs web --after 0 --contains 'Error' --limit 100
-devctl logs web --after <scanned_to> --contains 'Error' --upper <首批上界>
-devctl logs web --before <序号> --limit 100
+devctl logs web --after SCANNED_TO --contains 'Error' --upper UPPER
+devctl logs web --before SEQUENCE --limit 100
 ```
 
-有后台时默认查询当前会话；无后台时默认该服务最近一次仍有保留分段的会话。`--session` 可指定已列出的历史会话，后台存在时也可查旧会话。`log-sessions` 最多列出最近 100 个仍有保留数据的会话，包含 ID、创建毫秒、closed/unclosed、服务；unclosed 不是当前服务运行状态。日志查询不创建后台，也不启动项目。工作区锁被占用但连接失败时直接报错，不绕开正在运行的写者。无保留数据或会话已过期时明确报错。
+Replace uppercase placeholders with reported values. With a supervisor, queries
+default to its current session; without one, they use the selected service's latest
+retained session. `--session` selects a listed historical session in either case.
+Session listings contain at most 100 retained sessions with ID, creation time,
+closed/unclosed status, and services. Unclosed is not a current service state.
+No log query creates a supervisor or starts services. If a writer holds the workspace
+lock but IPC is unavailable, fail instead of bypassing the writer with offline reads.
 
-`--after` 与 `--before` 互斥；无方向参数从尾部向前取一页。搜索结果仍按序号升序输出；Search 提示中的 `complete=false` 表示本次扫描尚未完成，需要沿 `scanned_to` 和同一 `--upper` 继续，而不是没有匹配。固定历史搜索建议同时指定 `--session`，避免后台重建后复用另一个会话的游标。
+Both sequence bounds are exclusive; `--after` and `--before` cannot be combined. A page is
+returned in ascending sequence order; no direction means the latest page. Limits
+are 1–500 records and 64 KiB of bodies. Continue using actual returned cursors,
+not the supervisor's highest sequence. Search may return no matches in an incomplete
+scan; `complete=false` requires continuation using `scanned_to` and the same `--upper`.
+Fix `--session` too when reading historical pages across supervisor recreation.
 
-选区分享用 `v/y`；过滤结果用 CLI 重定向，例如：
+For one-page export:
 
 ```sh
-devctl logs web --session <会话ID> --after 0 --contains 'Error' > errors-page.log 2> errors-page.info
+devctl logs web --session SESSION_ID --after 0 --contains 'Error' > errors-page.log 2> errors-page.info
 ```
 
-正文文件只包含这次查询返回的一页，最多 500 条/64 KiB 正文；不是自动导出全部匹配。信息文件保留会话、保存状态、缺口与继续扫描的参数。需要更多结果时按提示逐页保存；不要把当前窗口或一页结果当作完整历史。正常 shutdown 等待保存收尾，失败会报告；项目清理已完成但保存失败不代表后台还能继续使用，随后应查询状态或重新进入。
+Stdout contains this page, including record identity/time prefixes; stderr contains
+session, saving state, gaps, and continuation information. It is not a full-history
+export. Save subsequent pages explicitly. A normal shutdown waits for saving to
+finish; a storage failure is reported even if process cleanup succeeded.
 
-## 3. 断开与异常
+## Disconnection and failures
 
-后台连接断开时界面显示“已断开，状态未知”，不把缓存当作仍在运行的证据；重连从后台取得当前状态，并按 §2.7 恢复有效阅读位置或读取近期日志。自动轮询和 `r` 只连接现存后台，不自动创建或重放启停；若后台已结束，可离开后重新进入创建空闲实例，或由其他 CLI 启动后等待重连。慢客户端或无客户端时后台仍持续读取输出，日志有界。
+A disconnected client shows unknown state, not cached state as live evidence.
+Polling and `r` connect only to an existing supervisor and do not replay controls.
+Reenter the TUI to create an idle supervisor if the old one ended, or create one
+with `start` from another client. Slow or absent clients do not stop pipe capture.
+Client exit signals restore the terminal and disconnect; supervisor stop signals
+request managed-process cleanup. No old PID is treated as proof of ownership or
+used to adopt processes after a crash or reboot.
 
-后台管理进程的停止信号触发进程清理；客户端的退出信号只恢复终端并断开。后台异常退出、机器重启后的恢复另行确认，不凭旧 PID 自动接管进程。
+## Self-update
 
-## 4. 命令内自更新（1.2.0）
+Available since 1.2.0; clients 1.2.1 and later use Release manifests. Supported on
+Linux/WSL2 x86_64, fixed to `Jackie733/devctl` public releases, with no private-source
+authentication or alternate source URL. Workspace configuration is never loaded,
+even with an explicit nonexistent `--config`.
 
-对应 X03，支持 Linux / WSL2 x86_64。默认使用 `Jackie733/devctl` 的公开 GitHub Releases，无需填写下载 URL 或校验值，不读取工作区配置；即使显式 `--config` 指向不存在的文件也不影响更新。仓库已公开，1.2.0 附件包含新命令；旧 1.0/1.1 程序没有该子命令，不接入私有仓库认证。
-
-| 命令 | 行为 |
+| Command | Behavior |
 | --- | --- |
-| `devctl update --check` | 检查 GitHub 标记的最新稳定发布，显示当前版本、发布版本、来源与是否有更新；不下载程序或替换安装 |
-| `devctl update` | 安装比当前运行版本更新的最新稳定发布；无新版时不替换或覆盖备份 |
-| `devctl update --version VERSION` | 安装指定稳定版本，接受可选 v 前缀；允许显式降级或重新安装同版本 |
-| `devctl update --check --version VERSION` | 只检查指定版本的清单与版本信息 |
-| `devctl update --rollback` | 离线交换当前安装与上一版；与 --check、--version 互斥 |
+| `devctl update --check` | Read the latest stable manifest and report current/release versions without downloading the program |
+| `devctl update` | Install only a newer stable version than the running client; preserve installation/backup otherwise |
+| `devctl update --version VERSION` | Install an explicit stable version, optionally prefixed with v; allow reinstall or downgrade |
+| `devctl update --check --version VERSION` | Validate the selected manifest and compare versions |
+| `devctl update --rollback` | Exchange installation and backup offline; conflicts with check/version |
 
-安装固定写入 `~/.local/bin/devctl`，备份为同目录 `devctl.previous`，与外部更新器共享安装锁、备份和替换规则。若当前从 Cargo 或其他目录运行，输出的当前版本指正在执行的程序；更新后需核对 `command -v devctl` 是否指向安装位置。重复安装相同内容保留原备份，无备份时回退报错。1.2.1 起 `--check` 仅读取并验证更新清单与版本，不下载或确认程序附件的实际内容；真正安装才下载、核对 SHA-256 并验证候选程序版本。退出码 0 表示检查/安装/回退成功或无需更新，参数错误为 2，下载、校验、安装等失败为 1。
+Installation is fixed at `~/.local/bin/devctl`, with one `devctl.previous` backup,
+shared locks, and the external installer's protection rules. “Current” means the
+executing client's compiled version; check PATH if running from another directory.
+Identical reinstallation keeps the previous backup. `--check` validates the manifest,
+not the actual existence or content of the program attachment; installation validates
+length, SHA-256, and candidate version. Exit codes: 0 for success or no update, 2 for
+invalid arguments, and 1 for download, validation, or installation failure.
 
-更换或回退程序前，按 [WSL 更新说明](wsl.md#5-更新与排查) 显式结束各工作区后台并退出旧 TUI。更新器不会代替用户停止服务、重启项目或更新已运行后台；配置与已保存日志保留。首次安装仍通过发布附件与外部安装入口完成，旧版程序不会因仓库公开而自动获得新子命令。
+All updates require an absolute HOME; checks need writable `~/.local/bin` for
+private temporary files. Dependencies are listed in the [installation guide](install.md#requirements).
+Downloads have fixed size/time limits and clean up their own staging directory on
+normal/error return. A failure never silently changes sources or compiles code.
+Missing legacy manifests require the external installer rather than an API fallback.
+See the [manifest contract](../DESIGN.md#update-manifest-contract).
 
-在线检查和安装需要 curl 7.76.0 或更新版本；安装/回退复用外部更新器所需的 Bash 与 Linux 工具（flock、mktemp、cp、mv、chmod、timeout、sha256sum、cmp）。所有更新操作要求绝对 HOME；检查也需要可写的 `~/.local/bin`，用于临时清单文件，完成或失败后清理本次暂存目录。网络不通、仓库不可访问或发布不完整时明确失败，不退回源码编译或自动改用其他来源。1.2.1 起通过 Release 的固定 update.json 附件检查最新或指定版本，不依赖匿名 REST API 配额；清单包含明确版本、平台文件名、大小和摘要，安装下载固定到该版本，格式见 [设计说明](../DESIGN.md#81-更新清单与下载约定)。无清单的历史版本提示使用外部安装器，不回退 API。已发布的 1.2.0 程序仍使用 API，需先迁移至 1.2.1 才能使用清单协议。急需安装或选择旧版时可按 [WSL 指南](wsl.md#0-安装-121-发布程序无需-rust) 直接下载固定版本附件并校验。
+Follow [version-switching steps](install.md#before-switching-versions) before an
+installation or rollback. The updater does not stop projects, replace running
+supervisors, or rewrite configuration and saved logs.

@@ -24,7 +24,7 @@ pub enum Command {
         /// Check the latest stable release without changing the installation.
         #[arg(long, conflicts_with = "rollback")]
         check: bool,
-        /// Install or check a specific stable version, for example 1.2.0.
+        /// Install or check a specific stable version, for example 1.2.2.
         #[arg(long, value_name = "VERSION", conflicts_with = "rollback")]
         version: Option<String>,
         /// Exchange the installed program with its previous version, without networking.
