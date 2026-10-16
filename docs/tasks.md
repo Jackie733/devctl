@@ -3,30 +3,48 @@
 Keep current work and necessary handoff here; Git retains history. Collaboration
 rules are in [AGENTS.md](../AGENTS.md).
 
-## Current: publish v1.4.0 (X03; M5 / U01, L01, P02)
+## Current: v1.4.0 published; WSL visual/update acceptance pending (U01 / X03)
 
 - The user authorized committing and releasing the TUI visual refinements, including
   pushing main and the annotated version tag. Implementation commit: `8633e70`.
-- Package/lock versions and current installation examples target 1.4.0. The changelog
-  and English/Chinese overviews describe state symbols, focus and shortcut emphasis,
+- [v1.4.0](https://github.com/Jackie733/devctl/releases/tag/v1.4.0) is public, stable,
+  and Latest. The annotated tag points to build commit
+  `37758491cb7124a7bbc7c36178dc001ac7a6358d`; release notes record the same identity.
+- Package/lock versions and installation examples target 1.4.0. English/Chinese
+  overviews and the changelog describe state symbols, focus/shortcut emphasis,
   waiting animations, brief state highlights, and successful stop/copy feedback.
-- Preserve lifecycle, diagnostics, clipboard caveats, and log reading positions.
-  No new dependency, deployment configuration, or key binding is introduced.
-- Previous implementation validation passed all 244 tests (150 unit, 94 integration),
-  including ten PTY scenarios; fmt, clippy, Python syntax, and documentation checks
-  passed. Log: `/tmp/devctl-tui-refinement-tests.log`.
+  Behavior refines M5 / U01, L01, P02; lifecycle, diagnostics, clipboard caveats,
+  and log reading positions retain their contracts. No new dependency, deployment
+  configuration, or key binding was added.
 
-## Release work and next steps
+## Publication and validation evidence
 
-- Validate version/documentation consistency, commit release preparation, then push
-  main and a new annotated v1.4.0 tag. Do not replace existing tags or releases.
-- Follow the existing [release workflow](releasing.md): all CI checks, static build,
-  installer/artifact/packaging and PTY checks, complete draft-first publication,
-  then anonymous public verification. Record actual results and build identity.
-- Verify the real public 1.3.0 client upgrades to 1.4.0 in a temporary HOME, preserving
-  the old binary, configuration, rollback, and recovery behavior. Do not modify the
-  user's installation or active workspaces.
-- Actual Windows Terminal/WSL font rendering, contrast, animation cadence, compact
-  layout, and X03 update acceptance remain user checks; automated verification does
-  not establish visual or real-project acceptance. See
-  [WSL verification](wsl.md#verify-updates).
+- [Release run 38883387229](https://github.com/Jackie733/devctl/actions/runs/38883387229)
+  completed build, publish, and public verification successfully. CI passed fmt,
+  clippy, all 244 Rust tests (150 unit, 94 integration), eleven installer tests,
+  static build/artifact checks, four packaging tests, and ten actual static-binary
+  TUI PTY scenarios. Release workflow configuration is unchanged.
+- All five attachments are uploaded: Linux x86_64 musl program, external installer,
+  exact source archive, update.json, and SHA256SUMS. Anonymous downloads and all
+  four digests passed. Manifest size/digest/version matched the binary, which
+  reported 1.4.0 and had no INTERP/NEEDED entries. The decompressed source archive
+  exactly matched git archive of the tagged build commit.
+- The real public 1.3.0 client performed its default online upgrade to the exact
+  1.4.0 bytes in a temporary HOME, retaining 1.3.0 as its backup. Latest/specified
+  checks, no-op and same-version backup preservation, offline rollback, external
+  recovery, and configuration preservation passed. No user installation or active
+  workspace was modified. Earlier public versions and attachments are unchanged.
+- Logs: `/tmp/devctl-v1.4.0-actions.log`, `/tmp/devctl-v1.4.0-ci.log`, and
+  `/tmp/devctl-v1.4.0-public-verification.log`; fixtures:
+  `/tmp/devctl-v1.4.0-public-zz42jtfc`. Locked version metadata, local fmt, Markdown
+  fences/links/anchors, and diff checks passed. Prior implementation test evidence
+  remains in `/tmp/devctl-tui-refinement-tests.log`.
+
+## Next steps and acceptance
+
+- The user upgrades after shutting down each active workspace and leaving its TUI;
+  follow [installation](install.md#update) and
+  [WSL verification](wsl.md#verify-updates) for the real 1.3.0 → 1.4.0 workflow.
+- Verify actual font rendering, contrast, animation cadence, compact layout, and
+  real-project log interaction in Windows Terminal/WSL. Automated checks establish
+  coverage, not visual or real-project acceptance; U01/X03 user checks remain pending.
