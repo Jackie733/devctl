@@ -106,3 +106,11 @@ jobs:
             gh release create "$TAG" "${assets[@]}" --verify-tag --draft --title "$TAG" --notes-file release-notes.md
           fi
           gh release edit "$TAG" --draft=false --latest
+
+  verify:
+    needs: publish
+    permissions:
+      contents: read
+    uses: ./.github/workflows/verify-release.yml
+    with:
+      tag: ${{ inputs.tag || github.ref_name }}
