@@ -1,6 +1,6 @@
 # 日志后续设计取舍
 
-2026-10-16，用户要求按产品定位收敛日志功能，并授权助手直接实现。当前源码已落实下列范围，尚未发布；实际机制与参数由 [DESIGN.md](../DESIGN.md#53-mvp-后日志增强方案) 维护，需求验收见 [requirements.md](requirements.md) §4.2，操作见 [interaction.md](interaction.md) §2.7–2.8，验证及交接见 [tasks.md](tasks.md)。
+2026-10-16，用户要求按产品定位收敛日志功能，并授权助手直接实现。1.1.0 已落实并发布下列范围；实际机制与参数由 [DESIGN.md](../DESIGN.md#53-mvp-后日志增强方案) 维护，需求验收见 [requirements.md](requirements.md) §4.2，操作见 [interaction.md](interaction.md) §2.7–2.8，验证及交接见 [tasks.md](tasks.md)。
 
 ## 产品目标
 

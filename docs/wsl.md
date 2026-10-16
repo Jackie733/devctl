@@ -1,33 +1,33 @@
 # WSL2 安装与项目配置
 
-目标环境是 Windows WSL2、Ubuntu 22.04.5 LTS、x86_64；2026-10-15 用户确认 MVP 完整验收通过，发布版本为 1.0.0。当前源码版本为 **1.1.0**（日志增强），尚无该版本的远程发布附件；自行构建按 §1–§2，真实项目试用按 §4.1。以下保留安装、配置与验收流程，验证证据见 [tasks.md](tasks.md)。
+目标环境是 Windows WSL2、Ubuntu 22.04.5 LTS、x86_64；2026-10-15 用户确认 1.0.0 MVP 完整验收通过。当前发布版本为 **1.1.0**（日志增强），预编译附件安装见 §0；自行构建按 §1–§2，真实项目试用按 §4.1。以下保留安装、配置与验收流程，验证证据见 [tasks.md](tasks.md)。
 
-## 0. 安装 1.0.0 发布程序（无需 Rust）
+## 0. 安装 1.1.0 发布程序（无需 Rust）
 
-[v1.0.0 Release](https://github.com/Jackie733/devctl/releases/tag/v1.0.0) 提供 Linux x86_64 musl 静态程序，不依赖宿主 glibc 版本；目标架构应为 `uname -m` 输出的 `x86_64`。仓库保持私有，需要有访问权限的 GitHub 账号；不能直接把私有附件 URL 交给不支持认证的外部更新器。可在已安装并登录 GitHub CLI 的 WSL 中下载：
+[v1.1.0 Release](https://github.com/Jackie733/devctl/releases/tag/v1.1.0) 提供 Linux x86_64 musl 静态程序，不依赖宿主 glibc 版本；目标架构应为 `uname -m` 输出的 `x86_64`。仓库保持私有，需要有访问权限的 GitHub 账号；不能直接把私有附件 URL 交给不支持认证的外部更新器。可在已安装并登录 GitHub CLI 的 WSL 中下载：
 
 ```sh
 gh auth status
-gh release download v1.0.0 --repo Jackie733/devctl \
-  --pattern devctl-v1.0.0-x86_64-unknown-linux-musl \
+gh release download v1.1.0 --repo Jackie733/devctl \
+  --pattern devctl-v1.1.0-x86_64-unknown-linux-musl \
   --pattern devctl-update --pattern SHA256SUMS \
-  --dir "$HOME/Downloads/devctl-v1.0.0"
-cd "$HOME/Downloads/devctl-v1.0.0"
+  --dir "$HOME/Downloads/devctl-v1.1.0"
+cd "$HOME/Downloads/devctl-v1.1.0"
 sha256sum --check --ignore-missing SHA256SUMS
 ```
 
 也可从 Release 页面登录下载相同三个附件，再进入下载目录校验。校验全部成功后，已有版本的用户先按 §5 结束各工作区旧后台并退出 TUI，再安装；首次安装直接执行：
 
 ```sh
-binary_sha=$(awk '$2 == "devctl-v1.0.0-x86_64-unknown-linux-musl" { print $1 }' SHA256SUMS)
-bash ./devctl-update ./devctl-v1.0.0-x86_64-unknown-linux-musl "$binary_sha"
+binary_sha=$(awk '$2 == "devctl-v1.1.0-x86_64-unknown-linux-musl" { print $1 }' SHA256SUMS)
+bash ./devctl-update ./devctl-v1.1.0-x86_64-unknown-linux-musl "$binary_sha"
 export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
 rehash
 command -v devctl
 devctl --version
 ```
 
-预期输出 `devctl 1.0.0`，安装位置为 `~/.local/bin/devctl`。长期 PATH 设置见 §2，项目配置见 §3；已有配置继续使用。下方 §1–§2 是从源码编译的替代方式。
+预期输出 `devctl 1.1.0`，安装位置为 `~/.local/bin/devctl`。长期 PATH 设置见 §2，项目配置见 §3；已有配置继续使用。下方 §1–§2 是从源码编译的替代方式。
 
 ## 1. 在 WSL2 准备源码与工具
 
@@ -41,7 +41,7 @@ wsl -l -v
 
 源码建议放在 WSL 的 `~/code/devctl`，三个项目也使用已确认的 WSL 路径。微软建议使用 Linux 工具开发时将项目放在 WSL 文件系统中；参考 [WSL 文件系统说明](https://learn.microsoft.com/en-us/windows/wsl/filesystems) 与 [WSL 基本命令](https://learn.microsoft.com/en-us/windows/wsl/basic-commands)。
 
-构建 1.1.0 需要包含本轮升级提交的源码工作副本，不能使用 `v1.0.0` 标签或旧 Release 源码包。先同步源码到 WSL，再核对 `Cargo.toml` 中包版本为 `1.1.0`；若本地提交尚未推送，另一个克隆仅执行 git pull 不会取得它，应先同步该提交或源码文件。无需复制 target 编译缓存。`devctl --help` 会列出默认配置查找路径。
+构建 1.1.0 可使用 `v1.1.0` 标签或对应 Release 源码包；不要使用 `v1.0.0` 的旧源码。已有克隆先同步源码到 WSL，再核对 `Cargo.toml` 中包版本为 `1.1.0`；需要固定版本时可在干净工作副本中执行 `git fetch origin --tags`、`git switch --detach v1.1.0`。无需复制 target 编译缓存。`devctl --help` 会列出默认配置查找路径。
 
 若使用源码归档，先解压到独立目录，避免覆盖已有工作副本；归档不含 .git 或 target，跳过下面的 git log。
 
@@ -228,7 +228,7 @@ devctl --config "$HOME/.config/devctl/devctl.toml" logs web --limit 20
 
 显式历史读取示例为 `devctl --config "$HOME/.config/devctl/devctl.toml" logs web --session <会话ID> --limit 20`；将占位符替换为列表中的实际 ID。无后台时日志查询不创建后台或启动项目。服务尚未产生输出时没有对应保存会话，不把它当作保存失败。
 
-日志默认保存到 `~/.local/state/devctl/logs` 下；若设置绝对 XDG_STATE_HOME，则使用 `$XDG_STATE_HOME/devctl/logs`，CLI 的 stderr 和 TUI 帮助显示实际会话目录。`.dlog` 是结构化分段，通过 logs 读取，不直接用 tail。默认无需新增配置；参数、配额与故障边界以 [存储设计](../DESIGN.md#持久身份格式与预算) 为准，完整操作以 [日志交互](interaction.md#28-日志保存会话与文本查找源码增强尚未发布) 为准。
+日志默认保存到 `~/.local/state/devctl/logs` 下；若设置绝对 XDG_STATE_HOME，则使用 `$XDG_STATE_HOME/devctl/logs`，CLI 的 stderr 和 TUI 帮助显示实际会话目录。`.dlog` 是结构化分段，通过 logs 读取，不直接用 tail。默认无需新增配置；参数、配额与故障边界以 [存储设计](../DESIGN.md#持久身份格式与预算) 为准，完整操作以 [日志交互](interaction.md#28-日志保存会话与文本查找110) 为准。
 
 超过内存缓存的回看、容量/期限清理和故障退化先由受控自动测试覆盖；不建议为验收主动占满 WSL 磁盘或修改正在使用的历史文件。真实项目试用需关注输出频率、保存降级提示、查找体验和启停是否仍流畅，反馈实际命令及提示。
 
@@ -321,7 +321,7 @@ git log -5 --oneline
 whence -va devctl
 ```
 
-Zsh 的 whence 会显示别名、函数及 PATH 中的各个安装位置。特别注意 ~/.local/bin/devctl 优先于 ~/.cargo/bin/devctl：cargo install 只更新 Cargo 安装位置，可能没有更新实际启动的文件。历史试用版本为 0.1.0、0.2.0，发布附件仍为 1.0.0，当前源码为 1.1.0；同一版本下的不同构建仍需结合源码或文件校验值核对。
+Zsh 的 whence 会显示别名、函数及 PATH 中的各个安装位置。特别注意 ~/.local/bin/devctl 优先于 ~/.cargo/bin/devctl：cargo install 只更新 Cargo 安装位置，可能没有更新实际启动的文件。历史试用版本为 0.1.0、0.2.0，旧发布版本为 1.0.0，当前源码与发布附件均为 1.1.0；同一版本下的不同构建仍需结合源码或文件校验值核对。
 
 确认源码包含上述提交后，可用显式源码运行隔离安装路径问题：`cargo +stable run --locked -- --config "$HOME/.config/devctl/devctl.toml" tui`。它会按需编译当前源码；若此时底部为两行，再更新实际安装位置。布局由客户端绘制，结束后台本身不会更新旧客户端；后台升级规则仍按本节前文执行。
 

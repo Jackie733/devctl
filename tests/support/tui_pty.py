@@ -623,6 +623,10 @@ def history():
         for _ in range(6):
             ui.send(b'\x1b[5~')
             ui.pump(.12)
+        # An older page preserves the viewport anchor. Wait for it to arrive
+        # before moving into it; disk reads can outlast the initial key burst.
+        ui.wait('/ 200 cached')
+        ui.send(b'\x1b[5~')
         ui.wait(lambda text: 0 < first_sequence(text) < 252)
         # Home queries the backend's retained beginning, beyond either client page.
         ui.send(b'gg')
@@ -678,6 +682,10 @@ def disk_history():
         for _ in range(6):
             ui.send(b'\x1b[5~')
             ui.pump(.12)
+        # An older page preserves the viewport anchor. Wait for it to arrive
+        # before moving into it; disk reads can outlast the initial key burst.
+        ui.wait('/ 200 cached')
+        ui.send(b'\x1b[5~')
         ui.wait(lambda text: 0 < first_sequence(text) < 252)
         # Home queries the backend's retained beginning, beyond either client page.
         ui.send(b'gg')

@@ -159,7 +159,7 @@ client::transact 保留完整 Response 以及后台身份，ClientError 区分�
 
 ### 5.3 MVP 后日志增强方案
 
-源码已实现 L01–L04 本轮收敛的日志增强，尚未发布。产品范围与验收由 [requirements.md](docs/requirements.md) §4.2 维护，操作与反馈见 [interaction.md](docs/interaction.md) §2.7–2.8，当前验证及真实项目试用状态见 [tasks.md](docs/tasks.md)。不实现跨退出书签、跨项目聚合或复杂组合筛选。
+1.1.0 已实现并发布 L01–L04 本轮收敛的日志增强。产品范围与验收由 [requirements.md](docs/requirements.md) §4.2 维护，操作与反馈见 [interaction.md](docs/interaction.md) §2.7–2.8，当前验证及真实项目试用状态见 [tasks.md](docs/tasks.md)。不实现跨退出书签、跨项目聚合或复杂组合筛选。
 
 #### 职责与所有权
 
