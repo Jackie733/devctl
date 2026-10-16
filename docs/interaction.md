@@ -300,3 +300,27 @@ See the [manifest contract](../DESIGN.md#update-manifest-contract).
 Follow [version-switching steps](install.md#before-switching-versions) before an
 installation or rollback. The updater does not stop projects, replace running
 supervisors, or rewrite configuration and saved logs.
+
+### Progress display (development version)
+
+The development updater shows checking, downloading, and verifying/installing stages
+on stderr. With stdout and stderr attached to terminals and TERM other than `dumb`,
+a single line animates at roughly ten frames per second; completed stages remain
+in scrollback. Download percentage comes from bytes actually written and the manifest's
+size. Wide terminals also show transferred/total MiB, mean transfer speed including
+connection time, and an approximate ETA. Before enough data/time is available,
+speed and ETA show placeholders. Narrow terminals omit details and shorten the line.
+
+`NO_COLOR` removes colors while keeping terminal animation. Redirecting either stdout
+or stderr, or using `TERM=dumb`, produces plain stage lines without terminal controls.
+Existing version/result output stays on stdout. No raw mode, hidden cursor, alternate
+screen, new dependency, or extra command flag is used.
+
+Check-only and no-newer-version results stop after checking. Rollback shows only its
+offline stage. A failed stage is labeled before the normal error report, and the
+original curl/installer diagnostics remain visible. Child output clears and suspends
+the current animation so even partial diagnostics are not overwritten. The installer
+still performs checksum/candidate/backup/replacement work as one reported stage;
+substeps are not claimed complete before the installer confirms its result.
+
+These presentation changes are not included in the published 1.2.2 binary yet.

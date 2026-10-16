@@ -1,3 +1,5 @@
+mod progress;
+
 use std::{
     fs,
     io::Write,
@@ -9,6 +11,8 @@ use std::{
 use semver::Version;
 use serde::Deserialize;
 use tokio::{io::AsyncReadExt, process::Command, time::timeout};
+
+use progress::Progress;
 
 const INSTALLER: &str = include_str!("../scripts/devctl-update");
 const TARGET: &str = "x86_64-unknown-linux-musl";
@@ -114,36 +118,61 @@ impl Drop for Staging {
 }
 
 /// Stream subprocess output into a bounded file, including with older curl versions.
-async fn download(mut command: Command, path: &Path, limit: u64) -> Result<(), String> {
+async fn download(
+    mut command: Command,
+    path: &Path,
+    limit: u64,
+    progress: &mut Progress,
+) -> Result<(), String> {
     let mut file =
         fs::File::create(path).map_err(|error| format!("Cannot create download file: {error}"))?;
     let mut child = command
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
-        .stderr(Stdio::inherit())
+        .stderr(Stdio::piped())
         .kill_on_drop(true)
         .spawn()
         .map_err(|error| format!("Cannot start release download: {error}"))?;
     let result = timeout(Duration::from_secs(190), async {
         let mut stdout = child.stdout.take().ok_or("Missing download output.")?;
+        let mut stderr = child.stderr.take().ok_or("Missing download diagnostics.")?;
         let mut buffer = [0u8; 64 * 1024];
+        let mut diagnostics = [0u8; 8192];
+        let (mut out_open, mut err_open) = (true, true);
         let mut total = 0u64;
-        loop {
-            let count = stdout
-                .read(&mut buffer)
-                .await
-                .map_err(|error| error.to_string())?;
-            if count == 0 {
-                break;
+        let mut refresh = progress::interval();
+        while out_open || err_open {
+            tokio::select! {
+                result = stdout.read(&mut buffer), if out_open => {
+                    let count = result.map_err(|error| error.to_string())?;
+                    if count == 0 {
+                        out_open = false;
+                        continue;
+                    }
+                    total += count as u64;
+                    if total > limit {
+                        return Err("Release download exceeded its size limit.".to_owned());
+                    }
+                    file.write_all(&buffer[..count]).map_err(|error| error.to_string())?;
+                    progress.received(total);
+                }
+                result = stderr.read(&mut diagnostics), if err_open => {
+                    let count = result.map_err(|error| error.to_string())?;
+                    if count == 0 {
+                        err_open = false;
+                    } else {
+                        progress.relay(&diagnostics[..count], true);
+                    }
+                }
+                _ = refresh.tick() => progress.tick(),
             }
-            total += count as u64;
-            if total > limit {
-                return Err("Release download exceeded its size limit.".to_owned());
-            }
-            file.write_all(&buffer[..count])
-                .map_err(|error| error.to_string())?;
         }
-        let status = child.wait().await.map_err(|error| error.to_string())?;
+        let status = loop {
+            tokio::select! {
+                status = child.wait() => break status.map_err(|error| error.to_string())?,
+                _ = refresh.tick() => progress.tick(),
+            }
+        };
         if !status.success() {
             return Err(
                 "Release download failed; check network access and the release source.".into(),
@@ -164,7 +193,11 @@ async fn download(mut command: Command, path: &Path, limit: u64) -> Result<(), S
     }
 }
 
-async fn install(args: &[&std::ffi::OsStr], expected: Option<&Version>) -> Result<(), String> {
+async fn install(
+    args: &[&std::ffi::OsStr],
+    expected: Option<&Version>,
+    progress: &mut Progress,
+) -> Result<(), String> {
     let mut command = Command::new("bash");
     command.args(["-c", INSTALLER, "devctl-update"]).args(args);
     command
@@ -174,10 +207,14 @@ async fn install(args: &[&std::ffi::OsStr], expected: Option<&Version>) -> Resul
     if let Some(version) = expected {
         command.env("DEVCTL_UPDATE_EXPECTED_VERSION", version.to_string());
     }
-    let status =
-        command.kill_on_drop(true).status().await.map_err(|error| {
-            format!("Cannot run the embedded installer (bash required): {error}")
-        })?;
+    let mut child = command
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .kill_on_drop(true)
+        .spawn()
+        .map_err(|error| format!("Cannot run the embedded installer (bash required): {error}"))?;
+    let status = progress.wait(&mut child).await?;
     if status.success() {
         Ok(())
     } else {
@@ -186,15 +223,32 @@ async fn install(args: &[&std::ffi::OsStr], expected: Option<&Version>) -> Resul
 }
 
 pub async fn run(check: bool, version: Option<&str>, rollback: bool) -> Result<(), String> {
+    let mut progress = Progress::new();
+    let result = run_with_progress(check, version, rollback, &mut progress).await;
+    if result.is_err() {
+        progress.fail();
+    }
+    result
+}
+
+async fn run_with_progress(
+    check: bool,
+    version: Option<&str>,
+    rollback: bool,
+    progress: &mut Progress,
+) -> Result<(), String> {
     if std::env::consts::OS != "linux" || std::env::consts::ARCH != "x86_64" {
         return Err("Self-update currently supports Linux / WSL2 x86_64 only.".into());
     }
     if rollback {
         install_dir()?;
-        return install(&[std::ffi::OsStr::new("--rollback")], None).await;
+        progress.begin("Rolling back", None);
+        install(&[std::ffi::OsStr::new("--rollback")], None, progress).await?;
+        progress.complete("Rollback complete");
+        return Ok(());
     }
     let requested = version.map(stable_version).transpose()?;
-    fetch_and_update(check, requested.as_ref()).await
+    fetch_and_update(check, requested.as_ref(), progress).await
 }
 
 fn https_get(url: &str) -> Command {
@@ -223,7 +277,11 @@ fn https_get(url: &str) -> Command {
     command
 }
 
-async fn fetch_and_update(check: bool, requested: Option<&Version>) -> Result<(), String> {
+async fn fetch_and_update(
+    check: bool,
+    requested: Option<&Version>,
+    progress: &mut Progress,
+) -> Result<(), String> {
     let repo = REPOSITORY;
     let staging = Staging::new()?;
     let endpoint = requested.map_or_else(
@@ -231,12 +289,14 @@ async fn fetch_and_update(check: bool, requested: Option<&Version>) -> Result<()
         |version| format!("download/v{version}"),
     );
     let metadata = staging.0.join("update.json");
+    progress.begin("Checking release", None);
     download(
         https_get(&format!(
             "https://github.com/{repo}/releases/{endpoint}/update.json"
         )),
         &metadata,
         64 * 1024,
+        progress,
     )
     .await
     .map_err(|error| format!(
@@ -246,6 +306,7 @@ async fn fetch_and_update(check: bool, requested: Option<&Version>) -> Result<()
         serde_json::from_slice(&fs::read(metadata).map_err(|error| error.to_string())?)
             .map_err(|error| format!("Invalid update manifest: {error}"))?;
     let (version, asset) = manifest.validate(requested)?;
+    progress.complete("Release checked");
     let current = stable_version(env!("CARGO_PKG_VERSION"))?;
     println!("Current: {current}\nRelease: {version}\nSource: {repo}");
     if check {
@@ -267,10 +328,12 @@ async fn fetch_and_update(check: bool, requested: Option<&Version>) -> Result<()
     }
     let base = format!("https://github.com/{repo}/releases/download/v{version}");
     let binary = staging.0.join(&asset.name);
+    progress.begin("Downloading", Some(asset.size));
     download(
         https_get(&format!("{base}/{}", asset.name)),
         &binary,
         asset.size,
+        progress,
     )
     .await?;
     if fs::metadata(&binary)
@@ -280,15 +343,27 @@ async fn fetch_and_update(check: bool, requested: Option<&Version>) -> Result<()
     {
         return Err("Downloaded program size does not match update.json.".into());
     }
+    progress.complete(&format!(
+        "Downloaded {:.1} MiB",
+        asset.size as f64 / (1024.0 * 1024.0)
+    ));
     let digest = asset.sha256.to_ascii_lowercase();
     println!(
         "Installing into ~/.local/bin/devctl. Existing backgrounds keep their old code; explicitly shut down workspaces before switching versions."
     );
+    progress.begin("Verifying and installing", None);
     install(
         &[binary.as_os_str(), std::ffi::OsStr::new(&digest)],
         Some(&version),
+        progress,
     )
-    .await
+    .await?;
+    progress.complete(&format!("Update complete · {current} -> {version}"));
+    let backup = install_dir()?.join("devctl.previous");
+    if backup.is_file() {
+        let _ = writeln!(std::io::stdout(), "Backup: {}", backup.display());
+    }
+    Ok(())
 }
 
 #[cfg(test)]

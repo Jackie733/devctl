@@ -58,7 +58,7 @@ impl Fixture {
     }
 
     fn release(&self, version: &str, candidate_version: &str) -> Vec<u8> {
-        let binary = format!("#!/bin/sh\necho 'devctl {candidate_version}'\n").into_bytes();
+        let binary = format!("#!/bin/sh\nif [ -f \"$UPDATE_FIXTURE/slow-progress\" ]; then sleep 0.4; fi\necho 'devctl {candidate_version}'\n").into_bytes();
         fs::write(self.root.join("binary"), &binary).unwrap();
         let output = Command::new("sha256sum")
             .arg(self.root.join("binary"))
@@ -83,7 +83,7 @@ impl Fixture {
         fs::write(
             &curl,
             r#"#!/usr/bin/env python3
-import os, pathlib, sys
+import os, pathlib, sys, time
 root = pathlib.Path(os.environ['UPDATE_FIXTURE'])
 args = sys.argv[1:]
 assert args[0] == '--disable'
@@ -101,10 +101,26 @@ elif url.startswith(base + 'download/v') and '/devctl-v' in url:
     name = 'binary'
 else:
     sys.exit(22)
+data = (root / name).read_bytes()
+slow = (root / 'slow-progress').exists()
+if slow:
+    time.sleep(0.3)
 if (root / ('fail-' + name)).exists():
-    sys.stdout.buffer.write((root / name).read_bytes())
+    sys.stderr.write('fixture diagnostic begins')
+    sys.stderr.flush()
+    if slow:
+        time.sleep(0.2)
+    sys.stderr.write(' and ends' + ('' if slow else '\n'))
+    sys.stdout.buffer.write(data)
     sys.exit(22)
-sys.stdout.buffer.write((root / name).read_bytes())
+if slow and name == 'binary':
+    step = max(1, len(data) // 4)
+    for offset in range(0, len(data), step):
+        sys.stdout.buffer.write(data[offset:offset + step])
+        sys.stdout.buffer.flush()
+        time.sleep(0.15)
+else:
+    sys.stdout.buffer.write(data)
 "#,
         )
         .unwrap();
@@ -177,6 +193,10 @@ fn check_only_reads_metadata_and_never_changes_installation() {
     let output = fixture.run(&["update", "--check"]);
     assert!(output.status.success(), "{output:?}");
     assert!(String::from_utf8_lossy(&output.stdout).contains("An update is available"));
+    let diagnostics = String::from_utf8_lossy(&output.stderr);
+    assert!(diagnostics.contains("Checking release...") && diagnostics.contains("Release checked"));
+    assert!(!diagnostics.contains('\x1b') && !diagnostics.contains('\r'));
+    assert!(!diagnostics.contains("Downloading") && !diagnostics.contains("Verifying"));
     assert_eq!(fixture.contents("devctl"), current);
     assert!(!fixture.home.join(".local/bin/devctl.previous").exists());
     let requests = fs::read_to_string(fixture.root.join("requests")).unwrap();
@@ -410,4 +430,52 @@ fn update_arguments_and_version_errors_do_not_load_workspace_config() {
     assert!(output.status.success());
     let help = String::from_utf8_lossy(&output.stdout);
     assert!(help.contains("--check") && help.contains("--version") && help.contains("--rollback"));
+}
+
+#[test]
+fn update_progress_works_in_real_terminals_and_falls_back_without_control_sequences() {
+    for mode in [
+        "interactive",
+        "mono",
+        "dumb",
+        "redirect",
+        "stderr-redirect",
+        "narrow",
+        "failure",
+        "check",
+        "current",
+        "rollback",
+    ] {
+        let fixture = Fixture::new();
+        let current = fixture.program("devctl", "1.0.0");
+        let previous = fixture.program("devctl.previous", "0.9.0");
+        let version = if mode == "current" {
+            env!("CARGO_PKG_VERSION").to_owned()
+        } else {
+            newer_version()
+        };
+        fixture.release(&version, &version);
+        fs::write(fixture.root.join("slow-progress"), "").unwrap();
+        if mode == "failure" {
+            fs::write(fixture.root.join("fail-binary"), "").unwrap();
+        }
+        let output = Command::new("python3")
+            .arg(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/support/update_pty.py"))
+            .arg(env!("CARGO_BIN_EXE_devctl"))
+            .arg(&fixture.root)
+            .arg(mode)
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{mode}:\n{}\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        if matches!(mode, "failure" | "check" | "current") {
+            assert_eq!(fixture.contents("devctl"), current);
+            assert_eq!(fixture.contents("devctl.previous"), previous);
+        }
+        fixture.assert_clean();
+    }
 }

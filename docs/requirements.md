@@ -115,6 +115,9 @@ without cloning source or installing Rust for routine updates.
 - Test/build before publication. Generate the update manifest from the artifact;
   upload a complete draft before exposing it as Latest. Normal client discovery
   and downloads must not depend on anonymous REST API quotas.
+- Present truthful checking/download/install progress, including known-size download
+  percentage and optional speed/ETA. Preserve plain output for redirected/dumb terminals,
+  honor NO_COLOR, and retain stage-specific errors without changing update protection.
 - Support check-only, latest stable installation, explicit stable versions, and one
   offline rollback. Select the supported artifact and digest without user-supplied URLs.
 - Preserve the current program on download/validation failure, retain workspace

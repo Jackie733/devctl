@@ -1,62 +1,56 @@
 # Current task
 
-Keep the current task, necessary handoff, and next step here. Git retains history;
-collaboration rules are in [AGENTS.md](../AGENTS.md).
+Keep current work and necessary handoff here; Git retains history. Collaboration
+rules are in [AGENTS.md](../AGENTS.md).
 
-## Current: 1.2.2 released; target WSL upgrade acceptance pending (X03)
+## Current: update progress implemented, unreleased (X03)
 
-- The user authorized English public documentation, a Chinese README, publication/push,
-  and a real self-update exercise, and explicitly selected MIT. The repository now has
-  English/Chinese READMEs, MIT LICENSE, CONTRIBUTING, Cargo package metadata, and English
-  user/maintainer references. GitHub recognizes the repository license as MIT.
-- Personal project paths were replaced with generic examples. Confirmed behavior,
-  engineering invariants, pending acceptance, and candidate features remain distinct.
-  This is a documentation/license patch with no service-management behavior change.
-- [v1.2.2](https://github.com/Jackie733/devctl/releases/tag/v1.2.2) is public, Latest,
-  non-draft, and stable. All five attachments are uploaded: the musl executable,
-  external installer, source archive, update.json, and SHA256SUMS.
-- The annotated tag points to 19d79f024af983d8a236adf6fa7dedcfcb905ed6. English release
-  notes record that build identity. Older tags and published attachments were not modified.
-- [Run 38871736455](https://github.com/Jackie733/devctl/actions/runs/38871736455) was
-  triggered by the tag push; build, publish, and anonymous verify all succeeded.
-  A transient local status-poll network interruption did not restart the workflow.
+- The user confirmed the three-stage terminal design: checking, downloading, and
+  verifying/installing; real bytes/percentage/speed/ETA; compact width, plain redirected
+  output, NO_COLOR, and explicit success/failure. Implement locally and commit this
+  task; no new publication or push is assumed.
+- Added a private progress renderer using existing Crossterm/Tokio dependencies.
+  It writes transient status to stderr, preserves stdout results and original child
+  diagnostics, animates during waiting, and never changes terminal modes. Known-size
+  download progress counts successful file writes. Check/no-op and rollback show
+  only their actual stages; installer substeps are not invented.
+- Presentation errors do not decide update outcomes. Existing source/size/checksum/
+  version/install/backup protection stays in place. Child output is streamed through
+  bounded chunks and pauses animation so partial diagnostics are not overwritten.
+- Mechanisms are recorded in [DESIGN.md](../DESIGN.md#progress-presentation), the user
+  contract in [interaction.md](interaction.md#progress-display-development-version),
+  and the confirmed requirement under [X03](requirements.md#public-releases-and-self-update-x03).
 
-## Validation evidence
+## Validation
 
-- Local and cloud Rust checks passed: 235 tests (142 unit, 93 integration, including
-  ten real PTY scenarios), fmt, and clippy with warnings denied. Installer tests: 11.
-  Real-artifact packaging/manifest tests: 4. The final musl program passed static-link,
-  install/reinstall/bad-digest/rollback/configuration checks; cloud also passed all
-  ten PTY scenarios using the shipped static program.
-- All 15 Markdown documents passed local-link/anchor and fence checks. Both READMEs
-  use matching TOML, validated/planned by the real 1.2.2 parser from another directory.
-  All 25 shell blocks passed Bash syntax checks; documented flags match CLI help.
-  MIT text, Cargo metadata, English content, packaging syntax, and actionlint passed.
-- Clean-source packaging included both READMEs, LICENSE, CONTRIBUTING, installation
-  documentation, correct version metadata, and English notes. Publicly downloaded
-  source was compared against the tag for every Markdown file, license, Cargo files,
-  updater source, and release workflow; all matched.
-- All five release attachments were downloaded anonymously; four SHA-256 entries,
-  manifest version/name/size/digest, executable version, and static linking matched.
-- In a temporary HOME, installed the real verified public 1.2.1 binary, observed
-  1.2.2 availability without workspace config, and invoked that old client's default
-  `devctl update`. It installed the exact published 1.2.2 bytes and retained the exact
-  1.2.1 binary as backup. Latest/explicit checks, same-version reinstall, no-newer-version
-  protection, offline rollback to 1.2.1, external recovery, and configuration preservation
-  all passed. This was a cross-version online upgrade, not just a new client reinstalling itself.
-- Local logs: /tmp/devctl-v1.2.2-tests.log, /tmp/devctl-v1.2.2-actions.log, and
-  /tmp/devctl-v1.2.2-public-verification.log. Preflight bundle:
-  /tmp/devctl-v1.2.2-preflight-arz_3eff/bundle. Temporary files are not permanent evidence;
-  the Actions link and committed results are the durable handoff.
+- All existing update CLI cases passed with the new output path. New real PTY coverage
+  passed interactive, NO_COLOR, TERM=dumb, stdout/stderr redirection, narrow terminal, failed
+  download/partial diagnostic, check-only, no-update, and offline rollback modes.
+- Renderer tests check actual byte/time-derived statistics, unknown-total behavior,
+  width bounds, and animation frame changes. A process-output bound test is included
+  to verify an exited installer cannot be held indefinitely by an open output pipe.
+- Final `cargo test --locked --offline`: 239 passed (145 unit, 94 integration),
+  including the ten existing TUI PTY scenarios and ten updater PTY modes. The latter
+  covers both stdout-only and stderr-only redirection and a final diagnostic without
+  a newline. Log: /tmp/devctl-update-progress-tests.log.
+- `cargo fmt --check` and `cargo clippy --locked --offline --all-targets -- -D warnings`
+  passed. Musl static build, actual artifact static-link/install/reinstall/bad-digest/
+  rollback checks, four packaging/manifest tests, and eleven installer tests passed.
+- The actual musl program also passed interactive PTY verification with a controlled
+  4 MiB download. A real-byte frame showed 50%, 2.0/4.0 MiB, 4.0 MiB/s, ETA 1s.
+  Capture: /tmp/devctl-update-progress-preview-2x2jgpri/terminal-output.txt. Its selected
+  version and download source are test fixtures, not a new public release.
+- All 15 Markdown documents, 104 local links/anchors, code fences, Python syntax,
+  and final diffs passed checks. Changes are recorded under Unreleased. No dependency,
+  Cargo version, workflow, remote tag, published asset, or real installation changed.
 
-## User handoff
+## Previous release and user handoff
 
-1. From an installed 1.2.1 client, follow [WSL update checks](wsl.md#verify-updates):
-   check for 1.2.2, shut down each active workspace and leave its TUI, run the default
-   update, and verify the executable path/version and previous-version backup.
-2. New users and legacy API-limited clients use [fixed attachments](install.md#prebuilt-binary).
-   User documentation starts at [README.md](../README.md) or [README.zh-CN.md](../README.zh-CN.md).
-3. Verify logs, controls, reconnect, and rollback in the real target environment.
-   This task did not modify real installations or stop real projects; controlled
-   success does not establish full X03 acceptance. Future publication requires its
-   corresponding task authorization; [release maintenance](releasing.md) describes the process.
+- [v1.2.2](https://github.com/Jackie733/devctl/releases/tag/v1.2.2) remains the published
+  Latest; [run 38871736455](https://github.com/Jackie733/devctl/actions/runs/38871736455)
+  passed build/publication/anonymous verification. Its build source is
+  19d79f024af983d8a236adf6fa7dedcfcb905ed6; the real 1.2.1 → 1.2.2 default upgrade and
+  rollback were verified in a temporary HOME. No published artifact/tag is changed.
+- The new progress UI requires a future release or a local source build. This task
+  does not modify the user's real installation or stop real workspaces. Target WSL
+  visual/use acceptance and overall X03 acceptance remain separate from controlled tests.

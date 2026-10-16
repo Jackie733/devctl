@@ -3,6 +3,15 @@
 User-facing changes are grouped by released version. Download artifacts from
 [GitHub Releases](https://github.com/Jackie733/devctl/releases).
 
+## Unreleased
+
+- Add terminal update stages with a spinner, real download byte progress, adaptive
+  width, mean transfer speed and approximate ETA; show check-only/no-op/rollback
+  states without fabricated download progress.
+- Respect NO_COLOR and use plain stage output when redirected or TERM=dumb. Preserve
+  stdout results and child diagnostics, suspend animation around child output, and
+  keep the existing checksum, installation, backup, and rollback protections.
+
 ## 1.2.2 — 2026-10-16
 
 - Rework the public project documentation in English, with a matching Simplified

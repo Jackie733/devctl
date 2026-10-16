@@ -443,6 +443,38 @@ not echoed. Missing old manifests advise external installation; no API fallback,
 automatic retry, or alternate source is introduced. Published 1.2.0 binaries keep
 their old API behavior and need a newer binary to use the manifest protocol.
 
+### Progress presentation
+
+`update::progress::Progress` owns the transient stderr line, stage label, frame,
+byte count, and elapsed time. It has no installation authority and owns no workspace
+resources. The updater explicitly begins/completes stages around validated results;
+its outer error path clears the line and marks the active stage failed before main
+reports the cause. A guard clears unfinished output on normal future destruction.
+No raw/alternate-screen/cursor-hidden modes are entered, so no persistent terminal
+mode needs restoration. Existing signal behavior is unchanged.
+
+A 100 ms Tokio interval, skipping missed ticks, is polled alongside download/installer
+I/O. Readiness of network bytes is not required for spinner movement. Count only
+successfully written program bytes against the validated size; compute mean speed
+and approximate remaining time from monotonic elapsed time. Unknown totals use a
+spinner, not a fabricated percentage. Layout rechecks terminal width per frame,
+reserves the final column to avoid wrapping, and removes detail as width shrinks.
+
+Animate only when stdout and stderr are terminals and TERM is not `dumb`; respect
+NO_COLOR independently. All frame/stage writes are best-effort presentation and do
+not change an installation result. Curl diagnostics and installer stdout/stderr are
+piped and relayed in fixed-size chunks, clearing/pausing animation on first output.
+There is no unbounded diagnostic buffer. A partial final stderr line is terminated
+before the stage result. Installer output is drained for up to one second after the
+child exits so inherited pipes cannot hold up completion; an omitted-output/read
+problem is reported without replacing the actual exit status. Download deadlines,
+limits, source selection, and the embedded installer's state machine remain intact.
+
+Real PTY checks cover progress during delayed I/O, byte percentages, width limits,
+NO_COLOR, TERM=dumb, output redirection, diagnostic isolation, checks/no-op updates,
+and offline rollback. Actual process/installation outcomes remain the existing
+integration tests' oracle; animation does not establish installation success.
+
 ### Installer protection and verification
 
 Each request owns a 0700 temporary child of `~/.local/bin`; its guard cleans only
