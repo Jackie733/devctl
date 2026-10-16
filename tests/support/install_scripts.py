@@ -90,6 +90,17 @@ class InstallScripts(unittest.TestCase):
         self.run_script("devctl-update", "http://example.invalid/devctl", "0" * 64, ok=False)
         self.assertFalse(self.target.exists())
 
+    def test_release_version_mismatch_preserves_program_and_backup(self):
+        self.install_version("1.0.0")
+        installed = self.install_version("1.1.0")
+        backup = self.previous.read_bytes()
+        path = self.candidate("wrong-version", "echo 'devctl 1.2.0'")
+        self.env["DEVCTL_UPDATE_EXPECTED_VERSION"] = "1.3.0"
+        result = self.run_script("devctl-update", path, hashlib.sha256(path.read_bytes()).hexdigest(), ok=False)
+        self.assertIn("version does not match", result.stderr)
+        self.assertEqual(self.target.read_bytes(), installed)
+        self.assertEqual(self.previous.read_bytes(), backup)
+
     def test_concurrent_update_and_custom_symlink_are_rejected(self):
         installed = self.install_version("first")
         with (self.bin / ".devctl-update.lock").open("w") as lock:

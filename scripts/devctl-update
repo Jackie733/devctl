@@ -67,6 +67,9 @@ fi
 chmod 755 -- "$stage/devctl"
 version=$(timeout 5 "$stage/devctl" --version) || fail 'Candidate cannot run; installed version unchanged.'
 [[ "$version" == 'devctl '* ]] || fail 'Candidate did not report a devctl version.'
+if [[ -n ${DEVCTL_UPDATE_EXPECTED_VERSION:-} ]]; then
+    [[ "$version" == "devctl $DEVCTL_UPDATE_EXPECTED_VERSION" ]] || fail 'Candidate version does not match release; installed version unchanged.'
+fi
 
 # A repeated install should not discard the useful rollback copy.
 if [[ -f "$target" ]] && cmp -s -- "$target" "$stage/devctl"; then

@@ -14,6 +14,7 @@ mod service_task;
 mod startup;
 mod supervisor;
 mod tui;
+mod update;
 
 use std::{path::Path, process::ExitCode};
 
@@ -35,8 +36,17 @@ async fn main() -> ExitCode {
 
 async fn execute(cli: Cli) -> Result<(), String> {
     let command = cli.command.unwrap_or(Command::Tui);
+    if let Command::Update {
+        check,
+        version,
+        rollback,
+    } = command
+    {
+        return update::run(check, version.as_deref(), rollback).await;
+    }
     let config_path = config::resolve_path(cli.config)?;
     match command {
+        Command::Update { .. } => unreachable!("Updates are handled before config discovery."),
         Command::Tui => tui::run(&config_path).await,
         Command::Supervise { detached } => supervisor::run(&config_path, detached).await,
         Command::Start { services, all } => {

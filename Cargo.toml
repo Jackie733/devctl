@@ -10,5 +10,7 @@ futures-util = { version = "0.3", default-features = false, features = ["std"] }
 nix = { version = "0.31.3", features = ["signal", "user", "fs"] }
 ratatui = { version = "0.30", default-features = false, features = ["std", "crossterm"] }
 serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1"
+semver = "1"
 tokio = { version = "1", features = ["macros", "rt", "process", "signal", "time", "sync", "net", "io-util"] }
 toml = "1"

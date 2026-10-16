@@ -19,6 +19,19 @@ pub struct Cli {
 
 #[derive(Debug, Subcommand)]
 pub enum Command {
+    /// Check, install, or roll back the devctl program (no workspace config needed).
+    Update {
+        /// Check the latest stable release without changing the installation.
+        #[arg(long, conflicts_with = "rollback")]
+        check: bool,
+        /// Install or check a specific stable version, for example 1.2.0.
+        #[arg(long, value_name = "VERSION", conflicts_with = "rollback")]
+        version: Option<String>,
+        /// Exchange the installed program with its previous version, without networking.
+        #[arg(long)]
+        rollback: bool,
+    },
+
     /// Open the terminal interface.
     Tui,
 
