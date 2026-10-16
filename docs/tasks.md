@@ -3,41 +3,30 @@
 Keep current work and necessary handoff here; Git retains history. Collaboration
 rules are in [AGENTS.md](../AGENTS.md).
 
-## Current: TUI visual refinement (M5 / U01, L01, P02)
+## Current: publish v1.4.0 (X03; M5 / U01, L01, P02)
 
-The user confirmed state symbols, clearer focus/selection and shortcut hierarchy,
-waiting spinners, and brief completion feedback for the existing terminal workflow.
-Implementation is local and unpublished; the public release remains
-[v1.3.0](https://github.com/Jackie733/devctl/releases/tag/v1.3.0).
+- The user authorized committing and releasing the TUI visual refinements, including
+  pushing main and the annotated version tag. Implementation commit: `8633e70`.
+- Package/lock versions and current installation examples target 1.4.0. The changelog
+  and English/Chinese overviews describe state symbols, focus and shortcut emphasis,
+  waiting animations, brief state highlights, and successful stop/copy feedback.
+- Preserve lifecycle, diagnostics, clipboard caveats, and log reading positions.
+  No new dependency, deployment configuration, or key binding is introduced.
+- Previous implementation validation passed all 244 tests (150 unit, 94 integration),
+  including ten PTY scenarios; fmt, clippy, Python syntax, and documentation checks
+  passed. Log: `/tmp/devctl-tui-refinement-tests.log`.
 
-- Service symbols retain text labels and readable state colors when selected.
-  Focused titles, connection state, log modes, and shortcut keys have distinct emphasis.
-- Client-only clocks animate waiting states and briefly highlight confirmed
-  Running/Stopped transitions. Successful stop/copy feedback expires in the main
-  view while its complete message remains in help until replaced. Start acceptance,
-  failures, unknown completion, and independent diagnostics retain their semantics.
-- No new dependency, configuration, key binding, or lifecycle operation was added.
-  Mechanisms are in [DESIGN.md](../DESIGN.md#tui-ownership-and-rendering); visible
-  behavior is in [interaction.md](interaction.md#layout-help-and-confirmation).
-- The copy PTY scenario now waits for help to actually close before resizing:
-  V-LINE alone could match the background and race the terminal resize.
+## Release work and next steps
 
-## Validation
-
-- `cargo test --locked` passed all 244 tests (150 unit, 94 integration), including
-  all ten PTY scenarios and five added behavior tests. All 63 TUI unit tests also
-  passed in the focused run. Log: `/tmp/devctl-tui-refinement-tests.log`.
-- `cargo fmt --check` and `cargo clippy --locked --all-targets -- -D warnings` passed.
-- Python AST parsing, changed Markdown fences/local link targets, and diff whitespace
-  checks passed.
-- One restricted-sandbox run could not create temporary Unix sockets; the full
-  suite passed when rerun with the required local socket/PTY access.
-
-## Next steps and acceptance
-
-- Review actual font rendering, contrast, animation cadence, and compact layout in
-  Windows Terminal/WSL with real project output. Automated checks do not establish
-  visual acceptance. No installation, release, or push is part of this task.
-- The earlier X03 WSL update acceptance remains pending. The published 1.3.0 release
-  and its CI/public-artifact verification are complete; see
-  [update verification](wsl.md#verify-updates) for remaining user checks.
+- Validate version/documentation consistency, commit release preparation, then push
+  main and a new annotated v1.4.0 tag. Do not replace existing tags or releases.
+- Follow the existing [release workflow](releasing.md): all CI checks, static build,
+  installer/artifact/packaging and PTY checks, complete draft-first publication,
+  then anonymous public verification. Record actual results and build identity.
+- Verify the real public 1.3.0 client upgrades to 1.4.0 in a temporary HOME, preserving
+  the old binary, configuration, rollback, and recovery behavior. Do not modify the
+  user's installation or active workspaces.
+- Actual Windows Terminal/WSL font rendering, contrast, animation cadence, compact
+  layout, and X03 update acceptance remain user checks; automated verification does
+  not establish visual or real-project acceptance. See
+  [WSL verification](wsl.md#verify-updates).

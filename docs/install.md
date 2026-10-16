@@ -2,7 +2,7 @@
 
 The supported release target is Linux x86_64, including WSL2. Use the
 [WSL guide](wsl.md) for Windows integration. Releases are public and do not require
-GitHub authentication. Current release: **1.3.0**.
+GitHub authentication. Current release: **1.4.0**.
 
 ## Requirements
 
@@ -21,27 +21,27 @@ Download the program, external installer, and checksums into a new version-speci
 directory. This uses fixed release URLs rather than the GitHub REST API:
 
 ```sh
-mkdir -p "$HOME/Downloads/devctl-v1.3.0"
-cd "$HOME/Downloads/devctl-v1.3.0"
+mkdir -p "$HOME/Downloads/devctl-v1.4.0"
+cd "$HOME/Downloads/devctl-v1.4.0"
 curl --disable --fail --fail-early --location \
   --proto '=https' --proto-redir '=https' \
   --connect-timeout 10 --max-time 180 --remote-name-all \
-  'https://github.com/Jackie733/devctl/releases/download/v1.3.0/devctl-v1.3.0-x86_64-unknown-linux-musl' \
-  'https://github.com/Jackie733/devctl/releases/download/v1.3.0/devctl-update' \
-  'https://github.com/Jackie733/devctl/releases/download/v1.3.0/SHA256SUMS'
+  'https://github.com/Jackie733/devctl/releases/download/v1.4.0/devctl-v1.4.0-x86_64-unknown-linux-musl' \
+  'https://github.com/Jackie733/devctl/releases/download/v1.4.0/devctl-update' \
+  'https://github.com/Jackie733/devctl/releases/download/v1.4.0/SHA256SUMS'
 sha256sum --check --ignore-missing SHA256SUMS
 ```
 
 Continue only when download and verification succeed. `--ignore-missing` skips the
 source archive and `update.json` if you did not download them. You can also download
-the same files from the [release page](https://github.com/Jackie733/devctl/releases/tag/v1.3.0).
+the same files from the [release page](https://github.com/Jackie733/devctl/releases/tag/v1.4.0).
 
 For an existing installation, first [shut down active workspaces](#before-switching-versions)
 and leave their TUIs. Then install:
 
 ```sh
-binary_sha=$(awk '$2 == "devctl-v1.3.0-x86_64-unknown-linux-musl" { print $1 }' SHA256SUMS)
-bash ./devctl-update ./devctl-v1.3.0-x86_64-unknown-linux-musl "$binary_sha"
+binary_sha=$(awk '$2 == "devctl-v1.4.0-x86_64-unknown-linux-musl" { print $1 }' SHA256SUMS)
+bash ./devctl-update ./devctl-v1.4.0-x86_64-unknown-linux-musl "$binary_sha"
 export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
 hash -r
 command -v devctl
@@ -49,7 +49,7 @@ devctl --version
 ```
 
 In Zsh use `rehash` instead of `hash -r`. The result should be
-`~/.local/bin/devctl` and `devctl 1.3.0`. The installer preserves an existing
+`~/.local/bin/devctl` and `devctl 1.4.0`. The installer preserves an existing
 program as `~/.local/bin/devctl.previous`; a first installation has no backup.
 Installing identical bytes again preserves the useful previous version.
 
@@ -85,9 +85,9 @@ devctl update
 devctl --version
 ```
 
-To test the real **1.2.2 → 1.3.0** upgrade, check that your initial version is 1.2.2,
+To test the real **1.3.0 → 1.4.0** upgrade, check that your initial version is 1.3.0,
 check for an available update, complete the shutdown step, run `devctl update`, and
-confirm version 1.3.0. The old binary should be retained as `devctl.previous`.
+confirm version 1.4.0. The old binary should be retained as `devctl.previous`.
 A subsequent check should report that the running version is current. Terminal
 progress is provided by clients 1.3.0 and later; the initial upgrade from 1.2.2
 still uses the older client's output.
@@ -95,8 +95,8 @@ still uses the older client's output.
 A specific stable release can be checked or installed explicitly:
 
 ```sh
-devctl update --check --version 1.3.0
-devctl update --version 1.3.0
+devctl update --check --version 1.4.0
+devctl update --version 1.4.0
 ```
 
 Explicit selection permits same-version installation and downgrades. The selected
@@ -126,7 +126,7 @@ If the restored client has no update command or still uses the old API, restore 
 new program using the verified installer you downloaded earlier:
 
 ```sh
-bash "$HOME/Downloads/devctl-v1.3.0/devctl-update" --rollback
+bash "$HOME/Downloads/devctl-v1.4.0/devctl-update" --rollback
 hash -r
 devctl --version
 ```
@@ -145,7 +145,7 @@ sudo apt update
 sudo apt install -y build-essential curl git python3 zsh
 git clone https://github.com/Jackie733/devctl.git
 cd devctl
-git switch --detach v1.3.0
+git switch --detach v1.4.0
 cargo build --release --locked
 ./target/release/devctl --version
 ```

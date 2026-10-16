@@ -3,6 +3,20 @@
 User-facing changes are grouped by released version. Download artifacts from
 [GitHub Releases](https://github.com/Jackie733/devctl/releases).
 
+## 1.4.0 — 2026-10-16
+
+- Add service-state symbols, a distinct selection marker, emphasized panel focus,
+  connection status, shortcuts, and FOLLOW/READ/V-LINE modes without requiring
+  Nerd Fonts. Preserve readable state colors on selected rows and compact layouts.
+- Animate waiting for service operations, clipboard results, log loading, and
+  searches. Briefly highlight confirmed Running/Stopped transitions without moving
+  log reading positions or treating start acceptance as application readiness.
+- Hide ordinary successful stop/copy feedback after two seconds while retaining
+  its full text and clipboard caveats in help. Keep failures, unknown completion,
+  and independent connection/service/log diagnostics visible.
+- Synchronize the copy PTY test with actual help closure before resizing, avoiding
+  a race where its background selection marker satisfied the wait prematurely.
+
 ## 1.3.0 — 2026-10-16
 
 - Add terminal update stages with a spinner, real download byte progress, adaptive
