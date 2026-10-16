@@ -30,6 +30,8 @@ The 1.2.2 documentation/license release provides the next real version for testi
 | 1 | Real WSL log and UI feedback | Follow the [WSL checks](wsl.md#verify-logs) with actual project output, search, copy, reconnect and shutdown |
 | 2 | Real WSL cross-version update/rollback | Follow [update verification](wsl.md#verify-updates); confirm paths, versions, backups and retained configuration |
 | 3 | Fix demonstrated usability or reliability issues | Reproduce the issue and connect the smallest fix to an existing requirement |
+| 4 | M7: directory onboarding and environment preparation (A01/A02, W05 package.json import) | Refine open decisions, then implement the [directory workflow](requirements.md#directory-onboarding-and-environment-automation-a01a03); not yet implemented |
+| 5 | M8: infrastructure discovery, monitoring and control (A03) | Research actual database/Redis deployment sources and shared-service behavior before implementation |
 | Later | Assess candidates when concrete scenarios justify them | Preserve the complete [candidate list](requirements.md#post-mvp-scope); do not schedule automatically |
 
 Dedicated restart shortcuts may be worth assessing if explicit stop/start becomes

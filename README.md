@@ -39,6 +39,12 @@ are available, but runtime dependency orchestration, readiness probes, automatic
 restarts, and recovery after a machine reboot are not implemented. See the
 [roadmap](docs/roadmap.md) for the distinction between delivered and proposed work.
 
+Planned automation will accept a project directory, derive startup configuration,
+check and help install its environment/dependencies, and discover, monitor and
+control database/Redis services. These features are not implemented. Database
+creation, migrations and application configuration generation are outside this
+increment. See [scope and open decisions](docs/requirements.md#directory-onboarding-and-environment-automation-a01a03).
+
 ## Installation
 
 Get the binary, external installer, and checksums from

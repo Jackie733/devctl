@@ -3,48 +3,40 @@
 Keep current work and necessary handoff here; Git retains history. Collaboration
 rules are in [AGENTS.md](../AGENTS.md).
 
-## Current: v1.4.0 published; WSL visual/update acceptance pending (U01 / X03)
+## Current: automation scope recorded; implementation deferred (M7/M8, A01–A03)
 
-- The user authorized committing and releasing the TUI visual refinements, including
-  pushing main and the annotated version tag. Implementation commit: `8633e70`.
-- [v1.4.0](https://github.com/Jackie733/devctl/releases/tag/v1.4.0) is public, stable,
-  and Latest. The annotated tag points to build commit
-  `37758491cb7124a7bbc7c36178dc001ac7a6358d`; release notes record the same identity.
-- Package/lock versions and installation examples target 1.4.0. English/Chinese
-  overviews and the changelog describe state symbols, focus/shortcut emphasis,
-  waiting animations, brief state highlights, and successful stop/copy feedback.
-  Behavior refines M5 / U01, L01, P02; lifecycle, diagnostics, clipboard caveats,
-  and log reading positions retain their contracts. No new dependency, deployment
-  configuration, or key binding was added.
+- Recorded the confirmed directory onboarding scenario, environment checks/setup,
+  and database/Redis discovery, monitoring and control in
+  [requirements](requirements.md#directory-onboarding-and-environment-automation-a01a03).
+- [Roadmap](roadmap.md#next-steps) sequences M7 (A01/A02 and W05 package.json import)
+  before M8 (A03). English/Chinese overviews distinguish planned from shipped work.
+- This task is discussion/documentation only. No automation code, configuration
+  schema, command or installation behavior has been implemented.
 
-## Publication and validation evidence
+## Next development tasks
 
-- [Release run 38883387229](https://github.com/Jackie733/devctl/actions/runs/38883387229)
-  completed build, publish, and public verification successfully. CI passed fmt,
-  clippy, all 244 Rust tests (150 unit, 94 integration), eleven installer tests,
-  static build/artifact checks, four packaging tests, and ten actual static-binary
-  TUI PTY scenarios. Release workflow configuration is unchanged.
-- All five attachments are uploaded: Linux x86_64 musl program, external installer,
-  exact source archive, update.json, and SHA256SUMS. Anonymous downloads and all
-  four digests passed. Manifest size/digest/version matched the binary, which
-  reported 1.4.0 and had no INTERP/NEEDED entries. The decompressed source archive
-  exactly matched git archive of the tagged build commit.
-- The real public 1.3.0 client performed its default online upgrade to the exact
-  1.4.0 bytes in a temporary HOME, retaining 1.3.0 as its backup. Latest/specified
-  checks, no-op and same-version backup preservation, offline rollback, external
-  recovery, and configuration preservation passed. No user installation or active
-  workspace was modified. Earlier public versions and attachments are unchanged.
-- Logs: `/tmp/devctl-v1.4.0-actions.log`, `/tmp/devctl-v1.4.0-ci.log`, and
-  `/tmp/devctl-v1.4.0-public-verification.log`; fixtures:
-  `/tmp/devctl-v1.4.0-public-zz42jtfc`. Locked version metadata, local fmt, Markdown
-  fences/links/anchors, and diff checks passed. Prior implementation test evidence
-  remains in `/tmp/devctl-tui-refinement-tests.log`.
+1. Refine the open decisions in A01–A03 against representative user repositories
+   and actual database/Redis installation sources; retain the WSL Node/npm baseline.
+2. Design M7 discovery, checks, command selection, configuration persistence and
+   setup feedback; connect validation to the specified acceptance scenarios.
+3. Design M8 service identity, monitoring and supported control boundaries, including
+   shared instances. Keep historical candidate requirements available for assessment.
 
-## Next steps and acceptance
+## Existing release handoff
 
-- The user upgrades after shutting down each active workspace and leaving its TUI;
-  follow [installation](install.md#update) and
-  [WSL verification](wsl.md#verify-updates) for the real 1.3.0 → 1.4.0 workflow.
-- Verify actual font rendering, contrast, animation cadence, compact layout, and
-  real-project log interaction in Windows Terminal/WSL. Automated checks establish
-  coverage, not visual or real-project acceptance; U01/X03 user checks remain pending.
+- v1.4.0 is published; implementation `8633e70`, tagged build
+  `37758491cb7124a7bbc7c36178dc001ac7a6358d`. The
+  [release run](https://github.com/Jackie733/devctl/actions/runs/38883387229)
+  passed CI and public artifact/update verification; detailed history is in Git.
+- U01/X03 real WSL visual/log/update acceptance remains pending. Follow
+  [WSL verification](wsl.md) and [installation](install.md#update), shutting down
+  active workspaces and leaving their TUIs before switching versions.
+
+## Validation
+
+- Documentation-only validation passed: `git diff --check`; Python local Markdown
+  link/anchor checks for all five changed files; manual diff and English/Chinese
+  scope consistency review. External research links were retained from discussion,
+  not re-fetched during this documentation task.
+- No Rust tests are required for this task; automation behavior remains unverified
+  because it is not implemented.

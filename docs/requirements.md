@@ -82,7 +82,8 @@ acceptance. Do not treat a release or consistent documentation as user acceptanc
 
 ## Post-MVP scope
 
-Logging and public release/self-update are confirmed follow-up work. Other entries
+Logging, public release/self-update, and directory-based onboarding/environment
+automation are confirmed follow-up directions. Entries marked candidate
 remain candidates for assessment; retaining a proposal is not scheduling it, and
 simplifying documentation must not silently cancel it.
 
@@ -102,7 +103,8 @@ simplifying documentation must not silently cancel it.
 | X01, X02 | Native macOS and Windows | Candidate |
 | X03 | Public distribution and self-update | Public releases and updater delivered; full target WSL acceptance pending |
 | P06 | Service PTYs, stdin forwarding, interactive commands | Candidate |
-| W05 | package.json/Procfile import and devctl-managed file-watch restart | Candidate |
+| W05 | package.json/Procfile import and devctl-managed file-watch restart | package.json import is included in A01; Procfile import and file-watch restart remain candidates |
+| A01–A03 | Directory onboarding, environment checks and setup, infrastructure discovery/monitoring/control | Confirmed future scope; see [automation](#directory-onboarding-and-environment-automation-a01a03); not implemented |
 | Configuration extensions | Environment/tilde path expansion, env_files/env overrides | Candidate; existing literal path/environment behavior remains |
 
 An earlier 20-service performance budget is a proposal, not measured evidence.
@@ -110,6 +112,75 @@ Existing configuration and planning code remain; unsupported runtime dependencie
 must be rejected before startup rather than silently ignored. Historical detailed
 proposals are available in Git. Cross-project aggregation, complex filters, and AI
 log assistance remain candidates, with logging foundations preceding AI assessment.
+
+### Directory onboarding and environment automation (A01–A03)
+
+Confirmed for future development on 2026-10-16; this records product intent, not
+implementation or user acceptance. The priority scenario is: provide an existing
+project directory, inspect its environment, derive installation/start commands,
+and add it to the workspace without hand-writing `devctl.toml`.
+
+| ID | Capability | Observable acceptance |
+| --- | --- | --- |
+| A01 | Directory discovery and workspace onboarding | Identify projects and startup candidates from repository declarations; save project path, working directory and selected command; repeat discovery without duplicates or overwriting user edits |
+| A02 | Environment checks and setup | Report missing/incompatible runtimes, package managers and project dependencies; offer installation with visible commands/results; recheck before starting the project |
+| A03 | Database and Redis discovery, monitoring and control | Identify relevant instances and their management source, show availability, and offer supported start/stop controls; relate instances to projects and preserve shared services when stopping a project |
+
+First workflow:
+
+1. Accept a directory and identify its project, or present candidates when it contains
+   multiple projects. Read manifests, lockfiles, version declarations and existing
+   Compose configuration. Node/npm projects in WSL are the initial research baseline;
+   supported ecosystems and directory traversal limits remain to be decided.
+2. Derive installation/start commands and working directories from explicit evidence.
+   Present ambiguous entry points for selection; do not execute repository commands
+   just to discover them. Existing declarations take precedence over guesses.
+3. Report environment checks as satisfied, missing, incompatible or unknown. Infer
+   infrastructure needs from explicit connection/service configuration; a client
+   library alone does not establish an instance, endpoint or required version.
+4. Generate workspace configuration, reuse existing entries and preserve user edits.
+   Offer setup actions with logs and failures, then recheck and allow normal project
+   startup and log inspection. Selecting a directory alone does not authorize installs
+   or service changes. The exact CLI/TUI flow remains to be designed.
+
+A03 remains part of the broader automation scope, not cancelled by prioritizing
+A01/A02. Research system services, Docker/Compose, devctl-managed processes,
+externally started processes and configured remote endpoints. Discovery must also
+consider installed but stopped services. A listening port is a clue, not verified
+service identity. Display management source and available control capabilities;
+discovery or workspace inclusion alone does not imply ownership of a process.
+Distinguish installation, process state and application availability, including
+unknown/stale checks and authentication failures. A reachable database is not proof
+that the project's credentials work. Shared or pre-existing services must not be
+stopped implicitly with an individual project; explicit service controls should
+identify affected projects. Stopping a database must preserve its data.
+
+Creating databases, executing migrations and generating application/business
+configuration are outside this increment. Runtime/dependency installation is in
+scope; installing new database/Redis instances, supported installation methods,
+privilege handling and version isolation still need assessment. Editor setup is
+outside this scenario. Historical D01–D05, P03 and R01 proposals remain available;
+this discussion does not authorize automatic restart, cascading shutdown or reboot
+recovery. Existing configuration and runtime contracts remain until implemented.
+
+Before implementation, settle scan/import policy, monorepo handling, supported
+runtimes/package managers and database types, installation behavior, credential
+handling, and management boundaries across WSL, Windows hosts, containers and remote
+services. Define how generated configuration is applied to a running supervisor.
+
+Acceptance must cover a real supplied directory without manual TOML authoring,
+missing/incompatible dependencies, ambiguous commands, repeated import preserving
+edits, installation failure/retry, and normal start/log/stop behavior. For A03,
+include stopped and unreachable instances, authentication failure, unavailable
+management permissions, and two projects sharing one service. Tests alone do not
+establish real-environment acceptance.
+
+Research starting points (not selected implementation mechanisms):
+
+- [Compose startup order and readiness](https://docs.docker.com/compose/how-tos/startup-order/)
+- [PostgreSQL connection readiness](https://www.postgresql.org/docs/current/app-pg-isready.html)
+- [Redis PING](https://redis.io/docs/latest/commands/ping/)
+- [WSL systemd support](https://learn.microsoft.com/en-us/windows/wsl/systemd)
 
 ### Public releases and self-update (X03)
 
@@ -171,7 +242,9 @@ feedback by [interaction.md](interaction.md#logs-and-search).
 
 The accepted scenario uses Linux Node/npm commands inside WSL; exact versions,
 package managers, dependencies, editors, and mini-program tooling belong to each
-project. devctl does not install project dependencies or manage editor configuration.
+project. The current release does not install project dependencies or manage editor
+configuration. Planned environment setup is scoped separately under
+[A01–A03](#directory-onboarding-and-environment-automation-a01a03).
 Background execution is not boot startup, machine-restart recovery, or adoption of
 processes created outside devctl. Target-environment verification remains a user
 workflow, distinct from controlled tests on a build runner.

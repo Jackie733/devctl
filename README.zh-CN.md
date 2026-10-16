@@ -23,6 +23,8 @@
 
 开发命令需要能够非交互运行。目前支持依赖校验与计划展示，尚未实现运行时依赖编排、就绪探针、自动重启或机器重启后的恢复。已交付和候选功能的区别见[路线图](docs/roadmap.md)。
 
+后续计划支持提供项目目录后自动识别启动指令、生成工作台配置、检查并辅助安装环境与依赖，以及发现、监测和控制数据库、Redis 等服务。上述功能尚未实现；本期不包含创建数据库、执行迁移或生成业务配置。具体范围与待定项见[自动化需求](docs/requirements.md#directory-onboarding-and-environment-automation-a01a03)。
+
 ## 安装
 
 从 [GitHub Releases](https://github.com/Jackie733/devctl/releases/latest) 下载程序、外部安装器与校验值，按[安装指南](docs/install.md#prebuilt-binary)校验后安装到 `~/.local/bin/devctl`。无需 GitHub 账号、Token 或本地编译。详细参考文档以英文维护。
