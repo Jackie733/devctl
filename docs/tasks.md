@@ -2,25 +2,22 @@
 
 这里只保留当前任务与必要交接；历史见 Git，协作规则见 [AGENTS.md](../AGENTS.md)。
 
-## 当前任务：Release 清单更新（X03）
+## 当前任务：发布 1.2.1，供用户迁移（X03）
 
-- 用户在目标环境执行 1.2.0 的 update 时遇到匿名 GitHub REST API 限流，已确认改用随构建产物一同发布的 update.json；本轮范围为客户端、打包、Actions、测试和文档调整，不自动推送、创建标签或发布。
-- 最新版本读取 releases/latest/download/update.json，指定版本读取 releases/download/v<VERSION>/update.json。校验清单格式、稳定版本、唯一平台、精确文件名、大小和摘要；获取明确版本后固定下载该版本程序，不再调用 REST API，不使用凭据。
-- 构建与验证完成后从实际程序生成清单，SHA256SUMS 覆盖清单；清单和程序等五个附件一同上传草稿，成功后才公开并设为 Latest。沿用安装器的锁、备份、失败保护、离线回退和配置保留规则。
-- 清单协议见 [DESIGN.md §8.1](../DESIGN.md#81-更新清单与下载约定)，操作与兼容边界见 [interaction.md §4](interaction.md#4-命令内自更新120)，发布顺序见 [releasing.md](releasing.md)。
+- 用户已明确授权发布新版本，以便从受匿名 API 限流影响的 1.2.0 迁移。本轮包括补丁版本 1.2.1 的准备、提交、推送、带说明标签、Actions 发布与公开附件验证；不修改用户实际安装、不停止真实项目，目标 WSL 验收留给用户。
+- a402d95 已实现 Release 清单协议。1.2.1 最新和指定版本检查直接读取 update.json，不调用 REST API；安装按清单明确版本下载，核对文件名、长度、SHA-256 和候选版本，沿用原安装、备份与离线回退保护。
+- Cargo.toml、Cargo.lock、CHANGELOG、当前安装与迁移说明已更新为 1.2.1；1.2.0 及更旧的标签和附件不覆盖。发布顺序见 [releasing.md](releasing.md)，清单约定见 [DESIGN.md §8.1](../DESIGN.md#81-更新清单与下载约定)。
 
-## 验证证据
+## 验证与发布进度
 
-- 更新模块 2 项单元测试与全部 10 项更新 CLI 测试通过：清单缺失/无效/过大、版本与平台不符、重复平台、文件名、摘要、下载失败、长度不符和候选版本错误时保留安装与备份；检查与回退不依赖配置；请求 URL 固定到官方仓库和明确版本。
-- 新增 4 项打包测试通过：临时 Git 仓库生成真实程序的清单并由真实客户端读取、检查、安装与回退；核对清单与 SHA256SUMS、源码归档和构建提交；拒绝标签不符、脏源码及覆盖已有目录。
-- cargo fmt --check、cargo clippy --locked --offline --all-targets -- -D warnings、bash -n、actionlint 1.7.12 检查通过；本地 actionlint 未启用未安装的 ShellCheck。
-- cargo test --locked --offline：235 项通过（142 单元、93 集成，含 10 个真实 PTY）；日志 /tmp/devctl-manifest-cargo-test.log。python3 tests/support/install_scripts.py：11 项通过。
-- cargo build --release --locked --offline --target x86_64-unknown-linux-musl 成功；用实际静态程序再次运行上述 4 项打包/清单消费测试通过，release_artifact.py 的静态链接、首次/重复安装、错误摘要、回退和配置保留检查通过。
-- 12 个 Markdown 文档、92 个本地链接/锚点、围栏及改动 Python 脚本语法检查通过。未推送或触发 Actions；新格式的公开网络验证须待新版本实际发布。
+- 上一轮 a402d95 已通过 235 项 Rust 测试、11 项安装器测试、4 项真实程序打包/清单消费测试及 musl 静态程序安装/回退检查。fmt、clippy、actionlint 与文档检查通过。
+- 1.2.1 本地 cargo test --locked --offline：235 项通过（142 单元、93 集成，含 10 个真实 PTY）；日志 /tmp/devctl-v1.2.1-tests.log。cargo fmt --check 与 cargo clippy --locked --offline --all-targets -- -D warnings 通过。
+- 1.2.1 musl 静态构建、4 项真实程序打包/清单消费测试，以及静态链接、首次/重复安装、错误摘要、离线回退和配置保留检查通过。12 个 Markdown 文档、92 个本地链接/锚点与围栏检查通过。
+- 发布准备已完成，下一步提交并推送 main 和新的 v1.2.1 标签，再验证干净源码打包与 Actions。草稿附件上传、正式公开与匿名验证分别记录实际结果，不把准备完成视为发布成功。
+- 发布前已确认仓库 Public、默认分支 main，远端 v1.2.1 不存在；远端 main 与 a402d95 一致。
 
-## 上一版本与后续交接
+## 迁移与待验收
 
-- [v1.2.0](https://github.com/Jackie733/devctl/releases/tag/v1.2.0) 已公开发布，原四个附件与标签保持原样，构建提交 09e735d98d3ef76a6c5414af7bdf0108dd7d8e0f。[发布运行](https://github.com/Jackie733/devctl/actions/runs/38861746895) 和 [原协议匿名验证](https://github.com/Jackie733/devctl/actions/runs/38862477073) 已成功，不代表新清单协议已在线发布或目标 WSL 已验收。
-- 这次修改记录于 CHANGELOG 的未发布部分，尚未确定下一版本或发布新产物；1.2.0 已安装程序继续使用原 API 逻辑，不能仅靠修改远端工作流消除客户端限流。
-- 后续以新版本号发布含清单的程序。旧客户端如仍受 API 限流，先用外部更新器安装新版；新客户端安装无清单的历史版本也使用外部更新器，不修改旧 Release。新格式的公开下载、Latest 入口和 Actions 真实运行待新版本发布后验证。
-- 用户随后按 [WSL 指南](wsl.md#42-120-安装与自更新验收) 验收真实环境；本轮不修改真实安装、不停止项目。X03 尚未整体验收。后续推送、标签和发布按相应任务授权执行。
+- 1.2.0 程序仍使用旧 API，受限流时按 [固定附件安装](wsl.md#0-安装-121-发布程序无需-rust) 下载 1.2.1 并用外部更新器迁移；安装前由用户显式结束各工作区后台并退出旧 TUI。无需 Rust、GitHub Token 或源码编译。
+- 新版安装后，按 [1.2.1 验收](wsl.md#42-121-安装与自更新验收) 核对实际路径、版本、清单检查、回退及三个项目体验。回退至旧程序后，用已下载的外部更新器恢复，不依赖旧 API。
+- 新客户端安装无清单的历史版本仍使用外部更新器。下一次真实发布可继续验收从 1.2.1 到更新版本的默认升级，同版本重装不冒充跨版本升级。X03 尚未整体验收。

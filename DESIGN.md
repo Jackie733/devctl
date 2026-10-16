@@ -272,7 +272,7 @@ Linux 初版采用本地 Unix socket，运行目录仅当前用户可访问。�
 
 `main` 在配置发现前将 Update 分支交给 `update` 模块。它不访问 Manager、工作区锁、控制 socket 或日志目录，也不停止服务。回退直接调用嵌入的 `scripts/devctl-update`，不执行网络请求。安装目标与外部安装器一致，固定为 `~/.local/bin/devctl`；当前版本是运行中二进制的 Cargo 包版本。
 
-更新源固定为公开仓库 `Jackie733/devctl` 的 GitHub Releases。开发版改为直接下载 `releases/latest/download/update.json`，指定版本则下载 `releases/download/v<VERSION>/update.json`，不调用 GitHub REST API，也不读取 GitHub 凭据。使用 GitHub 官方支持的[最新附件链接](https://docs.github.com/en/repositories/releasing-projects-on-github/linking-to-releases)，避开匿名 REST API 的共享 IP 配额；普通下载仍可能受 GitHub 的网络或服务限制。latest 由 GitHub 的发布标记决定，不扫描全部标签推断版本；用 SemVer 比较，默认不降级当前运行版本，指定版本可显式降级。
+更新源固定为公开仓库 `Jackie733/devctl` 的 GitHub Releases。1.2.1 起直接下载 `releases/latest/download/update.json`，指定版本则下载 `releases/download/v<VERSION>/update.json`，不调用 GitHub REST API，也不读取 GitHub 凭据。使用 GitHub 官方支持的[最新附件链接](https://docs.github.com/en/repositories/releasing-projects-on-github/linking-to-releases)，避开匿名 REST API 的共享 IP 配额；普通下载仍可能受 GitHub 的网络或服务限制。latest 由 GitHub 的发布标记决定，不扫描全部标签推断版本；用 SemVer 比较，默认不降级当前运行版本，指定版本可显式降级。
 
 ### 8.1 更新清单与下载约定
 
@@ -292,7 +292,7 @@ Linux 初版采用本地 Unix socket，运行目录仅当前用户可访问。�
 
 保留现有程序附件名和 SHA256SUMS，供外部安装及旧客户端使用；SHA256SUMS 新增 update.json 的摘要，命令内更新直接使用 JSON 中的程序摘要。清单下载上限为 64 KiB，程序上限为 128 MiB。curl 禁用配置文件、仅允许 HTTPS 及 HTTPS 重定向、最多 5 次跳转、连接期限 10 秒、请求期限 180 秒；Rust 以 64 KiB 缓冲流式写盘并限制总量，外层期限 190 秒，避免旧版 [curl --max-filesize](https://curl.se/docs/manpage.html#--max-filesize) 在未知 Content-Length 时无法限制下载。失败时结束并回收下载子进程。
 
-curl 继续使用 [--fail-with-body](https://curl.se/docs/manpage.html#--fail-with-body)，需要 curl 7.76.0+；HTTP 失败正文同样受大小约束，不作为成功清单，也不输出原始正文。没有 update.json 的旧 Release 提示外部安装器，不回退 REST API、不自动重试或切换来源。已发布的 1.2.0 程序仍使用原 API 机制；这次更改随下一新版交付，不覆盖旧标签或附件。用户首次迁移可用外部更新器安装新版；新客户端若需安装无清单的历史版本，也使用外部更新器。
+curl 继续使用 [--fail-with-body](https://curl.se/docs/manpage.html#--fail-with-body)，需要 curl 7.76.0+；HTTP 失败正文同样受大小约束，不作为成功清单，也不输出原始正文。没有 update.json 的旧 Release 提示外部安装器，不回退 REST API、不自动重试或切换来源。已发布的 1.2.0 程序仍使用原 API 机制；1.2.1 交付清单协议，不覆盖旧标签或附件。用户首次迁移可用外部更新器安装新版；新客户端若需安装无清单的历史版本，也使用外部更新器。
 
 ### 8.2 安装保护与发布验证
 
