@@ -81,7 +81,7 @@ cargo +stable build --release --locked
 ./target/release/devctl --version
 ```
 
-先核对包版本为 1.1.0。自动测试预期 214 项 Rust/集成检查（其中 10 个真实 PTY 场景）全部通过；安装脚本另有独立 Python 测试，使用临时 HOME，不替换当前安装。测试使用临时配置、进程和状态目录，不启动上述三个真实项目、不写入真实 Windows 剪贴板。最后一行必须输出 `devctl 1.1.0`。
+先核对包版本为 1.1.0。自动测试预期 220 项 Rust/集成检查（其中 10 个真实 PTY 场景）全部通过；安装脚本另有独立 Python 测试，使用临时 HOME，不替换当前安装。测试使用临时配置、进程和状态目录，不启动上述三个真实项目、不写入真实 Windows 剪贴板。最后一行必须输出 `devctl 1.1.0`。
 
 `--release` 生成优化构建，`--locked` 使用已有锁文件；首次在 WSL 构建不加 `--offline`，需要下载尚未缓存的依赖。输出默认位于 `target/release/devctl`；如有 Cargo target/target-dir 配置，以实际输出目录为准。参考 [Cargo build 文档](https://doc.rust-lang.org/cargo/commands/cargo-build.html)。在目标 WSL 内构建无需交叉编译 musl，也无需用 sudo 执行 Cargo。
 
@@ -215,7 +215,7 @@ devctl --config "$HOME/.config/devctl/devctl.toml" tui
 
 1. 先选 web 按 s 启动，确认实时日志和 `save=saving`；再逐个启动 weapp、中台，确认输出和控制范围各自独立。
 2. 日志焦点按 p 暂停，新增计数增长而正文位置不移动；上滚查看历史，切项目后再切回保留阅读位置；G 回尾部跟随。
-3. 按 / 输入实际出现的字面文本、Enter 搜索，n/N 查下一个/上一个，命中后 v/y 复制上下文，在 Windows 记事本核对；Esc 取消输入或搜索。搜索大小写敏感，开始时固定输出上界，重新 / 才包含之后的新记录。
+3. 按 / 输入实际出现的字面文本、Enter 搜索，n/N 查下一个/上一个，命中后关键词高亮、前后非匹配日志仍显示，用 v/y 复制上下文并在 Windows 记事本核对；Esc 取消输入或清除搜索高亮，保留阅读位置。搜索大小写敏感，开始时固定输出上界，重新 / 才包含之后的新记录。
 4. 在历史阅读位置按 q 离开，再进入同一个 TUI，默认跟随当前会话最新输出，不恢复退出前的旧位置。q 后服务应仍在运行。
 5. 在方便停止全部项目时，按下面的 CLI 操作验证正常结束后历史仍可查；记录会话 ID，重建后台后再用 --session 查询旧会话，确认没有混入当前日志。
 

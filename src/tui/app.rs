@@ -100,6 +100,7 @@ pub struct Search {
     pub upper: u64,
     pub reverse: bool,
     pub running: bool,
+    pub matched: Option<u64>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -111,6 +112,7 @@ pub enum LogQuery {
     Bounds,
     Search(u64),
     Context(u64),
+    ContextAfter(u64),
 }
 
 impl LogQuery {
@@ -132,6 +134,7 @@ impl LogQuery {
         let (after, before) = match self {
             Self::Tail => (None, None),
             Self::Context(target) => (None, Some(target.saturating_add(1))),
+            Self::ContextAfter(target) => (Some(target), None),
             Self::Search(_) => unreachable!(),
             Self::After(sequence) => (Some(sequence), None),
             Self::Before(sequence) => (None, Some(sequence)),
@@ -263,6 +266,9 @@ impl LogWindow {
                         .iter()
                         .find(|r| r.sequence == target)
                         .map(|r| r.sequence);
+                    if self.reading.is_some() && target < self.latest {
+                        self.requested = Some(LogQuery::ContextAfter(target));
+                    }
                     self.top = self
                         .records
                         .iter()
@@ -275,7 +281,7 @@ impl LogWindow {
                 }
                 true
             }
-            LogQuery::After(_) => self.append(batch),
+            LogQuery::After(_) | LogQuery::ContextAfter(_) => self.append(batch),
             LogQuery::Search(_) => false,
         }
     }
@@ -527,6 +533,7 @@ impl LogWindow {
             upper,
             reverse,
             running: true,
+            matched: None,
         });
         self.requested = Some(LogQuery::Search(cursor));
     }
@@ -535,8 +542,39 @@ impl LogWindow {
         if let Some(search) = &mut self.search {
             search.running = false;
         }
-        if matches!(self.requested, Some(LogQuery::Search(_))) {
+        if matches!(
+            self.requested,
+            Some(LogQuery::Search(_) | LogQuery::Context(_) | LogQuery::ContextAfter(_))
+        ) {
             self.requested = None;
+        }
+    }
+
+    pub fn clear_search(&mut self) {
+        self.cancel_search();
+        self.search = None;
+    }
+
+    pub fn reveal_match(&mut self, height: usize) {
+        let Some(target) = self.search.as_ref().and_then(|s| s.matched) else {
+            return;
+        };
+        if let Some(index) = self.records.iter().position(|r| r.sequence == target) {
+            let start = index
+                .saturating_sub(height / 2)
+                .min(self.records.len().saturating_sub(height));
+            self.top = self.records.get(start).map(|r| r.sequence);
+            self.reading = Some(target);
+            if self.requested.is_none()
+                && (self.records.len() < height
+                    || self.records.len().saturating_sub(index + 1) < height / 2)
+                && self.records.len() + 100 <= MAX_LOG_RECORDS
+                && self.bytes + 64 * 1024 <= MAX_LOG_BYTES
+                && let Some(last) = self.records.back()
+                && last.sequence < self.latest
+            {
+                self.requested = Some(LogQuery::ContextAfter(last.sequence));
+            }
         }
     }
 
@@ -632,7 +670,24 @@ impl App {
             self.logs.storage = batch.storage.clone();
             if let Some(record) = batch.records.first() {
                 self.logs.cancel_search();
-                self.logs.requested = Some(LogQuery::Context(record.sequence));
+                if let Some(search) = &mut self.logs.search {
+                    search.matched = Some(record.sequence);
+                }
+                if self
+                    .logs
+                    .records
+                    .iter()
+                    .any(|r| r.sequence == record.sequence)
+                {
+                    self.logs.reading = Some(record.sequence);
+                    if self.logs.records.back().is_some_and(|r| {
+                        r.sequence == record.sequence && r.sequence < self.logs.latest
+                    }) {
+                        self.logs.requested = Some(LogQuery::ContextAfter(record.sequence));
+                    }
+                } else {
+                    self.logs.requested = Some(LogQuery::Context(record.sequence));
+                }
                 self.feedback = format!(
                     "Match seq={}; n next / N previous; fixed upper={}.",
                     record.sequence,
@@ -666,7 +721,17 @@ impl App {
         let changed = !self.logs_loaded || self.logs_error.is_some();
         self.logs_loaded = true;
         self.logs_error = None;
-        self.logs.apply_page(query, batch) || changed
+        let updated = self.logs.apply_page(query, batch);
+        if matches!(query, LogQuery::Context(_)) && self.logs.reading.is_none() {
+            self.logs.anchor_lost = true;
+            self.feedback = "Matched log is no longer retained; showing available history.".into();
+            if self.logs.records.is_empty()
+                && let Some(oldest) = self.logs.oldest_retained
+            {
+                self.logs.requested = Some(LogQuery::Restore(oldest));
+            }
+        }
+        updated || changed
     }
 
     fn remember_position(&mut self) {
@@ -1327,6 +1392,7 @@ mod tests {
         assert_eq!(app.logs.requested, Some(LogQuery::Context(450)));
         app.apply_log_page(LogQuery::Context(450), page(351..=450, 1, 1200));
         assert_eq!(app.logs.reading, Some(450));
+        assert_eq!(app.logs.requested, Some(LogQuery::ContextAfter(450)));
         app.logs.keep_visible(2);
         assert!(app.logs.start(2) + 2 >= app.logs.records.len());
         app.logs.start_search("needle".into(), true, false, 2);
@@ -1356,5 +1422,87 @@ mod tests {
         assert_eq!(app.logs.top, top);
         assert_eq!(app.logs.records.len(), 100);
         assert!(app.logs.paused);
+    }
+    #[test]
+    fn cached_search_hits_keep_all_surrounding_logs_and_clear_without_moving() {
+        let mut app = App::new();
+        app.apply_log_page(LogQuery::Tail, page(1..=200, 1, 200));
+        let original = app
+            .logs
+            .records
+            .iter()
+            .map(|r| r.sequence)
+            .collect::<Vec<_>>();
+        app.logs.start_search("x".into(), false, true, 20);
+        app.apply_log_page(LogQuery::Search(0), page(80..=80, 1, 200));
+        app.logs.reveal_match(20);
+        assert_eq!(
+            app.logs
+                .records
+                .iter()
+                .map(|r| r.sequence)
+                .collect::<Vec<_>>(),
+            original
+        );
+        assert_eq!(app.logs.reading, Some(80));
+        assert!(app.logs.requested.is_none());
+        let top = app.logs.top;
+        app.logs.clear_search();
+        assert_eq!(app.logs.top, top);
+        assert_eq!(app.logs.reading, Some(80));
+        assert_eq!(app.logs.records.len(), 200);
+        assert!(app.logs.search.is_none());
+    }
+
+    #[test]
+    fn distant_search_hits_load_both_sides_and_fill_byte_limited_context() {
+        let mut app = App::new();
+        app.apply_log_page(LogQuery::Tail, page(901..=1000, 1, 1000));
+        app.logs.start_search("x".into(), false, true, 24);
+        app.apply_log_page(LogQuery::Search(0), page(450..=450, 1, 1000));
+        app.apply_log_page(
+            LogQuery::Context(450),
+            Batch {
+                oldest: Some(1),
+                latest: 1000,
+                ..batch(447..=450, 16 * 1024)
+            },
+        );
+        assert_eq!(app.logs.requested, Some(LogQuery::ContextAfter(450)));
+        for end in [454, 458, 462, 466, 470, 474] {
+            app.apply_log_page(
+                LogQuery::ContextAfter(end - 4),
+                Batch {
+                    oldest: Some(1),
+                    latest: 1000,
+                    ..batch(end - 3..=end, 16 * 1024)
+                },
+            );
+            app.logs.reveal_match(24);
+        }
+        assert_eq!(app.logs.records.front().unwrap().sequence, 447);
+        assert_eq!(app.logs.records.back().unwrap().sequence, 474);
+        assert_eq!(app.logs.reading, Some(450));
+        assert_eq!(app.logs.records.len(), 28);
+        assert!(app.logs.requested.is_none() && !app.logs.anchor_lost);
+    }
+
+    #[test]
+    fn an_expired_search_hit_reports_loss_and_falls_back_to_retained_history() {
+        let mut app = App::new();
+        app.logs.start_search("x".into(), false, true, 10);
+        app.apply_log_page(LogQuery::Search(0), page(10..=10, 1, 100));
+        app.apply_log_page(
+            LogQuery::Context(10),
+            Batch {
+                oldest: Some(50),
+                latest: 100,
+                gap: true,
+                ..Batch::default()
+            },
+        );
+        assert!(app.logs.anchor_lost);
+        assert_eq!(app.logs.requested, Some(LogQuery::Restore(50)));
+        assert!(app.feedback.contains("no longer retained"));
     }
 }

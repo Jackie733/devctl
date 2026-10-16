@@ -7,7 +7,10 @@ use ratatui::{
 };
 
 use super::app::{App, Focus};
-use crate::{logs::Source, manager::ServiceState};
+use crate::{
+    logs::{Record, Source},
+    manager::ServiceState,
+};
 
 // Diagnostics and service IDs are external text too, not just log records.
 fn clean(text: &str) -> String {
@@ -22,6 +25,125 @@ fn clean(text: &str) -> String {
         }
     }
     result
+}
+
+fn search_text(app: &App) -> Option<&str> {
+    app.search_input
+        .as_deref()
+        .or_else(|| app.logs.search.as_ref().map(|s| s.text.as_str()))
+        .filter(|text| !text.is_empty())
+}
+
+fn log_body(
+    text: &str,
+    needle: Option<&str>,
+    base: Style,
+    current: bool,
+    selected: bool,
+) -> Vec<Span<'static>> {
+    let Some(needle) = needle.filter(|s| !s.is_empty()) else {
+        return vec![Span::styled(clean(text), base)];
+    };
+    let matched = if selected {
+        base.fg(Color::Yellow)
+            .add_modifier(Modifier::BOLD | Modifier::UNDERLINED)
+    } else {
+        base.fg(Color::Black)
+            .bg(if current {
+                Color::LightYellow
+            } else {
+                Color::Yellow
+            })
+            .add_modifier(Modifier::BOLD)
+    };
+    let mut spans = Vec::new();
+    let mut end = 0;
+    for (start, found) in text.match_indices(needle) {
+        if start > end {
+            spans.push(Span::styled(clean(&text[end..start]), base));
+        }
+        spans.push(Span::styled(clean(found), matched));
+        end = start + found.len();
+    }
+    if end < text.len() {
+        spans.push(Span::styled(clean(&text[end..]), base));
+    }
+    spans
+}
+
+fn timestamp(record: &Record, width: u16) -> String {
+    if width < 100 || record.captured_ms == 0 {
+        return String::new();
+    }
+    let seconds = record.captured_ms / 1000;
+    format!(
+        "UTC {:02}:{:02}:{:02} ",
+        (seconds / 3600) % 24,
+        (seconds / 60) % 60,
+        seconds % 60
+    )
+}
+
+fn record_label(app: &App, record: &Record) -> String {
+    let source = match record.source {
+        Source::Stdout => "stdout",
+        Source::Stderr => "stderr",
+    };
+    let old = app.connected
+        && app
+            .selected
+            .as_ref()
+            .and_then(|id| app.services.get(id))
+            .and_then(|s| s.instance)
+            .is_some_and(|instance| record.instance < instance);
+    let pointer = if app.logs.selection.is_some() || app.logs.reading.is_some() {
+        if app.logs.selection.map(|s| s.head).or(app.logs.reading) == Some(record.sequence) {
+            "> "
+        } else {
+            "  "
+        }
+    } else {
+        ""
+    };
+    format!(
+        "{pointer}[{source} #{}{} seq={}] ",
+        record.instance,
+        if old { " old" } else { "" },
+        record.sequence
+    )
+}
+
+pub fn reveal_search_match(app: &mut App, area: Rect) {
+    let pane = layout(area, app).logs;
+    let content = log_areas(pane)[1];
+    app.logs.reveal_match(usize::from(content.height).max(1));
+    let Some(search) = &app.logs.search else {
+        return;
+    };
+    let Some(record) = app
+        .logs
+        .records
+        .iter()
+        .find(|r| Some(r.sequence) == search.matched)
+    else {
+        return;
+    };
+    let Some(offset) = record.text.find(&search.text) else {
+        return;
+    };
+    let prefix = Line::from(format!(
+        "{}{}",
+        timestamp(record, pane.width),
+        record_label(app, record)
+    ))
+    .width();
+    let start = prefix + Line::from(clean(&record.text[..offset])).width();
+    let end = start + Line::from(clean(&search.text)).width();
+    let left = usize::from(app.logs.horizontal);
+    let width = usize::from(content.width).max(1);
+    if start < left || end > left.saturating_add(width) {
+        app.logs.horizontal = start.saturating_sub(width / 4).min(usize::from(u16::MAX)) as u16;
+    }
 }
 
 pub struct ScreenLayout {
@@ -343,6 +465,11 @@ pub fn render(frame: &mut Frame, app: &App) {
         } else {
             format!("s/x {id} | j/k select | Enter logs | a default | X stop ALL | Q end")
         }
+    } else if let Some(search) = &app.logs.search {
+        format!(
+            "/{} | n/N match | Esc clear | G follow",
+            clean(&search.text)
+        )
     } else if area.width < 60 {
         "j/k v p G Esc".into()
     } else {
@@ -541,9 +668,9 @@ fn logs_view(frame: &mut Frame, area: Rect, app: &App) {
         .skip(start)
         .take(height)
         .map(|record| {
-            let (source, color) = match record.source {
-                Source::Stdout => ("stdout", Color::Reset),
-                Source::Stderr => ("stderr", Color::LightRed),
+            let color = match record.source {
+                Source::Stdout => Color::Reset,
+                Source::Stderr => Color::LightRed,
             };
             let selected = app
                 .logs
@@ -564,35 +691,13 @@ fn logs_view(frame: &mut Frame, area: Rect, app: &App) {
             } else {
                 Style::default()
             };
-            let history =
-                if app.connected && instance.is_some_and(|current| record.instance < current) {
-                    " old"
-                } else {
-                    ""
-                };
-            let pointer = if app.logs.selection.is_some() || app.logs.reading.is_some() {
-                if head { "> " } else { "  " }
-            } else {
-                ""
-            };
-            let timestamp = if area.width >= 100 && record.captured_ms != 0 {
-                let seconds = record.captured_ms / 1000;
-                format!(
-                    "UTC {:02}:{:02}:{:02} ",
-                    (seconds / 3600) % 24,
-                    (seconds / 60) % 60,
-                    seconds % 60
-                )
-            } else {
-                String::new()
-            };
-            Line::from(vec![
-                Span::styled(timestamp, Style::default().fg(Color::DarkGray)),
+            let mut spans = vec![
                 Span::styled(
-                    format!(
-                        "{pointer}[{source} #{}{history} seq={}] ",
-                        record.instance, record.sequence
-                    ),
+                    timestamp(record, area.width),
+                    Style::default().fg(Color::DarkGray),
+                ),
+                Span::styled(
+                    record_label(app, record),
                     if selected {
                         row_style
                     } else if head && app.focus == Focus::Logs {
@@ -601,20 +706,26 @@ fn logs_view(frame: &mut Frame, area: Rect, app: &App) {
                         Style::default().fg(Color::DarkGray)
                     },
                 ),
-                Span::styled(
-                    clean(&record.text),
-                    if selected {
-                        row_style
-                    } else {
-                        Style::default().fg(color)
-                    },
-                ),
-                Span::styled(
-                    if record.truncated { " [truncated]" } else { "" },
-                    Style::default().fg(Color::Yellow),
-                ),
-            ])
-            .style(row_style)
+            ];
+            spans.extend(log_body(
+                &record.text,
+                search_text(app),
+                if selected {
+                    row_style
+                } else {
+                    Style::default().fg(color)
+                },
+                app.logs
+                    .search
+                    .as_ref()
+                    .is_some_and(|s| s.matched == Some(record.sequence)),
+                selected,
+            ));
+            spans.push(Span::styled(
+                if record.truncated { " [truncated]" } else { "" },
+                Style::default().fg(Color::Yellow),
+            ));
+            Line::from(spans).style(row_style)
         })
         .collect();
     frame.render_widget(
@@ -715,8 +826,8 @@ fn help_lines(app: &App) -> Vec<Line<'static>> {
         "Ctrl-u/d: half page | PageUp/PageDown: page; edges load history",
         "Home/gg: oldest retained | End/G: follow | p: pause/resume",
         "j/k: move log cursor; v: select from cursor; j/k: extend selection",
-        "/: literal case-sensitive search; Enter runs; Esc cancels; n/N next/previous",
-        "Search fixes latest seq; / refreshes. Match opens context for v/y copy.",
+        "/: highlight literal text; Enter finds; n/N next/previous matching line",
+        "Esc clears search; context stays visible. / refreshes search snapshot.",
         "In V-LINE: y copies log text; Esc cancels and stays in logs.",
         "Local WSL: copy via clip.exe; elsewhere: terminal clipboard (OSC 52).",
         "Copy feedback names the method; verify by pasting. Failures keep selection.",
@@ -1193,5 +1304,123 @@ mod tests {
         assert!(!status_line(&app).to_string().contains("LOG LOSS"));
         app.logs.dropped = 1;
         assert!(status_line(&app).to_string().contains("LOG LOSS"));
+    }
+    fn searched_app() -> App {
+        let mut app = App::new();
+        app.apply_status(Response {
+            workspace_id: "one".into(),
+            services: [("web".into(), ServiceStatus::default())].into(),
+            ..Response::default()
+        });
+        app.focus(Focus::Logs);
+        app.apply_logs(crate::logs::Batch {
+            records: (1..=40)
+                .map(|sequence| Record {
+                    captured_ms: 0,
+                    sequence,
+                    instance: 1,
+                    source: Source::Stdout,
+                    text: if sequence == 20 {
+                        "前 needle 中 needle".into()
+                    } else if sequence == 22 {
+                        "other needle".into()
+                    } else {
+                        format!("context-{sequence}")
+                    },
+                    truncated: false,
+                })
+                .collect(),
+            oldest: Some(1),
+            latest: 40,
+            ..crate::logs::Batch::default()
+        });
+        app.logs.start_search("needle".into(), false, true, 20);
+        let record = app.logs.records[19].clone();
+        app.apply_log_page(
+            super::super::app::LogQuery::Search(0),
+            crate::logs::Batch {
+                records: vec![record],
+                ..crate::logs::Batch::default()
+            },
+        );
+        reveal_search_match(&mut app, Rect::new(0, 0, 120, 30));
+        app
+    }
+
+    #[test]
+    fn search_highlights_all_visible_occurrences_preserves_context_and_selection_styles() {
+        let mut app = searched_app();
+        let mut terminal = Terminal::new(TestBackend::new(120, 30)).unwrap();
+        terminal.draw(|f| render(f, &app)).unwrap();
+        let cells = &terminal.backend().buffer().content;
+        assert_eq!(
+            cells.iter().filter(|c| c.bg == Color::LightYellow).count(),
+            12
+        );
+        assert_eq!(cells.iter().filter(|c| c.bg == Color::Yellow).count(), 6);
+        let text = draw(&app, 120, 30);
+        assert!(
+            text.contains("context-19")
+                && text.contains("context-21")
+                && text.contains("other needle")
+        );
+        app.logs.begin_selection(20);
+        terminal.draw(|f| render(f, &app)).unwrap();
+        let cells = &terminal.backend().buffer().content;
+        assert_eq!(
+            cells
+                .iter()
+                .filter(|c| c.bg == Color::Blue
+                    && c.fg == Color::Yellow
+                    && c.modifier.contains(Modifier::UNDERLINED))
+                .count(),
+            12
+        );
+        assert_eq!(app.logs.selected_text().unwrap().0, "前 needle 中 needle\n");
+        app.logs.selection = None;
+        app.logs.clear_search();
+        terminal.draw(|f| render(f, &app)).unwrap();
+        assert!(
+            !terminal
+                .backend()
+                .buffer()
+                .content
+                .iter()
+                .any(|c| matches!(c.bg, Color::Yellow | Color::LightYellow))
+        );
+        app.search_input = Some("needle".into());
+        terminal.draw(|f| render(f, &app)).unwrap();
+        assert_eq!(
+            terminal
+                .backend()
+                .buffer()
+                .content
+                .iter()
+                .filter(|c| c.bg == Color::Yellow)
+                .count(),
+            18
+        );
+    }
+
+    #[test]
+    fn a_search_hit_on_a_long_unicode_line_scrolls_into_view() {
+        let mut app = searched_app();
+        app.logs.records[19].text = format!("{} needle 文", "界".repeat(80));
+        reveal_search_match(&mut app, Rect::new(0, 0, 120, 30));
+        assert!(app.logs.horizontal > 0);
+        assert!(draw(&app, 120, 30).contains("needle 文"));
+        // Matching uses stored text, so a tab rendered as spaces cannot create a false hit.
+        let spans = log_body(
+            "pre\tneedle",
+            Some("pre    needle"),
+            Style::default(),
+            false,
+            false,
+        );
+        assert!(spans.iter().all(|s| s.style.bg.is_none()));
+        assert_eq!(
+            spans.iter().map(|s| s.content.as_ref()).collect::<String>(),
+            "pre    needle"
+        );
     }
 }

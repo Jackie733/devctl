@@ -49,7 +49,7 @@ cargo run -- --config /path/to/devctl.toml shutdown
 
 - 默认独立落盘、容量轮转和期限清理；具体位置和预算见[存储设计](DESIGN.md#持久身份格式与预算)。可在配置中增加 `[logs]`，设置 `enabled = false` 关闭保存，或调整 `max_mib` / `retain_days`。
 - TUI 在内存之外继续翻阅当前会话的磁盘历史；`p` 暂停/恢复、`G/End` 跟随；重新进入默认查看最新输出。同一 TUI 内切换项目或短暂断连恢复阅读视口。
-- 日志焦点 `/` 输入字面文本，`Enter` 搜索、`n/N` 跳转、`Esc` 取消，命中后仍可 `v/y` 复制上下文。
+- 日志焦点 `/` 输入字面文本并预览高亮，`Enter` 定位、`n/N` 跳转匹配行，保留前后普通日志；`Esc` 清除高亮，仍可 `v/y` 复制上下文。
 - CLI 的 `log-sessions` 列出近期保存会话；`logs web --session <ID>` 显式查旧会话，`--before` / `--after` 分页，`--contains 'Error'` 查文本。无后台时默认该服务最近保存会话，不启动项目。输出可重定向保存本页，范围与缺口提示在 stderr。
 
 操作、搜索上界和导出限制见[日志交互](docs/interaction.md#28-日志保存会话与文本查找源码增强尚未发布)。日志增强未包含在 1.0.0 发布附件中，目标 WSL 的真实项目试用仍待完成。
