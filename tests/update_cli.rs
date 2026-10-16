@@ -72,14 +72,10 @@ impl Fixture {
             .unwrap()
             .to_owned();
         let name = format!("devctl-v{version}-x86_64-unknown-linux-musl");
-        let sums = format!("{digest}  {name}\n");
-        fs::write(self.root.join("sums"), &sums).unwrap();
         let release = serde_json::json!({
-            "tag_name": format!("v{version}"), "draft": false, "prerelease": false,
-            "assets": [
-                {"name": name, "state": "uploaded", "size": binary.len()},
-                {"name": "SHA256SUMS", "state": "uploaded", "size": sums.len()}
-            ]
+            "schema_version": 1, "version": version,
+            "assets": [{"target": "x86_64-unknown-linux-musl", "name": name,
+                        "size": binary.len(), "sha256": digest}]
         });
         fs::write(self.root.join("release"), release.to_string()).unwrap();
         fs::create_dir_all(self.root.join("mock")).unwrap();
@@ -98,10 +94,11 @@ assert '--connect-timeout' in args and '--max-time' in args
 url = args[-1]
 with (root / 'requests').open('a') as log:
     log.write(url + '\n')
-if url.startswith('https://api.github.com/repos/Jackie733/devctl/releases/'):
+base = 'https://github.com/Jackie733/devctl/releases/'
+if url == base + 'latest/download/update.json' or (url.startswith(base + 'download/v') and url.endswith('/update.json')):
     name = 'release'
-elif url.startswith('https://github.com/Jackie733/devctl/releases/download/'):
-    name = 'sums' if url.endswith('/SHA256SUMS') else 'binary'
+elif url.startswith(base + 'download/v') and '/devctl-v' in url:
+    name = 'binary'
 else:
     sys.exit(22)
 if (root / ('fail-' + name)).exists():
@@ -184,7 +181,10 @@ fn check_only_reads_metadata_and_never_changes_installation() {
     assert!(!fixture.home.join(".local/bin/devctl.previous").exists());
     let requests = fs::read_to_string(fixture.root.join("requests")).unwrap();
     assert_eq!(requests.lines().count(), 1);
-    assert!(requests.ends_with("/releases/latest\n"));
+    assert_eq!(
+        requests,
+        "https://github.com/Jackie733/devctl/releases/latest/download/update.json\n"
+    );
     fixture.assert_clean();
 }
 
@@ -204,7 +204,12 @@ fn latest_install_explicit_downgrade_and_rollback_preserve_config() {
     assert_eq!(fixture.contents("devctl"), older);
     assert_eq!(fixture.contents("devctl.previous"), next);
     let requests = fs::read_to_string(fixture.root.join("requests")).unwrap();
-    assert!(requests.contains("/releases/tags/v1.0.0\n"));
+    assert_eq!(requests.lines().collect::<Vec<_>>(), vec![
+        "https://github.com/Jackie733/devctl/releases/latest/download/update.json".to_owned(),
+        format!("https://github.com/Jackie733/devctl/releases/download/v{version}/devctl-v{version}-x86_64-unknown-linux-musl"),
+        "https://github.com/Jackie733/devctl/releases/download/v1.0.0/update.json".to_owned(),
+        "https://github.com/Jackie733/devctl/releases/download/v1.0.0/devctl-v1.0.0-x86_64-unknown-linux-musl".to_owned(),
+    ]);
     let output = fixture.run(&["update", "--rollback"]);
     assert!(output.status.success(), "{output:?}");
     assert_eq!(fixture.contents("devctl"), next);
@@ -233,7 +238,7 @@ fn latest_does_not_implicitly_downgrade_or_discard_backup() {
 
 #[test]
 fn failed_download_checksum_and_candidate_checks_preserve_program_and_backup() {
-    for failure in ["metadata", "manifest", "binary", "checksum", "version"] {
+    for failure in ["manifest", "binary", "checksum", "version", "short", "long"] {
         let fixture = Fixture::new();
         let current = fixture.program("devctl", "1.1.0");
         let previous = fixture.program("devctl.previous", "1.0.0");
@@ -247,66 +252,67 @@ fn failed_download_checksum_and_candidate_checks_preserve_program_and_backup() {
             },
         );
         match failure {
-            "metadata" => fs::write(fixture.root.join("fail-release"), "").unwrap(),
-            "manifest" => fs::write(fixture.root.join("fail-sums"), "").unwrap(),
+            "manifest" => fs::write(fixture.root.join("fail-release"), "").unwrap(),
             "binary" => fs::write(fixture.root.join("fail-binary"), "").unwrap(),
-            "checksum" => fs::write(
-                fixture.root.join("binary"),
-                "#!/bin/sh\ntouch \"$UPDATE_FIXTURE/executed-unverified\"\necho 'devctl 1.2.0'\n",
-            )
-            .unwrap(),
+            "checksum" => {
+                let path = fixture.root.join("release");
+                let mut value: serde_json::Value =
+                    serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+                value["assets"][0]["sha256"] = "0".repeat(64).into();
+                fs::write(path, value.to_string()).unwrap();
+            }
+            "short" => fs::write(fixture.root.join("binary"), "").unwrap(),
+            "long" => fs::write(fixture.root.join("binary"), vec![b'x'; 1000]).unwrap(),
             _ => (),
         }
         let output = fixture.run(&["update"]);
         assert_eq!(output.status.code(), Some(1), "{failure}: {output:?}");
         assert_eq!(fixture.contents("devctl"), current, "{failure}");
         assert_eq!(fixture.contents("devctl.previous"), previous, "{failure}");
-        assert!(!fixture.root.join("executed-unverified").exists());
+        if failure == "checksum" {
+            assert!(String::from_utf8_lossy(&output.stderr).contains("SHA-256 mismatch"));
+        }
         fixture.assert_clean();
     }
 }
 
 #[test]
-fn api_rate_limits_report_retry_and_preserve_installation() {
-    for message in [
-        "API rate limit exceeded for a shared address.",
-        "You have exceeded a secondary rate limit.",
-    ] {
-        let fixture = Fixture::new();
-        let current = fixture.program("devctl", "1.1.0");
-        let previous = fixture.program("devctl.previous", "1.0.0");
-        fixture.release("1.2.0", "1.2.0");
-        fs::write(
-            fixture.root.join("release"),
-            serde_json::json!({ "message": message }).to_string(),
-        )
-        .unwrap();
-        fs::write(fixture.root.join("fail-release"), "").unwrap();
-        let output = fixture.run(&["update", "--check"]);
-        assert_eq!(output.status.code(), Some(1));
-        let error = String::from_utf8_lossy(&output.stderr);
-        assert!(error.contains("GitHub API rate limit exceeded"), "{error}");
-        assert!(error.contains("Retry after the limit resets"));
-        assert!(!error.contains("private repositories"));
-        assert_eq!(fixture.contents("devctl"), current);
-        assert_eq!(fixture.contents("devctl.previous"), previous);
-        assert_eq!(
-            fs::read_to_string(fixture.root.join("requests"))
-                .unwrap()
-                .lines()
-                .count(),
-            1
-        );
-        fixture.assert_clean();
-    }
+fn missing_manifest_reports_external_installer_without_api_fallback() {
+    let fixture = Fixture::new();
+    let current = fixture.program("devctl", "1.1.0");
+    let previous = fixture.program("devctl.previous", "1.0.0");
+    fixture.release("1.2.0", "1.2.0");
+    fs::write(fixture.root.join("release"), "<html>Not Found</html>").unwrap();
+    fs::write(fixture.root.join("fail-release"), "").unwrap();
+    let output = fixture.run(&["update", "--check", "--version", "1.2.0"]);
+    assert_eq!(output.status.code(), Some(1));
+    let error = String::from_utf8_lossy(&output.stderr);
+    assert!(error.contains("Cannot fetch update.json"), "{error}");
+    assert!(error.contains("external installer"));
+    assert!(error.contains("program and backup are unchanged"));
+    assert!(!error.contains("<html>"));
+    assert_eq!(fixture.contents("devctl"), current);
+    assert_eq!(fixture.contents("devctl.previous"), previous);
+    assert_eq!(
+        fs::read_to_string(fixture.root.join("requests")).unwrap(),
+        "https://github.com/Jackie733/devctl/releases/download/v1.2.0/update.json\n"
+    );
+    fixture.assert_clean();
 }
 
 #[test]
 fn invalid_incomplete_or_oversized_metadata_is_rejected_before_asset_download() {
     for failure in [
         "json",
-        "draft",
+        "schema",
         "prerelease",
+        "prefix",
+        "field",
+        "target",
+        "path",
+        "digest",
+        "nonhex",
+        "zero",
         "missing",
         "duplicate",
         "size",
@@ -320,23 +326,33 @@ fn invalid_incomplete_or_oversized_metadata_is_rejected_before_asset_download() 
         let mut value: serde_json::Value =
             serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
         match failure {
-            "draft" | "prerelease" => value[failure] = true.into(),
+            "schema" => value["schema_version"] = 2.into(),
+            "prerelease" => value["version"] = "1.2.0-rc.1".into(),
+            "prefix" => value["version"] = "v1.2.0".into(),
+            "field" => {
+                value.as_object_mut().unwrap().remove("version");
+            }
+            "target" => value["assets"][0]["target"] = "aarch64-unknown-linux-musl".into(),
+            "path" => value["assets"][0]["name"] = "../devctl".into(),
+            "digest" => value["assets"][0]["sha256"] = "bad".into(),
+            "nonhex" => value["assets"][0]["sha256"] = "z".repeat(64).into(),
+            "zero" => value["assets"][0]["size"] = 0.into(),
             "missing" => value["assets"] = serde_json::json!([]),
             "duplicate" => {
                 let duplicate = value["assets"][0].clone();
                 value["assets"].as_array_mut().unwrap().push(duplicate);
             }
             "size" => value["assets"][0]["size"] = (129u64 * 1024 * 1024).into(),
-            "tag" => value["tag_name"] = "v1.2.0-rc.1".into(),
+            "tag" => value["version"] = "1.3.0".into(),
             _ => (),
         }
         let metadata = match failure {
             "json" => "not json".into(),
-            "oversized" => " ".repeat(1024 * 1024 + 1),
+            "oversized" => " ".repeat(64 * 1024 + 1),
             _ => value.to_string(),
         };
         fs::write(path, metadata).unwrap();
-        let output = fixture.run(&["update"]);
+        let output = fixture.run(&["update", "--version", "1.2.0"]);
         assert_eq!(output.status.code(), Some(1), "{failure}: {output:?}");
         assert_eq!(fixture.contents("devctl"), current);
         assert_eq!(

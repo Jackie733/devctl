@@ -64,6 +64,7 @@ jobs:
           cargo build --release --locked --target x86_64-unknown-linux-musl
           version=$(./target/x86_64-unknown-linux-musl/release/devctl --version)
           python3 tests/support/release_artifact.py ./target/x86_64-unknown-linux-musl/release/devctl "${version#devctl }"
+          python3 tests/support/package_release.py ./target/x86_64-unknown-linux-musl/release/devctl
           for scenario in lifecycle reconnect slow high discovery navigation copying windows-copying history disk-history; do
             python3 tests/support/tui_pty.py ./target/x86_64-unknown-linux-musl/release/devctl "$scenario"
           done
@@ -97,7 +98,7 @@ jobs:
           TAG: ${{ env.RELEASE_TAG }}
         run: |
           sha256sum --check SHA256SUMS
-          assets=("devctl-$TAG-x86_64-unknown-linux-musl" devctl-update "devctl-$TAG-source.tar.gz" SHA256SUMS)
+          assets=("devctl-$TAG-x86_64-unknown-linux-musl" devctl-update "devctl-$TAG-source.tar.gz" update.json SHA256SUMS)
           if gh release view "$TAG" --json isDraft --jq .isDraft > "$RUNNER_TEMP/release-state"; then
             [[ $(cat "$RUNNER_TEMP/release-state") == true ]] || { echo 'Refusing to replace an already published release.' >&2; exit 1; }
             gh release upload "$TAG" "${assets[@]}" --clobber

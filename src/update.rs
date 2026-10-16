@@ -13,55 +13,56 @@ use tokio::{io::AsyncReadExt, process::Command, time::timeout};
 const INSTALLER: &str = include_str!("../scripts/devctl-update");
 const TARGET: &str = "x86_64-unknown-linux-musl";
 const REPOSITORY: &str = "Jackie733/devctl";
+const MAX_BINARY_SIZE: u64 = 128 * 1024 * 1024;
 
 #[derive(Deserialize)]
-struct Release {
-    tag_name: String,
-    draft: bool,
-    prerelease: bool,
-    assets: Vec<Asset>,
+struct UpdateManifest {
+    schema_version: u32,
+    version: String,
+    assets: Vec<UpdateAsset>,
 }
 
 #[derive(Deserialize)]
-struct Asset {
+struct UpdateAsset {
+    target: String,
     name: String,
-    state: String,
     size: u64,
+    sha256: String,
 }
 
-impl Release {
-    fn validate(&self, requested: Option<&Version>) -> Result<Version, String> {
-        let version = stable_version(&self.tag_name)?;
-        if self.draft || self.prerelease {
-            return Err("Only published stable releases can be installed.".into());
+impl UpdateManifest {
+    fn validate(&self, requested: Option<&Version>) -> Result<(Version, &UpdateAsset), String> {
+        if self.schema_version != 1 {
+            return Err("Unsupported update manifest schema version.".into());
         }
-        if self.tag_name != format!("v{version}") {
-            return Err("Release tag must use the vMAJOR.MINOR.PATCH format.".into());
+        let version = stable_version(&self.version)?;
+        if self.version != version.to_string() {
+            return Err("Update manifest version must use the MAJOR.MINOR.PATCH format.".into());
         }
         if requested.is_some_and(|expected| expected != &version) {
             return Err("Release version does not match the requested version.".into());
         }
-        self.asset(&format!("devctl-v{version}-{TARGET}"), 128 * 1024 * 1024)?;
-        self.asset("SHA256SUMS", 64 * 1024)?;
-        Ok(version)
-    }
-
-    fn asset(&self, name: &str, max_size: u64) -> Result<(), String> {
         let matches: Vec<_> = self
             .assets
             .iter()
-            .filter(|asset| asset.name == name)
+            .filter(|asset| asset.target == TARGET)
             .collect();
         if matches.len() != 1 {
-            return Err(format!("Release must contain exactly one '{name}' asset."));
-        }
-        let asset = matches[0];
-        if asset.state != "uploaded" || asset.size == 0 || asset.size > max_size {
             return Err(format!(
-                "Release asset '{name}' is unavailable or exceeds its size limit."
+                "Update manifest must contain exactly one '{TARGET}' asset."
             ));
         }
-        Ok(())
+        let asset = matches[0];
+        if asset.name != format!("devctl-v{version}-{TARGET}") {
+            return Err("Update asset name does not match the release version and target.".into());
+        }
+        if asset.size == 0 || asset.size > MAX_BINARY_SIZE {
+            return Err("Update asset has an invalid size or exceeds its size limit.".into());
+        }
+        if asset.sha256.len() != 64 || !asset.sha256.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+            return Err("Update asset has an invalid SHA-256 digest.".into());
+        }
+        Ok((version, asset))
     }
 }
 
@@ -72,28 +73,6 @@ fn stable_version(value: &str) -> Result<Version, String> {
         return Err("Prerelease and build-metadata versions are not supported for updates.".into());
     }
     Ok(version)
-}
-
-fn checksum(manifest: &str, name: &str) -> Result<String, String> {
-    let mut found = None;
-    for line in manifest.lines() {
-        let Some((hash, file)) = line.split_once(char::is_whitespace) else {
-            continue;
-        };
-        let file = file
-            .trim_start()
-            .strip_prefix('*')
-            .unwrap_or(file.trim_start());
-        if file != name {
-            continue;
-        }
-        if found.is_some() || hash.len() != 64 || !hash.bytes().all(|byte| byte.is_ascii_hexdigit())
-        {
-            return Err(format!("Invalid or duplicate SHA-256 entry for '{name}'."));
-        }
-        found = Some(hash.to_ascii_lowercase());
-    }
-    found.ok_or_else(|| format!("SHA256SUMS has no checksum for '{name}'."))
 }
 
 /// Owns only this update's private temporary directory, never the installation.
@@ -244,39 +223,29 @@ fn https_get(url: &str) -> Command {
     command
 }
 
-fn metadata_error(path: &Path, error: String) -> String {
-    let rate_limited = fs::read(path)
-        .ok()
-        .and_then(|body| serde_json::from_slice::<serde_json::Value>(&body).ok())
-        .and_then(|body| body.get("message")?.as_str().map(str::to_owned))
-        .is_some_and(|message| message.to_ascii_lowercase().contains("rate limit"));
-    if rate_limited {
-        "GitHub API rate limit exceeded. Retry after the limit resets; the installed program and backup are unchanged.".into()
-    } else {
-        format!(
-            "{error} Release metadata requires a reachable public repository with a published release; private repositories are not supported by this updater."
-        )
-    }
-}
-
 async fn fetch_and_update(check: bool, requested: Option<&Version>) -> Result<(), String> {
     let repo = REPOSITORY;
     let staging = Staging::new()?;
-    let endpoint = requested.map_or_else(|| "latest".into(), |version| format!("tags/v{version}"));
-    let metadata = staging.0.join("release.json");
+    let endpoint = requested.map_or_else(
+        || "latest/download".into(),
+        |version| format!("download/v{version}"),
+    );
+    let metadata = staging.0.join("update.json");
     download(
         https_get(&format!(
-            "https://api.github.com/repos/{repo}/releases/{endpoint}"
+            "https://github.com/{repo}/releases/{endpoint}/update.json"
         )),
         &metadata,
-        1024 * 1024,
+        64 * 1024,
     )
     .await
-    .map_err(|error| metadata_error(&metadata, error))?;
-    let release: Release =
+    .map_err(|error| format!(
+        "{error} Cannot fetch update.json from the public release. Older releases without this manifest require the external installer; the installed program and backup are unchanged."
+    ))?;
+    let manifest: UpdateManifest =
         serde_json::from_slice(&fs::read(metadata).map_err(|error| error.to_string())?)
-            .map_err(|error| format!("Invalid release metadata: {error}"))?;
-    let version = release.validate(requested)?;
+            .map_err(|error| format!("Invalid update manifest: {error}"))?;
+    let (version, asset) = manifest.validate(requested)?;
     let current = stable_version(env!("CARGO_PKG_VERSION"))?;
     println!("Current: {current}\nRelease: {version}\nSource: {repo}");
     if check {
@@ -296,25 +265,22 @@ async fn fetch_and_update(check: bool, requested: Option<&Version>) -> Result<()
         println!("No newer stable release; installation unchanged.");
         return Ok(());
     }
-    let name = format!("devctl-v{version}-{TARGET}");
     let base = format!("https://github.com/{repo}/releases/download/v{version}");
-    let manifest_path = staging.0.join("SHA256SUMS");
+    let binary = staging.0.join(&asset.name);
     download(
-        https_get(&format!("{base}/SHA256SUMS")),
-        &manifest_path,
-        64 * 1024,
-    )
-    .await?;
-    let manifest = fs::read_to_string(manifest_path)
-        .map_err(|error| format!("Cannot read SHA256SUMS: {error}"))?;
-    let digest = checksum(&manifest, &name)?;
-    let binary = staging.0.join(&name);
-    download(
-        https_get(&format!("{base}/{name}")),
+        https_get(&format!("{base}/{}", asset.name)),
         &binary,
-        128 * 1024 * 1024,
+        asset.size,
     )
     .await?;
+    if fs::metadata(&binary)
+        .map_err(|error| error.to_string())?
+        .len()
+        != asset.size
+    {
+        return Err("Downloaded program size does not match update.json.".into());
+    }
+    let digest = asset.sha256.to_ascii_lowercase();
     println!(
         "Installing into ~/.local/bin/devctl. Existing backgrounds keep their old code; explicitly shut down workspaces before switching versions."
     );
@@ -339,43 +305,22 @@ mod tests {
     }
 
     #[test]
-    fn checksums_require_one_exact_asset_and_a_valid_digest() {
-        let hash = "AB".repeat(32);
-        let manifest = format!("{hash}  other\n{hash} *devctl\n");
-        assert_eq!(checksum(&manifest, "devctl").unwrap(), hash.to_lowercase());
-        assert!(checksum(&manifest, "missing").is_err());
-        assert!(checksum(&format!("{manifest}{hash}  devctl\n"), "devctl").is_err());
-        assert!(checksum("not-a-hash  devctl\n", "devctl").is_err());
-        assert!(checksum(&format!("{hash}  devctl.extra"), "devctl").is_err());
-    }
-
-    #[test]
-    fn releases_must_match_requested_stable_version_and_have_complete_assets() {
-        let mut release = Release {
-            tag_name: "v1.2.0".into(),
-            draft: false,
-            prerelease: false,
-            assets: vec![
-                Asset {
-                    name: format!("devctl-v1.2.0-{TARGET}"),
-                    state: "uploaded".into(),
-                    size: 100,
-                },
-                Asset {
-                    name: "SHA256SUMS".into(),
-                    state: "uploaded".into(),
-                    size: 100,
-                },
-            ],
-        };
-        assert_eq!(release.validate(None).unwrap(), Version::new(1, 2, 0));
-        assert!(release.validate(Some(&Version::new(1, 3, 0))).is_err());
-        release.draft = true;
-        assert!(release.validate(None).is_err());
-        release.draft = false;
-        release.assets[0].size = 129 * 1024 * 1024;
-        assert!(release.validate(None).is_err());
-        release.assets.remove(0);
-        assert!(release.validate(None).is_err());
+    fn manifest_selects_the_supported_asset_and_checks_requested_version() {
+        let manifest: UpdateManifest = serde_json::from_value(serde_json::json!({
+            "schema_version": 1,
+            "version": "1.2.0",
+            "assets": [{
+                "target": TARGET,
+                "name": format!("devctl-v1.2.0-{TARGET}"),
+                "size": 100,
+                "sha256": "AB".repeat(32)
+            }]
+        }))
+        .unwrap();
+        let (version, asset) = manifest.validate(None).unwrap();
+        assert_eq!(version, Version::new(1, 2, 0));
+        assert_eq!(asset.size, 100);
+        assert!(manifest.validate(Some(&version)).is_ok());
+        assert!(manifest.validate(Some(&Version::new(1, 3, 0))).is_err());
     }
 }

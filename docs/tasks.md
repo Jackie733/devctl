@@ -2,25 +2,25 @@
 
 这里只保留当前任务与必要交接；历史见 Git，协作规则见 [AGENTS.md](../AGENTS.md)。
 
-## 当前状态：1.2.0 已发布，待用户 WSL 验收（X03）
+## 当前任务：Release 清单更新（X03）
 
-- 2026-10-16 用户明确授权完成 1.2.0 发布全流程，包括版本准备、GitHub Actions 工作流、提交、推送、标签及 Release；目标 WSL 下载、安装与验证留待用户完成。本轮未修改用户安装、停止真实项目、修改秘密或仓库可见性。
-- 已发布 [v1.2.0 Release](https://github.com/Jackie733/devctl/releases/tag/v1.2.0)，为公开稳定版和 Latest。四个附件：devctl-v1.2.0-x86_64-unknown-linux-musl、devctl-update、devctl-v1.2.0-source.tar.gz、SHA256SUMS。
-- 带说明的 v1.2.0 标签保持指向构建提交 09e735d98d3ef76a6c5414af7bdf0108dd7d8e0f，未移动标签；程序、源码包与发布说明的构建身份已核对。主分支后续 e355be4/7a3919f 完善发布补发与匿名验证配置，不改已发布程序和附件。
-- 首次标签推送未产生运行记录，手动同标签只构建 [预检 38861461043](https://github.com/Jackie733/devctl/actions/runs/38861461043) 成功；随后通过当前主分支工作流、tag=v1.2.0 与 publish=true 显式补发，实际 checkout 仍为上述标签提交。
-- [完整发布 38861746895](https://github.com/Jackie733/devctl/actions/runs/38861746895) 的 build/publish 均成功，先备齐草稿附件再公开；[匿名验证 38862477073](https://github.com/Jackie733/devctl/actions/runs/38862477073) 成功。当前自动流程包含构建、发布与发布后匿名验证，后者也能对既有版本独立执行；默认手动运行只构建，显式发布必须指定版本标签。
+- 用户在目标环境执行 1.2.0 的 update 时遇到匿名 GitHub REST API 限流，已确认改用随构建产物一同发布的 update.json；本轮范围为客户端、打包、Actions、测试和文档调整，不自动推送、创建标签或发布。
+- 最新版本读取 releases/latest/download/update.json，指定版本读取 releases/download/v<VERSION>/update.json。校验清单格式、稳定版本、唯一平台、精确文件名、大小和摘要；获取明确版本后固定下载该版本程序，不再调用 REST API，不使用凭据。
+- 构建与验证完成后从实际程序生成清单，SHA256SUMS 覆盖清单；清单和程序等五个附件一同上传草稿，成功后才公开并设为 Latest。沿用安装器的锁、备份、失败保护、离线回退和配置保留规则。
+- 清单协议见 [DESIGN.md §8.1](../DESIGN.md#81-更新清单与下载约定)，操作与兼容边界见 [interaction.md §4](interaction.md#4-命令内自更新120)，发布顺序见 [releasing.md](releasing.md)。
 
 ## 验证证据
 
-- 本地 cargo test --locked --offline：236 项通过（143 单元、93 集成，含 10 个真实 PTY）；python3 tests/support/install_scripts.py：11 项通过。cargo fmt --check、cargo clippy --locked --offline --all-targets -- -D warnings、bash -n、actionlint 1.7.12 静态检查及 Markdown 链接/锚点/围栏检查通过；本地 actionlint 未启用未安装的 ShellCheck。
-- 本地 1.2.0 musl 构建成功，版本、静态链接、隔离首次/重复安装、坏摘要保护、回退和配置保留通过，实际静态程序另跑 10 个 PTY 全部通过。干净工作区打包、错误标签保护、既有目录保护、源码归档及说明中的提交身份通过。
-- GitHub 托管环境实际执行完整 236 项 Rust 测试、11 项安装器测试、静态产物安装/回退及 10 个 PTY，全部通过；日志 /tmp/devctl-v1.2.0-actions.log。
-- 真实 Release 的四个附件已匿名下载并核对三条 SHA-256，实际程序版本/update 帮助/静态链接、同标签源码归档、隔离安装/回退通过；日志 /tmp/devctl-v1.2.0-release-verification.log。
-- 本地共享出口仍触发匿名 API 限流，明确提示且不改变安装；GitHub 托管环境的无认证客户端已通过 latest 与指定版本查询、指定版本实际下载/校验/安装、离线回退、外部恢复和配置保留。验证日志 /tmp/devctl-v1.2.0-public-verify-actions.log。上述日志为临时文件，不保证长期保留；云端运行链接为持久交接入口。
-- 最终差异、文档检查通过（12 个 Markdown 文档、89 个本地链接/锚点），远程引用核对确认标签仍解引用至 09e735d；仅提交本次交接，不再修改已发布标签或附件。
+- 更新模块 2 项单元测试与全部 10 项更新 CLI 测试通过：清单缺失/无效/过大、版本与平台不符、重复平台、文件名、摘要、下载失败、长度不符和候选版本错误时保留安装与备份；检查与回退不依赖配置；请求 URL 固定到官方仓库和明确版本。
+- 新增 4 项打包测试通过：临时 Git 仓库生成真实程序的清单并由真实客户端读取、检查、安装与回退；核对清单与 SHA256SUMS、源码归档和构建提交；拒绝标签不符、脏源码及覆盖已有目录。
+- cargo fmt --check、cargo clippy --locked --offline --all-targets -- -D warnings、bash -n、actionlint 1.7.12 检查通过；本地 actionlint 未启用未安装的 ShellCheck。
+- cargo test --locked --offline：235 项通过（142 单元、93 集成，含 10 个真实 PTY）；日志 /tmp/devctl-manifest-cargo-test.log。python3 tests/support/install_scripts.py：11 项通过。
+- cargo build --release --locked --offline --target x86_64-unknown-linux-musl 成功；用实际静态程序再次运行上述 4 项打包/清单消费测试通过，release_artifact.py 的静态链接、首次/重复安装、错误摘要、回退和配置保留检查通过。
+- 12 个 Markdown 文档、92 个本地链接/锚点、围栏及改动 Python 脚本语法检查通过。未推送或触发 Actions；新格式的公开网络验证须待新版本实际发布。
 
-## 用户接手与后续
+## 上一版本与后续交接
 
-1. 按 [WSL 指南](wsl.md#0-安装-120-发布程序无需-rust) 下载/校验/安装，再按 [1.2.0 验收](wsl.md#42-120-安装与自更新验收) 核对真实环境。旧 1.0/1.1 没有 update，首次升级用外部更新器；回退至旧版后也用已下载的外部更新器恢复。
-2. 发布不代替目标 WSL 和三个真实项目的体验验收，X03 尚未整体验收。跨已发布版本的默认升级可随下一次正常发版继续验证；同版本重装不冒充跨版本升级。
-3. 日常发版和显式补发见 [发布维护](releasing.md)。后续推送、标签与发布授权按对应任务确认，候选功能不自动实施。
+- [v1.2.0](https://github.com/Jackie733/devctl/releases/tag/v1.2.0) 已公开发布，原四个附件与标签保持原样，构建提交 09e735d98d3ef76a6c5414af7bdf0108dd7d8e0f。[发布运行](https://github.com/Jackie733/devctl/actions/runs/38861746895) 和 [原协议匿名验证](https://github.com/Jackie733/devctl/actions/runs/38862477073) 已成功，不代表新清单协议已在线发布或目标 WSL 已验收。
+- 这次修改记录于 CHANGELOG 的未发布部分，尚未确定下一版本或发布新产物；1.2.0 已安装程序继续使用原 API 逻辑，不能仅靠修改远端工作流消除客户端限流。
+- 后续以新版本号发布含清单的程序。旧客户端如仍受 API 限流，先用外部更新器安装新版；新客户端安装无清单的历史版本也使用外部更新器，不修改旧 Release。新格式的公开下载、Latest 入口和 Actions 真实运行待新版本发布后验证。
+- 用户随后按 [WSL 指南](wsl.md#42-120-安装与自更新验收) 验收真实环境；本轮不修改真实安装、不停止项目。X03 尚未整体验收。后续推送、标签和发布按相应任务授权执行。

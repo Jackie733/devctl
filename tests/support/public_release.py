@@ -1,6 +1,7 @@
 """Verify public release downloads and the real anonymous update client."""
 
 import hashlib
+import json
 import os
 from pathlib import Path
 import re
@@ -24,16 +25,26 @@ def run(args, env=None):
 
 with tempfile.TemporaryDirectory(prefix='devctl-public-release-') as tmp:
     root = Path(tmp)
-    for asset in [name, 'devctl-update', f'devctl-{tag}-source.tar.gz', 'SHA256SUMS']:
+    for asset in [name, 'devctl-update', f'devctl-{tag}-source.tar.gz', 'update.json', 'SHA256SUMS']:
         run(['curl', '--disable', '--fail', '--silent', '--show-error', '--location',
              '--proto', '=https', '--proto-redir', '=https', '--connect-timeout', '10',
              '--max-time', '180', '--max-filesize', str(128 * 1024 * 1024),
              '--output', str(root / asset), '--', base + asset])
     entries = [line.split(maxsplit=1) for line in (root / 'SHA256SUMS').read_text().splitlines()]
-    assert len(entries) == 3
-    assert {asset for _, asset in entries} == {name, 'devctl-update', f'devctl-{tag}-source.tar.gz'}
+    assert len(entries) == 4
+    assert {asset for _, asset in entries} == {name, 'devctl-update', f'devctl-{tag}-source.tar.gz', 'update.json'}
     for digest, asset in entries:
         assert hashlib.sha256((root / asset).read_bytes()).hexdigest() == digest
+    manifest = json.loads((root / 'update.json').read_text())
+    assert manifest == {
+        'schema_version': 1,
+        'version': version,
+        'assets': [{
+            'target': 'x86_64-unknown-linux-musl', 'name': name,
+            'size': (root / name).stat().st_size,
+            'sha256': hashlib.sha256((root / name).read_bytes()).hexdigest(),
+        }],
+    }
     print('PASS public downloads and SHA-256', flush=True)
     binary = root / name
     binary.chmod(0o755)

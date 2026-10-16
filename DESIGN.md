@@ -272,12 +272,30 @@ Linux 初版采用本地 Unix socket，运行目录仅当前用户可访问。�
 
 `main` 在配置发现前将 Update 分支交给 `update` 模块。它不访问 Manager、工作区锁、控制 socket 或日志目录，也不停止服务。回退直接调用嵌入的 `scripts/devctl-update`，不执行网络请求。安装目标与外部安装器一致，固定为 `~/.local/bin/devctl`；当前版本是运行中二进制的 Cargo 包版本。
 
-用户已将现有 `Jackie733/devctl` 仓库公开，更新源固定为该仓库的 GitHub Releases。按 [GitHub Releases API](https://docs.github.com/en/rest/releases/releases) 请求 latest 或指定 `vMAJOR.MINOR.PATCH` 标签，拒绝草稿、预发布、版本不符及缺失/重复/未上传/过大的附件。latest 由 GitHub 的发布标记决定，不扫描全部标签推断版本；用 SemVer 比较，默认不降级当前运行版本，指定版本可显式降级。运行时不接受任意来源 URL，不读取 GitHub 凭据；发布入口与附件由自动工作流交付，目标 WSL 完整验收仍待用户完成。
+更新源固定为公开仓库 `Jackie733/devctl` 的 GitHub Releases。开发版改为直接下载 `releases/latest/download/update.json`，指定版本则下载 `releases/download/v<VERSION>/update.json`，不调用 GitHub REST API，也不读取 GitHub 凭据。使用 GitHub 官方支持的[最新附件链接](https://docs.github.com/en/repositories/releasing-projects-on-github/linking-to-releases)，避开匿名 REST API 的共享 IP 配额；普通下载仍可能受 GitHub 的网络或服务限制。latest 由 GitHub 的发布标记决定，不扫描全部标签推断版本；用 SemVer 比较，默认不降级当前运行版本，指定版本可显式降级。
 
-保留现有附件名 `devctl-v<VERSION>-x86_64-unknown-linux-musl` 与 SHA256SUMS。程序自行组合固定 HTTPS 下载路径，从同一发布取回清单并要求唯一、格式正确、文件名精确匹配的 SHA-256。元数据、清单、程序的下载上限分别为 1 MiB、64 KiB、128 MiB。curl 禁用配置文件、仅允许 HTTPS 及 HTTPS 重定向、最多 5 次跳转、连接期限 10 秒、请求期限 180 秒；Rust 以 64 KiB 缓冲流式写盘并限制总量，外层期限 190 秒，避免旧版 [curl --max-filesize](https://curl.se/docs/manpage.html#--max-filesize) 在未知 Content-Length 时无法限制下载。失败时结束并回收下载子进程。
+### 8.1 更新清单与下载约定
 
-curl 使用 [--fail-with-body](https://curl.se/docs/manpage.html#--fail-with-body) 保留受上述大小约束的 HTTP 错误正文，需要 curl 7.76.0+；HTTP 失败仍返回错误，正文不作为成功的发布数据。元数据失败且错误 JSON 的 message 表明 rate limit 时，返回明确的限流与重试提示，不输出原始响应，不将其混同为私有仓库。匿名 API 额度可能由共享出口耗尽，遵循 [GitHub 限流说明](https://docs.github.com/en/rest/using-the-rest-api/rate-limits-for-the-rest-api)，不自动重试、加入凭据或切换来源。固定附件的匿名下载不依赖 REST API 额度，可用于外部安装入口。
+`update.json` 是每个版本内不可变的发布附件，格式由本节维护：
+
+| 字段 | 约定 |
+| --- | --- |
+| `schema_version` | 整数 1；未知格式拒绝安装 |
+| `version` | 无 v 前缀的稳定 `MAJOR.MINOR.PATCH`，不允许预发布或构建元数据；指定版本时必须完全匹配 |
+| `assets` | 平台产物数组，当前平台必须恰好有一项 |
+| `assets[].target` | 当前仅支持 `x86_64-unknown-linux-musl` |
+| `assets[].name` | 必须精确等于 `devctl-v<VERSION>-x86_64-unknown-linux-musl`，不接受路径或 URL |
+| `assets[].size` | 实际程序字节数，大于 0 且不超过 128 MiB |
+| `assets[].sha256` | 64 位十六进制 SHA-256 |
+
+清单由打包脚本在构建与验证完成后，从实际程序生成；发布任务先上传清单及全部产物至草稿，上传成功后才公开并设为 Latest。清单声明的版本必须与标签、Cargo 包版本和程序版本一致。获取 latest 清单后，程序自行组合 `releases/download/v<VERSION>/<NAME>`，不再使用 latest 下载程序，避免发布切换时混用新旧附件。下载时以上述 size 为上限，结束后要求实际长度相等；随后复用安装器核对摘要和候选版本。`--check` 仅验证清单格式与版本，不下载或确认程序附件的实际内容。
+
+保留现有程序附件名和 SHA256SUMS，供外部安装及旧客户端使用；SHA256SUMS 新增 update.json 的摘要，命令内更新直接使用 JSON 中的程序摘要。清单下载上限为 64 KiB，程序上限为 128 MiB。curl 禁用配置文件、仅允许 HTTPS 及 HTTPS 重定向、最多 5 次跳转、连接期限 10 秒、请求期限 180 秒；Rust 以 64 KiB 缓冲流式写盘并限制总量，外层期限 190 秒，避免旧版 [curl --max-filesize](https://curl.se/docs/manpage.html#--max-filesize) 在未知 Content-Length 时无法限制下载。失败时结束并回收下载子进程。
+
+curl 继续使用 [--fail-with-body](https://curl.se/docs/manpage.html#--fail-with-body)，需要 curl 7.76.0+；HTTP 失败正文同样受大小约束，不作为成功清单，也不输出原始正文。没有 update.json 的旧 Release 提示外部安装器，不回退 REST API、不自动重试或切换来源。已发布的 1.2.0 程序仍使用原 API 机制；这次更改随下一新版交付，不覆盖旧标签或附件。用户首次迁移可用外部更新器安装新版；新客户端若需安装无清单的历史版本，也使用外部更新器。
+
+### 8.2 安装保护与发布验证
 
 每次调用独占一个安装目录下 0700 的暂存子目录，资源守卫在正常返回和错误返回时清理，仅删除自身创建的目录；强杀或掉电后的暂存目录不保证自动回收。下载阶段不持安装锁，实际替换由嵌入的原安装脚本串行化，和外部更新器共享 `.devctl-update.lock`。安装器先校验摘要，再以 5 秒期限运行候选的 --version，并核对其与发布版本完全相等，最后备份旧程序、以同文件系统 rename 替换。校验或下载失败不改变当前程序及备份；相同内容不覆盖备份。校验值信任同一 HTTPS 发布来源，不声称独立签名验证。
 
-复用脚本而非重写安装状态机，保持符号链接拒绝、失败保护、单份回退及并发互斥规则一致；内嵌脚本使程序脱离源码与外部脚本也可更新。新增 serde_json 解析受限元数据、semver 解析和比较版本，不引入 HTTP 运行时或自更新框架。自动化使用隔离 HOME 与模拟下载覆盖完整安装、失败保护和回退；不会修改用户实际安装、配置或后台。自动构建发布机制见 [发布维护](docs/releasing.md)：构建任务只读，发布任务仅在完整验证和附件校验后写入同标签草稿；草稿上传齐全才公开，已发布版本拒绝覆盖。源码归档与二进制来自同一干净提交，发布说明记录提交身份。目标 WSL 线上升级/回退验收仍待用户完成。
+复用脚本而非重写安装状态机，保持符号链接拒绝、失败保护、单份回退及并发互斥规则一致；内嵌脚本使程序脱离源码与外部脚本也可更新。使用已有 serde_json 解析受限清单、semver 解析和比较版本，不引入 HTTP 运行时或自更新框架。自动化使用隔离 HOME 与模拟下载覆盖完整安装、失败保护和回退；打包测试另用真实客户端读取实际生成的清单、安装对应程序并离线回退；不会修改用户实际安装、配置或后台。自动构建发布机制见 [发布维护](docs/releasing.md)：构建任务只读，发布任务仅在完整验证和附件校验后写入同标签草稿；草稿上传齐全才公开，已发布版本拒绝覆盖。源码归档与二进制来自同一干净提交，发布说明记录提交身份。目标 WSL 线上升级/回退验收仍待用户完成。
