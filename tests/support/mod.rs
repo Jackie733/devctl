@@ -16,7 +16,7 @@ impl ConfigFixture {
         let source = Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("examples")
             .join(example);
-        let dir = std::env::temp_dir().join(format!(
+        let dir = temp_root().join(format!(
             "devctl-config-fixture-{}-{}",
             std::process::id(),
             NEXT.fetch_add(1, Ordering::Relaxed)
@@ -48,5 +48,26 @@ impl ConfigFixture {
 impl Drop for ConfigFixture {
     fn drop(&mut self) {
         let _ = fs::remove_dir_all(&self.dir);
+    }
+}
+
+#[allow(dead_code)]
+pub fn process_is_live(pid: nix::unistd::Pid) -> bool {
+    let output = std::process::Command::new("ps")
+        .args(["-o", "stat=", "-p", &pid.to_string()])
+        .output()
+        .expect("ps must run");
+    let state = String::from_utf8(output.stdout).unwrap();
+    !state.trim().is_empty() && !state.trim().starts_with('Z') && !state.trim().starts_with('X')
+}
+
+#[allow(dead_code)]
+pub fn temp_root() -> PathBuf {
+    // Darwin's per-user TMPDIR can exceed the Unix socket path budget once the
+    // fixture suffix is added. Keep control-socket fixtures short on that host.
+    if cfg!(target_os = "macos") {
+        PathBuf::from("/tmp")
+    } else {
+        std::env::temp_dir()
     }
 }

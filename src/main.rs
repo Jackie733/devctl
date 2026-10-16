@@ -23,9 +23,24 @@ use cli::{Cli, Command};
 use manager::Manager;
 use tokio::signal::unix::{SignalKind, signal};
 
+fn main() -> ExitCode {
+    let cli = Cli::parse();
+    #[cfg(target_os = "macos")]
+    if matches!(
+        cli.command.as_ref(),
+        Some(Command::Supervise { detached: true })
+    ) && let Err(error) = startup::close_inherited_descriptors()
+    {
+        startup::failed(&error);
+        eprintln!("Error: {error}");
+        return ExitCode::FAILURE;
+    }
+    run(cli)
+}
+
 #[tokio::main(flavor = "current_thread")]
-async fn main() -> ExitCode {
-    match execute(Cli::parse()).await {
+async fn run(cli: Cli) -> ExitCode {
+    match execute(cli).await {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
             eprintln!("Error: {error}");

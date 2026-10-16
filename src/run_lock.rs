@@ -56,7 +56,7 @@ impl RunLock {
     }
 }
 
-#[cfg(all(test, target_os = "linux"))]
+#[cfg(test)]
 mod tests {
     use super::*;
     use std::{

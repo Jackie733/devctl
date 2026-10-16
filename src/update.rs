@@ -15,7 +15,20 @@ use tokio::{io::AsyncReadExt, process::Command, time::timeout};
 use progress::Progress;
 
 const INSTALLER: &str = include_str!("../scripts/devctl-update");
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 const TARGET: &str = "x86_64-unknown-linux-musl";
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+const TARGET: &str = "aarch64-apple-darwin";
+#[cfg(all(target_os = "macos", target_arch = "x86_64"))]
+const TARGET: &str = "x86_64-apple-darwin";
+#[cfg(not(any(
+    all(target_os = "linux", target_arch = "x86_64"),
+    all(
+        target_os = "macos",
+        any(target_arch = "aarch64", target_arch = "x86_64")
+    )
+)))]
+const TARGET: &str = "unsupported";
 const REPOSITORY: &str = "Jackie733/devctl";
 const MAX_BINARY_SIZE: u64 = 128 * 1024 * 1024;
 
@@ -237,8 +250,8 @@ async fn run_with_progress(
     rollback: bool,
     progress: &mut Progress,
 ) -> Result<(), String> {
-    if std::env::consts::OS != "linux" || std::env::consts::ARCH != "x86_64" {
-        return Err("Self-update currently supports Linux / WSL2 x86_64 only.".into());
+    if TARGET == "unsupported" {
+        return Err("Self-update supports Linux / WSL2 x86_64 and macOS arm64/x86_64 only.".into());
     }
     if rollback {
         install_dir()?;
@@ -381,7 +394,7 @@ mod tests {
 
     #[test]
     fn manifest_selects_the_supported_asset_and_checks_requested_version() {
-        let manifest: UpdateManifest = serde_json::from_value(serde_json::json!({
+        let mut manifest: UpdateManifest = serde_json::from_value(serde_json::json!({
             "schema_version": 1,
             "version": "1.2.0",
             "assets": [{
@@ -392,6 +405,13 @@ mod tests {
             }]
         }))
         .unwrap();
+        let other = serde_json::json!({
+            "target": "another-platform", "name": "ignored", "size": 100, "sha256": "AB".repeat(32)
+        });
+        // A multi-platform release must still select only this client's target.
+        manifest
+            .assets
+            .insert(0, serde_json::from_value(other).unwrap());
         let (version, asset) = manifest.validate(None).unwrap();
         assert_eq!(version, Version::new(1, 2, 0));
         assert_eq!(asset.size, 100);

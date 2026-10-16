@@ -1,10 +1,16 @@
 # Installation and updates
 
-The supported release target is Linux x86_64, including WSL2. Use the
+Current public release: **1.4.0**, for Linux x86_64 including WSL2. Use the
 [WSL guide](wsl.md) for Windows integration. Releases are public and do not require
-GitHub authentication. Current release: **1.4.0**.
+GitHub authentication.
+
+The **1.5.0 source tree** adds native macOS 14+ support for Apple Silicon and Intel.
+Until a multi-platform release is published, use the [Mac source installation](#macos).
+Historical 1.4.0 attachments do not run on macOS. Native Windows is not supported.
 
 ## Requirements
+
+For the existing Linux release:
 
 - Linux x86_64 and a writable, absolute `HOME`.
 - Bash, curl 7.76.0 or newer, and standard Linux tools: `flock`, `mktemp`, `cp`,
@@ -12,8 +18,10 @@ GitHub authentication. Current release: **1.4.0**.
 - For the TUI, a terminal with interactive stdin/stdout. Service commands must
   run without interactive input; install their language runtimes separately.
 
-The musl binary does not need Rust or host glibc. Native Windows and macOS release
-artifacts are not provided.
+The musl binary does not need Rust or host glibc. On macOS, the native program uses
+system libraries; installation/update additionally use the system Bash, Perl,
+`shasum`, curl and normal BSD file tools. Homebrew GNU tools are not required.
+Project language runtimes and dependencies are installed separately.
 
 ## Prebuilt binary
 
@@ -57,6 +65,53 @@ To persist PATH, add `export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"` to 
 shell's startup file, or run `bash scripts/setup-path.sh` from a source checkout.
 Open a new terminal and verify `command -v devctl`. Keep existing project
 configuration; installation does not create or replace it.
+
+## macOS
+
+Build from a checkout containing the 1.5.0 Mac changes. Source builds require Rust
+and Apple's Command Line Tools (`xcode-select --install` if absent); development
+checks also require Python 3. The deployment baseline is macOS 14. Local acceptance
+was performed on Apple Silicon/macOS 26.5.1; see [current evidence](tasks.md) for
+Intel and publication verification status.
+
+```sh
+MACOSX_DEPLOYMENT_TARGET=14.0 cargo build --release --locked
+./target/release/devctl --version
+# For an existing installation, complete the shutdown step below first.
+devctl_build_sha=$(shasum -a 256 target/release/devctl | awk '{print $1}')
+bash scripts/devctl-update ./target/release/devctl "$devctl_build_sha"
+bash scripts/setup-path.sh zsh
+export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
+rehash
+command -v devctl
+devctl --version
+```
+
+For Bash, pass `bash` to setup-path.sh and use `hash -r`. Open a new terminal to
+verify persistent command discovery. These steps preserve existing configuration;
+create a workspace using the [quick start](../README.md#quick-start) and run
+`devctl validate` before starting services. Commands inherit the supervisor's
+original PATH; ensure it resolves the intended Node/package-manager version before
+launching the workspace. Configuration does not expand `~` or environment variables.
+
+Keep the configuration in a short, writable local path, such as
+`~/.config/devctl/devctl.toml`. Its canonical path plus `.devctl/control.sock` must
+fit the OS Unix-socket limit (104 bytes on macOS). A deeply nested checkout or the
+long default macOS temporary directory can exceed it; moving the configuration
+changes workspace/log identity, so shut down the old workspace first.
+
+After a multi-platform release exists, download the artifact matching the Mac:
+`aarch64-apple-darwin` for Apple Silicon, or `x86_64-apple-darwin` for Intel, plus
+`devctl-update` and `SHA256SUMS` from that same version. Verify downloaded files with
+`shasum -a 256 --check --ignore-missing SHA256SUMS`, then pass the native program
+and its checksum to the installer as above. Do not substitute a Linux artifact.
+The same shutdown, backup and rollback rules apply on both systems. Local Mac
+copying uses pbcopy; over SSH it uses the displaying terminal's OSC 52 support.
+
+The public 1.4.0 manifest has no Mac asset. Online `update --check`/`update` can only
+succeed for a release containing the native target; local installation and offline
+rollback work before publication. A local mock-download test is not public-release
+verification.
 
 ## Before switching versions
 
@@ -136,7 +191,7 @@ supervisors started afterward.
 
 ## Build from source
 
-Use Linux or WSL2 with Git, Python 3, and a Rust toolchain. CI is tested with Rust
+For the existing Linux release, use Linux or WSL2 with Git, Python 3, and a Rust toolchain. For the new Mac source tree, use the [Mac instructions](#macos). CI is tested with Rust
 1.98.1; install Rust through the [official instructions](https://rust-lang.org/tools/install/).
 On Ubuntu, development tests also need Bash, Zsh, and the normal build tools:
 

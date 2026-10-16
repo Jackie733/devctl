@@ -1,4 +1,4 @@
-#![cfg(target_os = "linux")]
+#![cfg(any(target_os = "linux", target_os = "macos"))]
 
 mod support;
 use support::ConfigFixture;
@@ -24,7 +24,7 @@ fn command(path: &Path, service: &str) -> Command {
         .arg("--config")
         .arg(path)
         .args(["run", service])
-        .current_dir(std::env::temp_dir());
+        .current_dir(support::temp_root());
     command
 }
 
@@ -146,7 +146,7 @@ fn aliases_read_only_commands_and_shutdown_obey_the_config_lock() {
     symlink(&fixture.path, &alias).unwrap();
     assert_conflict(&fixture.path);
     assert_conflict(&alias);
-    assert_conflict(fixture.path.strip_prefix(std::env::temp_dir()).unwrap());
+    assert_conflict(fixture.path.strip_prefix(support::temp_root()).unwrap());
     for operation in ["validate", "plan"] {
         let output = Command::new(env!("CARGO_BIN_EXE_devctl"))
             .arg("--config")

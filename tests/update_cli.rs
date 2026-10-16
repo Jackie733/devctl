@@ -1,4 +1,4 @@
-#![cfg(all(target_os = "linux", target_arch = "x86_64"))]
+#![cfg(any(all(target_os = "linux", target_arch = "x86_64"), target_os = "macos"))]
 
 use std::{
     fs,
@@ -6,6 +6,16 @@ use std::{
     path::PathBuf,
     process::{Command, Output},
     sync::atomic::{AtomicU64, Ordering},
+};
+
+const TARGET: &str = if cfg!(target_os = "macos") {
+    if cfg!(target_arch = "aarch64") {
+        "aarch64-apple-darwin"
+    } else {
+        "x86_64-apple-darwin"
+    }
+} else {
+    "x86_64-unknown-linux-musl"
 };
 
 static NEXT: AtomicU64 = AtomicU64::new(0);
@@ -60,10 +70,14 @@ impl Fixture {
     fn release(&self, version: &str, candidate_version: &str) -> Vec<u8> {
         let binary = format!("#!/bin/sh\nif [ -f \"$UPDATE_FIXTURE/slow-progress\" ]; then sleep 0.4; fi\necho 'devctl {candidate_version}'\n").into_bytes();
         fs::write(self.root.join("binary"), &binary).unwrap();
-        let output = Command::new("sha256sum")
-            .arg(self.root.join("binary"))
-            .output()
-            .unwrap();
+        let mut hasher = if cfg!(target_os = "macos") {
+            let mut command = Command::new("shasum");
+            command.args(["-a", "256"]);
+            command
+        } else {
+            Command::new("sha256sum")
+        };
+        let output = hasher.arg(self.root.join("binary")).output().unwrap();
         assert!(output.status.success());
         let digest = String::from_utf8(output.stdout)
             .unwrap()
@@ -71,10 +85,10 @@ impl Fixture {
             .next()
             .unwrap()
             .to_owned();
-        let name = format!("devctl-v{version}-x86_64-unknown-linux-musl");
+        let name = format!("devctl-v{version}-{TARGET}");
         let release = serde_json::json!({
             "schema_version": 1, "version": version,
-            "assets": [{"target": "x86_64-unknown-linux-musl", "name": name,
+            "assets": [{"target": TARGET, "name": name,
                         "size": binary.len(), "sha256": digest}]
         });
         fs::write(self.root.join("release"), release.to_string()).unwrap();
@@ -224,12 +238,19 @@ fn latest_install_explicit_downgrade_and_rollback_preserve_config() {
     assert_eq!(fixture.contents("devctl"), older);
     assert_eq!(fixture.contents("devctl.previous"), next);
     let requests = fs::read_to_string(fixture.root.join("requests")).unwrap();
-    assert_eq!(requests.lines().collect::<Vec<_>>(), vec![
-        "https://github.com/Jackie733/devctl/releases/latest/download/update.json".to_owned(),
-        format!("https://github.com/Jackie733/devctl/releases/download/v{version}/devctl-v{version}-x86_64-unknown-linux-musl"),
-        "https://github.com/Jackie733/devctl/releases/download/v1.0.0/update.json".to_owned(),
-        "https://github.com/Jackie733/devctl/releases/download/v1.0.0/devctl-v1.0.0-x86_64-unknown-linux-musl".to_owned(),
-    ]);
+    assert_eq!(
+        requests.lines().collect::<Vec<_>>(),
+        vec![
+            "https://github.com/Jackie733/devctl/releases/latest/download/update.json".to_owned(),
+            format!(
+                "https://github.com/Jackie733/devctl/releases/download/v{version}/devctl-v{version}-{TARGET}"
+            ),
+            "https://github.com/Jackie733/devctl/releases/download/v1.0.0/update.json".to_owned(),
+            format!(
+                "https://github.com/Jackie733/devctl/releases/download/v1.0.0/devctl-v1.0.0-{TARGET}"
+            ),
+        ]
+    );
     let output = fixture.run(&["update", "--rollback"]);
     assert!(output.status.success(), "{output:?}");
     assert_eq!(fixture.contents("devctl"), next);

@@ -1,4 +1,4 @@
-#![cfg(target_os = "linux")]
+#![cfg(any(target_os = "linux", target_os = "macos"))]
 mod support;
 
 use nix::{
@@ -312,6 +312,7 @@ fn failures_are_queryable_and_do_not_stop_survivors_or_reload_config() {
     workspace.stopped(web);
 }
 
+#[cfg(target_os = "linux")]
 #[test]
 fn supervisor_is_a_session_leader_with_null_stdio_and_sigterm_cleans_children() {
     let mut workspace = Workspace::new();
@@ -654,7 +655,10 @@ fn startup_failure_is_reported_without_overwriting_an_unrelated_endpoint_file() 
     let before = Instant::now();
     let output = workspace.run(&["start", "web"]);
     assert!(!output.status.success());
-    assert!(String::from_utf8_lossy(&output.stderr).contains("Refusing to replace non-socket"));
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("non-socket"),
+        "{output:?}"
+    );
     assert!(before.elapsed() < Duration::from_secs(3));
     assert_eq!(fs::read_to_string(workspace.socket()).unwrap(), "keep me");
     assert!(!workspace.config.path.with_file_name("web").exists());

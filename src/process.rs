@@ -6,12 +6,12 @@ use std::{
 
 use nix::{
     errno::Errno,
-    sys::{
-        signal::{Signal, killpg},
-        wait::{Id, WaitPidFlag, WaitStatus, waitid},
-    },
+    sys::signal::{Signal, killpg},
     unistd::Pid,
 };
+
+#[cfg(target_os = "linux")]
+use nix::sys::wait::{Id, WaitPidFlag, WaitStatus, waitid};
 
 use tokio::{
     process::{Child, Command},
@@ -178,6 +178,7 @@ async fn wait_for_group_exit(id: &str, pgid: Pid) -> Result<(), String> {
     }
 }
 
+#[cfg(target_os = "linux")]
 fn group_has_live_members(pgid: Pid) -> Result<bool, String> {
     let entries =
         std::fs::read_dir("/proc").map_err(|error| format!("Failed to read /proc: {error}"))?;
@@ -216,6 +217,7 @@ fn group_has_live_members(pgid: Pid) -> Result<bool, String> {
     Ok(false)
 }
 
+#[cfg(target_os = "linux")]
 fn is_live_group_member(stat: &[u8], pgid: Pid) -> Result<bool, &'static str> {
     let suffix = stat
         .iter()
@@ -236,24 +238,105 @@ fn is_live_group_member(stat: &[u8], pgid: Pid) -> Result<bool, &'static str> {
 fn signal_group(id: &str, pgid: Pid, signal: Signal) -> Result<(), String> {
     match killpg(pgid, signal) {
         Ok(()) | Err(Errno::ESRCH) => Ok(()),
+        // Darwin reports EPERM for a group containing only zombies. Confirm
+        // termination before accepting it; live-process permission errors fail.
+        #[cfg(target_os = "macos")]
+        Err(Errno::EPERM) if !group_has_live_members(pgid)? => Ok(()),
         Err(error) => Err(format!(
             "Failed to send {signal:?} to process group for service '{id}': {error}"
         )),
     }
 }
 
-async fn wait_for_exit_without_reaping(id: &str, pid: Pid) -> Result<(), String> {
+// The leader remains unreaped during descendant cleanup, reserving the group ID.
+#[cfg(target_os = "linux")]
+fn exited_without_reaping(pid: Pid) -> Result<bool, Errno> {
     let flags = WaitPidFlag::WEXITED | WaitPidFlag::WNOHANG | WaitPidFlag::WNOWAIT;
+    waitid(Id::Pid(pid), flags).map(|status| status != WaitStatus::StillAlive)
+}
 
+#[cfg(target_os = "macos")]
+fn exited_without_reaping(pid: Pid) -> Result<bool, Errno> {
+    use nix::libc;
+    // SAFETY: zero is a valid siginfo_t; waitid receives a writable, sized buffer.
+    let mut info: libc::siginfo_t = unsafe { std::mem::zeroed() };
+    let result = unsafe {
+        libc::waitid(
+            libc::P_PID,
+            pid.as_raw() as libc::id_t,
+            &mut info,
+            libc::WEXITED | libc::WNOHANG | libc::WNOWAIT,
+        )
+    };
+    Errno::result(result)?;
+    // SAFETY: waitid initialized the SIGCHLD information, or left our zero PID.
+    Ok(unsafe { info.si_pid() } != 0)
+}
+
+#[cfg(target_os = "macos")]
+fn group_has_live_members(pgid: Pid) -> Result<bool, String> {
+    use nix::libc;
+    // Read only this group, growing on truncation with an explicit upper bound.
+    let mut pids = vec![0i32; 64];
     loop {
-        match waitid(Id::Pid(pid), flags) {
-            Ok(WaitStatus::StillAlive) | Err(Errno::EINTR) => {
-                sleep(Duration::from_millis(20)).await;
-            }
-            Ok(_) => return Ok(()),
-            Err(error) => {
-                return Err(format!("Failed to observe service '{id}' exit: {error}"));
-            }
+        Errno::clear();
+        // SAFETY: the buffer is writable for exactly the byte count supplied.
+        let count = unsafe {
+            libc::proc_listpgrppids(
+                pgid.as_raw(),
+                pids.as_mut_ptr().cast(),
+                (pids.len() * std::mem::size_of::<i32>()) as i32,
+            )
+        };
+        if count < 0 || (count == 0 && Errno::last_raw() != 0) {
+            return Err(format!("Failed to list process group: {}", Errno::last()));
+        }
+        if (count as usize) < pids.len() {
+            pids.truncate(count as usize);
+            break;
+        }
+        if pids.len() >= 65536 {
+            return Err("Process group exceeds the 65536-member inspection limit.".into());
+        }
+        pids.resize(pids.len() * 2, 0);
+    }
+    for pid in pids.into_iter().filter(|pid| *pid > 0) {
+        // SAFETY: proc_bsdinfo permits zero initialization and proc_pidinfo writes
+        // at most the supplied size. Read fields only after a complete response.
+        let mut info: libc::proc_bsdinfo = unsafe { std::mem::zeroed() };
+        let size = std::mem::size_of_val(&info) as i32;
+        Errno::clear();
+        let count = unsafe {
+            libc::proc_pidinfo(
+                pid,
+                libc::PROC_PIDTBSDINFO,
+                0,
+                (&mut info as *mut libc::proc_bsdinfo).cast(),
+                size,
+            )
+        };
+        if count == 0 && Errno::last() == Errno::ESRCH {
+            continue;
+        }
+        if count != size {
+            return Err(format!(
+                "Failed to inspect process {pid}: {}",
+                Errno::last()
+            ));
+        }
+        if info.pbi_pgid == pgid.as_raw() as u32 && info.pbi_status != libc::SZOMB {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
+async fn wait_for_exit_without_reaping(id: &str, pid: Pid) -> Result<(), String> {
+    loop {
+        match exited_without_reaping(pid) {
+            Ok(false) | Err(Errno::EINTR) => sleep(Duration::from_millis(20)).await,
+            Ok(true) => return Ok(()),
+            Err(error) => return Err(format!("Failed to observe service '{id}' exit: {error}")),
         }
     }
 }
@@ -262,12 +345,14 @@ async fn wait_for_exit_without_reaping(id: &str, pid: Pid) -> Result<(), String>
 mod tests {
     use super::*;
 
+    #[cfg(target_os = "linux")]
     #[test]
     fn process_names_can_contain_spaces_parentheses_and_non_utf8_bytes() {
         let stat = b"11 (worker (busy) \xff) S 7 42 0";
         assert_eq!(is_live_group_member(stat, Pid::from_raw(42)), Ok(true));
     }
 
+    #[cfg(target_os = "linux")]
     #[test]
     fn group_membership_uses_pgrp_instead_of_ppid() {
         let pgid = Pid::from_raw(42);
@@ -275,6 +360,7 @@ mod tests {
         assert_eq!(is_live_group_member(b"11 (cmd) S 7 42 0", pgid), Ok(true));
     }
 
+    #[cfg(target_os = "linux")]
     #[test]
     fn only_zombie_and_dead_members_are_excluded() {
         for state in ["R", "S", "D", "T", "t", "I", "Z", "X", "x"] {
@@ -287,6 +373,7 @@ mod tests {
         }
     }
 
+    #[cfg(target_os = "linux")]
     #[test]
     fn invalid_status_is_an_error_instead_of_a_missing_member() {
         for stat in [
@@ -300,19 +387,16 @@ mod tests {
         }
     }
 
-    #[cfg(target_os = "linux")]
     #[test]
     fn detects_the_current_live_process_group() {
         assert!(group_has_live_members(nix::unistd::getpgrp()).unwrap());
     }
 
-    #[cfg(target_os = "linux")]
     #[test]
     fn a_missing_group_has_no_live_members() {
         assert!(!group_has_live_members(Pid::from_raw(i32::MAX)).unwrap());
     }
 
-    #[cfg(target_os = "linux")]
     #[tokio::test]
     async fn stop_requests_and_sender_loss_clean_up_the_process_group() {
         use std::{fs, path::PathBuf};

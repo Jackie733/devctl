@@ -44,13 +44,16 @@ try:
     while time.monotonic() < deadline:
         ready, _, _ = select.select([master], [], [], 0.05)
         if ready:
-            output.extend(os.read(master, 65536))
+            data = os.read(master, 65536)
+            output.extend(data)
+            if not data and process.poll() is not None:
+                break
         elif process.poll() is not None:
             break
     else:
-        raise AssertionError('Update timed out in PTY')
+        raise AssertionError(f'Update timed out in PTY (exit={process.poll()}): {output.decode(errors="replace")}')
     assert process.wait(timeout=1) == (1 if mode == 'failure' else 0), output.decode(errors='replace')
-    assert termios.tcgetattr(slave) == original, 'Update changed terminal modes'
+    assert termios.tcgetattr(master) == original, 'Update changed terminal modes'
     stdout = process.stdout.read() if process.stdout else b''
     stderr = process.stderr.read() if process.stderr else b''
 finally:

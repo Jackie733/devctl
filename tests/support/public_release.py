@@ -3,6 +3,7 @@
 import hashlib
 import json
 import os
+import platform
 from pathlib import Path
 import re
 import subprocess
@@ -14,7 +15,8 @@ tag = sys.argv[1]
 assert re.fullmatch(r'v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)', tag), 'Stable tag required'
 version = tag[1:]
 base = f'https://github.com/Jackie733/devctl/releases/download/{tag}/'
-name = f'devctl-{tag}-x86_64-unknown-linux-musl'
+target_platform = ('aarch64-apple-darwin' if platform.machine() == 'arm64' else 'x86_64-apple-darwin') if sys.platform == 'darwin' else 'x86_64-unknown-linux-musl'
+name = f'devctl-{tag}-{target_platform}'
 
 
 def run(args, env=None):
@@ -25,32 +27,42 @@ def run(args, env=None):
 
 with tempfile.TemporaryDirectory(prefix='devctl-public-release-') as tmp:
     root = Path(tmp)
-    for asset in [name, 'devctl-update', f'devctl-{tag}-source.tar.gz', 'update.json', 'SHA256SUMS']:
+    def download(asset):
         run(['curl', '--disable', '--fail', '--silent', '--show-error', '--location',
              '--proto', '=https', '--proto-redir', '=https', '--connect-timeout', '10',
              '--max-time', '180', '--max-filesize', str(128 * 1024 * 1024),
              '--output', str(root / asset), '--', base + asset])
+    download('update.json')
+    download('SHA256SUMS')
+    manifest = json.loads((root / 'update.json').read_text())
+    assert manifest['schema_version'] == 1 and manifest['version'] == version
+    assets = manifest['assets']
+    targets = {asset['target'] for asset in assets}
+    assert len(targets) == len(assets) and target_platform in targets
+    assert targets <= {'x86_64-unknown-linux-musl', 'aarch64-apple-darwin', 'x86_64-apple-darwin'}
+    for asset in assets:
+        assert asset['name'] == f'devctl-{tag}-{asset["target"]}'
+    expected = {asset['name'] for asset in assets} | {'devctl-update', f'devctl-{tag}-source.tar.gz', 'update.json'}
     entries = [line.split(maxsplit=1) for line in (root / 'SHA256SUMS').read_text().splitlines()]
-    assert len(entries) == 4
-    assert {asset for _, asset in entries} == {name, 'devctl-update', f'devctl-{tag}-source.tar.gz', 'update.json'}
+    assert len(entries) == len(expected) and {asset for _, asset in entries} == expected
+    for asset in expected - {'update.json'}:
+        download(asset)
     for digest, asset in entries:
         assert hashlib.sha256((root / asset).read_bytes()).hexdigest() == digest
-    manifest = json.loads((root / 'update.json').read_text())
-    assert manifest == {
-        'schema_version': 1,
-        'version': version,
-        'assets': [{
-            'target': 'x86_64-unknown-linux-musl', 'name': name,
-            'size': (root / name).stat().st_size,
-            'sha256': hashlib.sha256((root / name).read_bytes()).hexdigest(),
-        }],
-    }
+    for asset in assets:
+        data = (root / asset['name']).read_bytes()
+        assert len(data) == asset['size'] and hashlib.sha256(data).hexdigest() == asset['sha256']
     print('PASS public downloads and SHA-256', flush=True)
     binary = root / name
     binary.chmod(0o755)
     assert run([binary, '--version']).strip() == f'devctl {version}'
-    assert 'INTERP' not in run(['readelf', '-l', binary])
-    assert 'NEEDED' not in run(['readelf', '-d', binary])
+    if sys.platform == 'darwin':
+        dependencies = run(['otool', '-L', binary]).splitlines()[1:]
+        assert dependencies and all(line.strip().startswith(('/usr/lib/', '/System/Library/')) for line in dependencies)
+        run(['codesign', '--verify', binary])
+    else:
+        assert 'INTERP' not in run(['readelf', '-l', binary])
+        assert 'NEEDED' not in run(['readelf', '-d', binary])
 
     home = root / 'home'
     target = home / '.local/bin/devctl'

@@ -13,6 +13,8 @@ import unittest
 
 
 BINARY = Path(sys.argv.pop(1)).resolve()
+kind = subprocess.check_output(['file', '-b', BINARY], text=True)
+TARGET = ('aarch64-apple-darwin' if 'arm64' in kind else 'x86_64-apple-darwin') if 'Mach-O' in kind else 'x86_64-unknown-linux-musl'
 SCRIPTS = Path(__file__).resolve().parents[2] / 'scripts'
 
 
@@ -55,11 +57,11 @@ class PackageRelease(unittest.TestCase):
     def test_complete_bundle_is_consumed_by_the_real_client(self):
         bundle = self.root / 'bundle'
         self.package(bundle)
-        name = f'devctl-v{self.version}-x86_64-unknown-linux-musl'
+        name = f'devctl-v{self.version}-{TARGET}'
         manifest = json.loads((bundle / 'update.json').read_text())
         self.assertEqual(manifest, {
             'schema_version': 1, 'version': self.version,
-            'assets': [{'target': 'x86_64-unknown-linux-musl', 'name': name,
+            'assets': [{'target': TARGET, 'name': name,
                         'size': BINARY.stat().st_size,
                         'sha256': hashlib.sha256(BINARY.read_bytes()).hexdigest()}],
         })
@@ -85,7 +87,7 @@ root = pathlib.Path(os.environ['BUNDLE_FIXTURE'])
 version = os.environ['BUNDLE_VERSION']
 base = 'https://github.com/Jackie733/devctl/releases/'
 url = sys.argv[-1]
-name = f'devctl-v{version}-x86_64-unknown-linux-musl'
+name = f'devctl-v{version}-' + os.environ['BUNDLE_TARGET']
 if url in (base + 'latest/download/update.json', base + f'download/v{version}/update.json'):
     asset = 'update.json'
 elif url == base + f'download/v{version}/' + name:
@@ -106,7 +108,7 @@ with (root / asset).open('rb') as source:
         config.parent.mkdir(parents=True)
         config.write_text('unchanged')
         env = {**self.env, 'HOME': str(home), 'PATH': f'{mock}:{os.environ["PATH"]}',
-               'BUNDLE_FIXTURE': str(bundle), 'BUNDLE_VERSION': self.version}
+               'BUNDLE_FIXTURE': str(bundle), 'BUNDLE_VERSION': self.version, 'BUNDLE_TARGET': TARGET}
         self.run_command([BINARY, '--config', '/missing.toml', 'update', '--check'], env)
         self.assertEqual(target.read_bytes(), original)
         self.run_command([BINARY, 'update', '--version', self.version], env)

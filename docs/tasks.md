@@ -3,78 +3,85 @@
 Keep current work and necessary handoff here; Git retains history. Collaboration
 rules are in [AGENTS.md](../AGENTS.md).
 
-## Current: macOS deployment assessment complete (X01/X02, X03)
+## Current: native Mac implementation and local verification (X01, X03)
 
-Assessment date: 2026-10-16. Completion criteria: inspect platform scope,
-build/runtime portability, distribution/install/update, configuration and test
-coverage; attempt native verification; record gaps and ordered next steps without
-treating an assessment as authorization to implement a candidate platform.
+Authorized on 2026-10-16, using the user's existing bogu repository. Source version
+is **1.5.0, unreleased**. Platform scope and acceptance remain owned by
+[requirements](requirements.md#confirmed-scenario); installation is in
+[install.md](install.md#macos).
 
-**Result: macOS installation and operation are not complete or supported.** The
-[installation guide](install.md#requirements) and
-[platform scope](requirements.md#post-mvp-scope) agree with the implementation:
-Linux/WSL2 x86_64 is the release target; native macOS remains a candidate.
+Completion criteria: compile native Mac programs; preserve process-group cleanup,
+background persistence/reconnect and independent service controls; verify install,
+update/rollback protections and terminal copying; exercise a real project; record
+actual evidence and public-release limitations.
 
-| Area | Evidence and remaining gap |
-| --- | --- |
-| Native build | On Darwin arm64 with Rust 1.97.1, `cargo build --locked` fails at `src/process.rs:11`: the selected nix API does not expose `Id`/`waitid` on macOS. This is a platform API gap, not an observed toolchain-version rejection. |
-| Service lifecycle | `src/process.rs` unconditionally reads Linux `/proc` to confirm process-group cleanup. Compilation alone would not establish reliable stop, natural-exit cleanup or restart on macOS. |
-| Distribution | The release workflow and packager produce only `x86_64-unknown-linux-musl`; there is no macOS build/test job or native release artifact. Minimum macOS version and Apple Silicon/Intel scope are undecided. |
-| Install/update/rollback | `scripts/devctl-update` explicitly rejects Darwin; `src/update.rs` rejects platforms other than Linux x86_64. The installer also uses Linux/GNU tools and shell features that need a macOS compatibility review. |
-| Configuration | Existing explicit/default discovery, relative paths and validation are documented in the [configuration reference](interaction.md#configuration). These are reusable foundations, not verified macOS operation. Zsh PATH setup passed an isolated repeatability check. Root `devctl.toml` has no projects/services and is not a usable project setup. |
-| Environment preparation | Runtime/dependency installation and generated workspace configuration remain unimplemented A01/A02 work. Database/Redis discovery and control remain unimplemented A03 work. |
-| User acceptance | Most lifecycle/background/log/TUI integration suites are Linux-only. Native build failure prevented configuration/runtime/TUI execution here. Terminal appearance, copy support, reconnect, descendants and port cleanup require macOS checks; reboot recovery remains a separate candidate. |
+- Implemented macOS lifecycle handling, inherited-descriptor cleanup before the
+  detached supervisor creates Tokio, and local UTF-8 pbcopy support. Linux process
+  cleanup and SSH/WSL clipboard behavior are preserved.
+- Implemented system-Bash-compatible Mac installation, native-target manifest
+  selection, shared update locks, checksums, candidate deadlines, atomic replacement
+  and rollback. Added native build/package and multi-platform merge/public-verify
+  jobs; no publishing action has been taken.
+- Local platform: Apple Silicon, macOS 26.5.1, Rust 1.97.1. Deployment baseline is
+  macOS 14. Intel binaries and tests run locally through Rosetta; this is not
+  validation on Intel hardware or macOS 14.
+- Installed the Apple Silicon release build in `~/.local/bin/devctl`, configured
+  Zsh PATH, and saved the two-service bogu workspace in
+  `~/.config/devctl/devctl.toml`. These machine-specific files are not committed.
+  Commands select the existing Node 24.18.0 and project-declared pnpm 10.3.0 instead
+  of the host's stalled Node shim/unavailable default pnpm. Background job processing
+  is disabled in this acceptance workspace; existing PostgreSQL remains external.
+- Real bogu verification passed for web HTTP, API health, start idempotence,
+  TUI/help, leave/reconnect with unchanged listeners, individual web stop/restart
+  preserving API, complete shutdown and release of ports 5174/3001. Existing
+  PostgreSQL on 5432 was preserved. No migrations, seeds or business-data actions
+  were executed. This is agent verification, not a claim of user acceptance of
+  every Bogu business flow.
+- A repeated concurrent-start check exposed a supervisor retaining an inherited
+  caller pipe. Added a deterministic inherited-pipe regression and fixed Mac startup;
+  30 subsequent eight-client concurrency checks passed.
 
-Only this task record changed. No runtime, installer, release configuration or
-platform-support promise was changed; the user's real HOME and services were not
-modified by the isolated checks.
+## Validation and final local handoff
 
-## Next development tasks
+- `cargo fmt --check`; `cargo clippy --locked --all-targets -- -D warnings`;
+  Linux cross-target clippy with `--target x86_64-unknown-linux-gnu`: passed.
+- `cargo test --locked` and
+  `MACOSX_DEPLOYMENT_TARGET=14.0 cargo test --locked --target x86_64-apple-darwin`:
+  241 tests passed per architecture after the inherited-descriptor fix (Intel via
+  Rosetta). No Linux runtime suite was executed on this Mac.
+- `python3 tests/support/install_scripts.py`: 14 passed, including lock lifetime,
+  stalled candidate, checksum/version failures and destination-directory races.
+- `python3 tests/support/merge_release.py`: 5 passed, including missing/duplicate
+  platforms, damaged bytes and mixed source bundles.
+- Native release builds, `release_artifact.py` and `package_release.py` passed on
+  both Mac architectures after the final startup fix. The installed binary matches
+  the final Apple Silicon release build, and a fresh login Zsh resolves it. Packaging tests exercise real
+  manifest consumption, installation, backup and rollback in temporary HOME.
+- Final installed bogu workflow and offline retained logs passed again with the
+  saved user configuration. Both managed ports are free and PostgreSQL is preserved.
+- `git diff --check`, Markdown links/anchors, Bash syntax, Python compilation and
+  YAML parsing passed. Remote workflow execution is not claimed.
+- Final source bundles require a clean committed tree. Generate and verify the two
+  local Mac bundles after the implementation commit; do not publish them as 1.4.0.
 
-The [existing roadmap](roadmap.md#next-steps) still puts real WSL visual/log and
-cross-version update/rollback acceptance first. Automation work remains:
+## Next steps
 
-1. Refine the open decisions in [A01–A03](requirements.md#directory-onboarding-and-environment-automation-a01a03) against representative user repositories
-   and actual database/Redis installation sources; retain the WSL Node/npm baseline.
-2. Design M7 discovery, checks, command selection, configuration persistence and
-   setup feedback; connect validation to the specified acceptance scenarios.
-3. Design M8 service identity, monitoring and supported control boundaries, including
-   shared instances. Keep historical candidate requirements available for assessment.
+1. Finish the local verification/package handoff above. Public 1.4.0 remains
+   Linux-only; actual remote CI, macOS 14/Intel-hardware checks and anonymous Mac
+   release/update verification remain pending. Do not equate local mock downloads
+   or Rosetta execution with those checks. Do not push, tag or publish automatically.
+2. Retain real WSL U01/log and X03 cross-version update/rollback acceptance from
+   [the existing roadmap](roadmap.md#next-steps) and [WSL checks](wsl.md).
+3. Continue M7 (A01/A02, W05 package.json import), then M8 (A03), according to
+   [automation scope](requirements.md#directory-onboarding-and-environment-automation-a01a03).
+   Directory import, runtime/dependency installation and database/Redis discovery/
+   control are still unimplemented. Native Windows and reboot recovery remain
+   candidates; this task does not expand those features.
 
-If macOS is selected as the next implementation priority, use this order; these
-are assessment recommendations, not newly scheduled scope:
+## Existing public release handoff
 
-1. Confirm supported Mac architectures/minimum OS and a representative project.
-2. Make native compilation and process lifecycle work, preserving descendant
-   cleanup and ownership guarantees; verify normal exit, stop escalation, repeated
-   start/stop, background persistence/reconnect and shutdown on the selected Macs.
-3. Complete native artifacts and compatible installation/update/rollback, including
-   checksums, PATH behavior, backup/configuration preservation and failure recovery.
-4. Add macOS automated coverage and installation/usage guidance with a matching
-   Chinese overview; accept the complete workflow on a real Mac before claiming
-   support. Environment automation remains the separately scoped M7/M8 work.
-
-## Existing release handoff
-
-- v1.4.0 is published; implementation `8633e70`, tagged build
-  `37758491cb7124a7bbc7c36178dc001ac7a6358d`. The
-  [release run](https://github.com/Jackie733/devctl/actions/runs/38883387229)
-  passed CI and public artifact/update verification; detailed history is in Git.
-- U01/X03 real WSL visual/log/update acceptance remains pending. Follow
-  [WSL verification](wsl.md) and [installation](install.md#update), shutting down
-  active workspaces and leaving their TUIs before switching versions.
-
-## Validation
-
-- Passed: `cargo fmt --check`; `bash -n scripts/devctl-update scripts/setup-path.sh scripts/package-release.sh`.
-- Isolated Python/subprocess checks on this Mac: `bash scripts/devctl-update
-  --rollback` returned 1 with the explicit Linux/WSL2-only message and installed
-  no binary; running `bash scripts/setup-path.sh zsh` twice with temporary HOME
-  returned 0 both times and wrote the PATH line exactly once.
-- `cargo build --locked`, `cargo test --locked`, and
-  `cargo clippy --locked --all-targets -- -D warnings` each exited 101 with the
-  same macOS import error above. No Rust test success or native runtime acceptance
-  is claimed. Repairing platform support is outside this assessment-only task.
-- Documentation checks: `git diff --check`, local Markdown links/anchors and manual
-  diff review passed. Release publication status above is retained handoff evidence,
-  not a fresh check of GitHub. No Linux/WSL test suite was rerun here.
+v1.4.0 is published; implementation `8633e70`, tagged build
+`37758491cb7124a7bbc7c36178dc001ac7a6358d`. The recorded
+[release run](https://github.com/Jackie733/devctl/actions/runs/38883387229) passed CI
+and public artifact/update verification. This historical status was not re-fetched
+as part of the Mac implementation task.

@@ -136,7 +136,12 @@ mod tests {
     struct Fixture(PathBuf);
     impl Fixture {
         fn new() -> Self {
-            let dir = std::env::temp_dir().join(format!(
+            let root = if cfg!(target_os = "macos") {
+                PathBuf::from("/tmp")
+            } else {
+                std::env::temp_dir()
+            };
+            let dir = root.join(format!(
                 "devctl-socket-{}-{}",
                 std::process::id(),
                 NEXT.fetch_add(1, Ordering::Relaxed)

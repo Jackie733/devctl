@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Run on the target WSL machine, without sudo.
+# Run on the target Linux/WSL2 or macOS machine, without sudo.
 login_shell=${SHELL:-}
 shell_name=${1:-${login_shell##*/}}
 case "$shell_name" in

@@ -1,4 +1,4 @@
-"""Verify a real Linux release artifact using only a temporary HOME."""
+"""Verify a native release artifact using only a temporary HOME."""
 
 import hashlib
 import os
@@ -21,8 +21,13 @@ def run(args, env=None, ok=True):
 
 assert run([binary, '--version']).stdout.strip() == f'devctl {version}'
 assert '--rollback' in run([binary, 'update', '--help']).stdout
-assert 'INTERP' not in run(['readelf', '-l', binary]).stdout
-assert 'NEEDED' not in run(['readelf', '-d', binary]).stdout
+if sys.platform == 'darwin':
+    dependencies = run(['otool', '-L', binary]).stdout.splitlines()[1:]
+    assert dependencies and all(line.strip().startswith(('/usr/lib/', '/System/Library/')) for line in dependencies), dependencies
+    run(['codesign', '--verify', str(binary)])
+else:
+    assert 'INTERP' not in run(['readelf', '-l', binary]).stdout
+    assert 'NEEDED' not in run(['readelf', '-d', binary]).stdout
 
 with tempfile.TemporaryDirectory(prefix='devctl-release-smoke-') as tmp:
     home = Path(tmp)
@@ -58,4 +63,4 @@ with tempfile.TemporaryDirectory(prefix='devctl-release-smoke-') as tmp:
     for entry in target.parent.iterdir():
         assert not entry.name.startswith(('.devctl-download-', '.devctl-update.')) or entry.name == '.devctl-update.lock'
 
-print('PASS: static artifact, fresh/repeat install, bad checksum, rollback, config preservation')
+print('PASS: native artifact, fresh/repeat install, bad checksum, rollback, config preservation')

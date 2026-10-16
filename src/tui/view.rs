@@ -1102,7 +1102,7 @@ fn help_lines(app: &App) -> Vec<Line<'static>> {
         help_action("v then j/k", "Select lines from the log cursor"),
         help_action("y / Esc", "In selection: copy / cancel"),
         note("/ starts a fresh search snapshot; context stays visible."),
-        note("WSL: clip.exe; elsewhere: terminal clipboard (OSC 52)."),
+        note("Local WSL: clip.exe; local Mac: pbcopy; elsewhere/SSH: OSC 52."),
         note("Check copy feedback and paste to verify. Failures keep selection."),
         note("Selected logs stay anchored; eviction cancels selection."),
         Line::default(),

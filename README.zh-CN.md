@@ -19,7 +19,7 @@
 
 ## 平台支持
 
-当前发布目标为 **Linux x86_64**，包含 **Windows WSL2**。发布程序使用 musl 静态构建，无需安装 Rust，也不依赖特定 glibc 版本。暂不提供 Windows 原生或 macOS 发布程序。
+当前发布目标为 **Linux x86_64**，包含 **Windows WSL2**。发布程序使用 musl 静态构建，无需安装 Rust，也不依赖特定 glibc 版本。1.5.0 源码已加入 **macOS 14 及以上版本（Apple 芯片和 Intel）**的原生支持；当前公开的 1.4.0 仍只有 Linux 程序，多平台版本发布前请使用 [Mac 源码安装步骤](docs/install.md#macos)。Windows 原生支持仍未提供。
 
 开发命令需要能够非交互运行。目前支持依赖校验与计划展示，尚未实现运行时依赖编排、就绪探针、自动重启或机器重启后的恢复。已交付和候选功能的区别见[路线图](docs/roadmap.md)。
 
@@ -27,7 +27,7 @@
 
 ## 安装
 
-从 [GitHub Releases](https://github.com/Jackie733/devctl/releases/latest) 下载程序、外部安装器与校验值，按[安装指南](docs/install.md#prebuilt-binary)校验后安装到 `~/.local/bin/devctl`。无需 GitHub 账号、Token 或本地编译。详细参考文档以英文维护。
+当前 Linux 版本可从 [GitHub Releases](https://github.com/Jackie733/devctl/releases/latest) 下载程序、外部安装器与校验值，按[安装指南](docs/install.md#prebuilt-binary)校验后安装到 `~/.local/bin/devctl`。无需 GitHub 账号、Token 或本地编译。详细参考文档以英文维护。
 
 已安装 **1.2.1 或更高版本**时，先检查更新：
 
@@ -117,7 +117,7 @@ TUI 连接空闲工作区，不自动启动服务。按 `s` 启动选中服务�
 | `q`、`Ctrl-C` | 离开客户端，后台服务继续运行 |
 | `Q` | 确认停止全部服务并结束工作区 |
 
-本机 WSL 通过 `clip.exe` 复制，其他环境与 SSH 使用 OSC 52，需要显示终端支持。选择模式、搜索边界、分页与错误反馈见[使用参考](docs/interaction.md)。
+本机 WSL 通过 `clip.exe` 复制，本机 Mac 使用 `pbcopy`；其他环境与 SSH 使用 OSC 52，需要显示终端支持。选择模式、搜索边界、分页与错误反馈见[使用参考](docs/interaction.md)。
 
 ## 文档
 

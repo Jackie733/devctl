@@ -82,7 +82,7 @@ class Screen:
 
 
 class Tui:
-    def __init__(self, workspace, discover=False, windows_clipboard=False, explicit_tui=False):
+    def __init__(self, workspace, discover=False, windows_clipboard=False, explicit_tui=False, mac_clipboard=False):
         self.workspace = workspace
         self.master, self.slave = pty.openpty()
         self.screen = Screen()
@@ -98,6 +98,11 @@ class Tui:
         if windows_clipboard:
             environment.pop('SSH_CONNECTION')
             environment['WSL_DISTRO_NAME'] = 'devctl-pty-test'
+            environment['PATH'] = str(workspace.root) + os.pathsep + environment.get('PATH', '')
+        if mac_clipboard:
+            environment['LC_ALL'] = 'C'
+            environment.pop('SSH_CONNECTION', None)
+            environment.pop('WSL_DISTRO_NAME', None)
             environment['PATH'] = str(workspace.root) + os.pathsep + environment.get('PATH', '')
         directory = workspace.root / 'unrelated-directory'
         directory.mkdir(exist_ok=True)
@@ -158,16 +163,21 @@ class Tui:
         error = self.process.stderr.read()
         assert self.process.returncode == expected, error
         assert not error, error
-        assert termios.tcgetattr(self.slave) == self.original, 'Terminal modes not restored'
+        assert termios.tcgetattr(self.master) == self.original, 'Terminal modes not restored'
         assert b'\x1b[?1049l' in self.raw and b'\x1b[?25h' in self.raw
 
     def close(self):
         if self.process.poll() is None:
             self.process.terminate()
-            try: self.process.wait(timeout=3)
-            except subprocess.TimeoutExpired:
+            deadline = time.monotonic() + 3
+            # Darwin can wait for terminal output to drain during process exit.
+            while self.process.poll() is None and time.monotonic() < deadline:
+                self.pump()
+            if self.process.poll() is None:
                 self.process.kill()
-                self.process.wait()
+                os.close(self.master)
+                self.master = None
+                self.process.wait(timeout=3)
         self.process.stderr.close()
         if self.master is not None: os.close(self.master)
         os.close(self.slave)
@@ -212,7 +222,7 @@ while True:
 
 class Workspace:
     def __init__(self, mode='normal'):
-        self.directory = tempfile.TemporaryDirectory(prefix='devctl-tui-')
+        self.directory = tempfile.TemporaryDirectory(prefix='devctl-tui-', dir='/tmp' if sys.platform == 'darwin' else None)
         self.root = Path(self.directory.name)
         self.config = self.root / 'devctl.toml'
         self.clients = []
@@ -537,17 +547,28 @@ def copying():
 
 
 def windows_copying():
+    native_copying(False)
+
+
+def mac_copying():
+    if sys.platform == 'darwin':
+        native_copying(True)
+
+
+def native_copying(mac):
+    program = 'pbcopy' if mac else 'clip.exe'
     w = Workspace()
     try:
         worker = w.root / 'worker.py'
         worker.write_text(worker.read_text().replace(
             "print(service + '-line-' + str(number))",
             "print(service + '-line-' + str(number) + '-中文🙂')"))
-        clip = w.root / 'clip.exe'
+        clip = w.root / program
         clip.write_text('''#!/usr/bin/env python3
 import os, sys, time
 from pathlib import Path
 root = Path(__file__).parent
+if Path(__file__).name == 'pbcopy': assert os.environ.get('LC_ALL') == 'en_US.UTF-8'
 (root / 'clip.pid').write_text(str(os.getpid()))
 mode = (root / 'clip.mode').read_text()
 if mode == 'fail': sys.exit(7)
@@ -558,15 +579,15 @@ if mode == 'hang': time.sleep(60)
         clip.chmod(0o700)
         mode = w.root / 'clip.mode'
         mode.write_text('ok')
-        ui = Tui(w, windows_clipboard=True)
+        ui = Tui(w, windows_clipboard=not mac, mac_clipboard=mac)
         ui.choose('web')
         ui.send(b's')
         w.states(web='Running', weapp='Stopped', middle='Stopped')
         ui.wait('web-line-')
         ui.pump(.6)
         ui.send(b'0ggjjvjy')
-        ui.wait('Copied 2 lines via clip.exe')
-        copied = (w.root / 'clipboard.bin').read_bytes().decode('utf-16le')
+        ui.wait(f'Copied 2 lines via {program}')
+        copied = (w.root / 'clipboard.bin').read_bytes().decode('utf-8' if mac else 'utf-16le')
         assert '中文🙂' in copied and len(copied.splitlines()) == 2 and copied.endswith('\n'), repr(copied)
         assert 'seq=' not in copied and not copied.startswith('\ufeff')
         assert ui.screen.clipboard_requests == 0, 'Native copy also emitted OSC 52'
@@ -586,7 +607,7 @@ if mode == 'hang': time.sleep(60)
         ui.pump(1)
         ui.send(b'\x1b')
         ui.wait('V-LINE 2 selected')
-        ui.wait('Copied 1 lines via clip.exe')
+        ui.wait(f'Copied 1 lines via {program}')
 
         # A blocked native process must not prevent leaving or stop managed services.
         mode.write_text('hang')
@@ -601,7 +622,7 @@ if mode == 'hang': time.sleep(60)
         ui.exit()
         w.states(web='Running', weapp='Stopped', middle='Stopped')
         deadline = time.monotonic() + 3
-        while Path(f'/proc/{pid}').exists():
+        while subprocess.run(['ps', '-p', str(pid), '-o', 'stat='], capture_output=True).stdout.strip()[:1] not in (b'', b'Z', b'X'):
             assert time.monotonic() < deadline, 'Native clipboard process survived client exit'
             time.sleep(.02)
     finally: w.close()
@@ -785,7 +806,8 @@ def config_discovery():
     finally: w.close()
 
 
-{'lifecycle': lifecycle, 'reconnect': reconnect, 'slow': slow_stop_and_failure, 'high': high_output,
- 'discovery': config_discovery, 'navigation': navigation, 'copying': copying,
- 'windows-copying': windows_copying, 'history': history, 'disk-history': disk_history}[sys.argv[2]]()
-print('PASS:', sys.argv[2])
+if __name__ == '__main__':
+    {'lifecycle': lifecycle, 'reconnect': reconnect, 'slow': slow_stop_and_failure, 'high': high_output,
+     'discovery': config_discovery, 'navigation': navigation, 'copying': copying,
+     'windows-copying': windows_copying, 'mac-copying': mac_copying, 'history': history, 'disk-history': disk_history}[sys.argv[2]]()
+    print('PASS:', sys.argv[2])

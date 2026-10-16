@@ -226,15 +226,8 @@ fn assert_service_exit(
         // Check that the worker has terminated, rather than claiming to reap it.
         let deadline = Instant::now() + Duration::from_secs(5);
         loop {
-            match std::fs::read_to_string(format!("/proc/{pid}/stat")) {
-                Ok(stat) => {
-                    let state = stat.rsplit_once(") ").unwrap().1.as_bytes()[0];
-                    if state == b'Z' || state == b'X' {
-                        break;
-                    }
-                }
-                Err(error) if error.kind() == std::io::ErrorKind::NotFound => break,
-                Err(error) => panic!("Failed to check worker state: {error}"),
+            if !support::process_is_live(pid) {
+                break;
             }
             assert!(Instant::now() < deadline, "The worker is still running.");
             thread::sleep(Duration::from_millis(10));
@@ -281,7 +274,6 @@ fn sigterm_stops_the_direct_child_and_succeeds() {
     assert_service_exit(Some(Signal::SIGTERM), "long_running", false, None);
 }
 
-#[cfg(target_os = "linux")]
 #[test]
 fn stopping_terminates_the_service_and_its_worker() {
     assert_service_exit(Some(Signal::SIGTERM), "process_tree", true, None);
@@ -310,7 +302,6 @@ fn ignored_term_is_force_killed_after_the_grace_period() {
     );
 }
 
-#[cfg(target_os = "linux")]
 #[test]
 fn leader_exit_still_terminates_a_worker_that_ignores_term() {
     let (lines, elapsed) =
@@ -322,7 +313,6 @@ fn leader_exit_still_terminates_a_worker_that_ignores_term() {
     );
 }
 
-#[cfg(target_os = "linux")]
 #[test]
 fn natural_exit_terminates_workers_and_preserves_the_original_status() {
     for (service, expected) in [

@@ -3,6 +3,18 @@
 User-facing changes are grouped by released version. Download artifacts from
 [GitHub Releases](https://github.com/Jackie733/devctl/releases).
 
+## 1.5.0 — Unreleased
+
+- Add native macOS 14+ operation on Apple Silicon and Intel, preserving process-group
+  cleanup, background services, reconnect, retained logs and terminal restoration.
+- Use pbcopy for local Mac log copying, UTF-16LE clip.exe for local WSL and OSC 52
+  over SSH/other terminals, with bounded native clipboard operations.
+- Support macOS installation, native-target manifest updates and offline rollback
+  with the system Bash, Perl and shasum; preserve locking, checksums and backups.
+- Build and verify Linux musl plus both Mac artifacts in the release workflow;
+  merge matching platform bundles into one manifest and verify public downloads
+  on each platform. No macOS artifact exists in the historical 1.4.0 release.
+
 ## 1.4.0 — 2026-10-16
 
 - Add service-state symbols, a distinct selection marker, emphasized panel focus,

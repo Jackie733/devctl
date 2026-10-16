@@ -106,7 +106,8 @@ waits within the initial five-second stop budget, force-cleans remaining group
 members, confirms no live member remains, explicitly waits the direct Child, drains
 pipes within a separate bound, and reports completion.
 
-Observe the leader with Linux `waitid` and `WNOWAIT/WNOHANG` before reaping. Retaining
+Observe the leader with `waitid` and `WNOWAIT/WNOHANG` before reaping (nix on Linux,
+libc on macOS, where nix does not expose that API). Retaining
 its PID until the final group signal prevents PID reuse during cleanup. If the
 leader exits during the grace period, force-clean remaining group members immediately
 rather than granting another grace period. Natural exit, single/all stop, and supervisor
@@ -116,7 +117,11 @@ Linux confirmation scans `/proc/<pid>/stat` state and pgrp on a blocking task. A
 process disappearing during a scan is harmless; other read/parse errors are not
 ignored. Cleanup means no live group members and the direct Child reaped; adopted
 zombies are not live members. Post-KILL confirmation and reaping share an initial
-one-second bound. Retain the leader identity until confirmation; repeat KILL for
+one-second bound. macOS confirmation uses libproc's group enumeration and BSD
+process information, excluding zombies and tolerating ESRCH races; an inspection
+failure is an error. Grow the PID buffer on truncation, bounded at 65,536 members.
+Darwin may return EPERM when signaling a group with only zombies; accept that only
+after confirming the absence of live members. Retain the leader identity until confirmation; repeat KILL for
 observed remaining members if necessary. Timeout cannot be reported as success.
 
 Only a currently owned instance may be signaled. Do not read a stale PID from disk
@@ -129,7 +134,7 @@ truncated nor automatically deleted, avoiding inode splits. Reject symlinks and
 nonregular lock files. Exec'd services do not inherit its descriptor. Ownership is
 the OS lock, not file contents; a released lock does not prove crash leftovers safe.
 The configuration directory must be writable. Current guarantees are tested on local
-Linux filesystems, not network filesystems. Foreground and background use the same
+Linux and macOS filesystems, not network filesystems. Foreground and background use the same
 lock, held through normal cleanup.
 
 ## Logs and terminal
@@ -222,8 +227,9 @@ Clipboard work owns a bounded text snapshot and generations, not a mutable App
 borrow. Only one request may run, with no queue. Local WSL detection uses environment
 or kernel markers and excludes `SSH_CONNECTION`; invoke PATH's `clip.exe` directly
 with BOM-free UTF-16LE. Write/wait share three seconds; kill and reap on failure or
-timeout, with `kill_on_drop` on cancellation. Elsewhere, Crossterm's OSC 52 feature
-writes to the display terminal. Do not read the clipboard. Success only clears the
+timeout, with `kill_on_drop` on cancellation. Local macOS, also excluding SSH,
+invokes PATH's `pbcopy` with UTF-8 and a child-only UTF-8 locale under the same bounds. Elsewhere, Crossterm's
+OSC 52 feature writes to the display terminal. Do not read the clipboard. Success only clears the
 same unchanged selection, and reports process completion or transmission rather
 than independently verified clipboard contents.
 
@@ -393,6 +399,10 @@ Affected instances cannot restart; other confirmed-safe services remain independ
 controllable. Final ownership release requires confirmed safe exit.
 
 The launcher executes the current binary rather than fork/daemonize inside Tokio.
+On macOS, the hidden detached entry enumerates and closes inherited non-stdio
+file descriptors before constructing Tokio. This prevents a long-lived supervisor
+from keeping a caller's pipe open (including a descriptor leaked during concurrent
+caller spawns), while preserving all descriptors subsequently owned by the runtime.
 The child calls setsid; stdin/stderr use `/dev/null`, stdout is a private startup
 pipe until initialization. It sends bounded READY, ERROR, or typed LOCKED feedback,
 then redirects stdout. The launcher reads at most 4096 bytes within eight seconds
@@ -428,12 +438,14 @@ The per-version `update.json` attachment uses this schema:
 | `schema_version` | Integer 1; reject unknown schema versions |
 | `version` | Plain stable MAJOR.MINOR.PATCH, without v, prerelease, or build metadata; exactly match explicit requests |
 | `assets` | Platform array containing exactly one entry for the supported target |
-| `assets[].target` | Currently `x86_64-unknown-linux-musl` |
-| `assets[].name` | Exactly `devctl-v<VERSION>-x86_64-unknown-linux-musl`; never a path or URL |
+| `assets[].target` | Native target: `x86_64-unknown-linux-musl`, `aarch64-apple-darwin`, or `x86_64-apple-darwin` |
+| `assets[].name` | Exactly `devctl-v<VERSION>-<TARGET>` for the selected target; never a path or URL |
 | `assets[].size` | Actual byte length, greater than 0 and at most 128 MiB |
 | `assets[].sha256` | 64 hexadecimal SHA-256 digits |
 
-The packager generates the manifest from the tested binary. All attachments upload
+Each native packager generates a manifest from its tested binary. Publication
+merges exactly three distinct native targets after checking each checksum/size and
+requiring identical source archives, installers and build-commit notes. All attachments upload
 to a draft before publication as Latest. Tag, package, candidate, and manifest
 versions must agree. After resolving latest once, construct a fixed version URL
 for the program, avoiding mixed assets when Latest changes during download. Bound
@@ -490,19 +502,24 @@ integration tests' oracle; animation does not establish installation success.
 Each request owns a 0700 temporary child of `~/.local/bin`; its guard cleans only
 its own directory on normal/error return. SIGKILL/power loss may leave staging.
 Downloads do not hold the install lock. The embedded Bash installer serializes
-replacement with the external installer's `.devctl-update.lock`, rejects symlink
+replacement with the external installer's `.devctl-update.lock` (Linux flock;
+macOS Perl flock on an inherited descriptor), rejects symlink
 targets, checks SHA-256 before executing a candidate, checks `--version` within five
 seconds and for exact expected version, backs up the old program, then renames on
 the same filesystem. Failure leaves installation/backup unchanged; identical bytes
 preserve the backup. Hashes trust the same HTTPS release source, not an independent
-signature authority.
+signature authority. The Mac installer works with system Bash 3.2 and BSD tools,
+uses shasum for SHA-256, Perl alarm/exec for the candidate deadline, and Perl rename
+for atomic replacement without following destination symlinks or moving into a
+raced-in destination directory. No Python or Homebrew is
+needed by the installed updater.
 
 Reuse this state machine rather than implement another in Rust. Existing serde_json
 and semver are sufficient; no HTTP runtime or self-update framework is introduced.
 Temporary-HOME tests and simulated downloads cover installation/failures/rollback.
 Packaging tests make the real client consume the generated manifest and program.
-The [release workflow](docs/releasing.md) additionally validates the shipped static
-artifact and anonymous public client after publication. Controlled tests and a
+The [release workflow](docs/releasing.md) additionally validates shipped native artifacts (static ELF on Linux, system-library-only
+signed Mach-O on macOS) and anonymous public client after publication. Controlled tests and a
 published version remain distinct from target WSL acceptance.
 
 ## Validation

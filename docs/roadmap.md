@@ -17,6 +17,7 @@ owned by [requirements.md](requirements.md); current work and evidence live in
 | Logging follow-up | 1.1.0 delivered history, persistence, pause, literal search, context and page/selection export | L01–L04 |
 | Public distribution | Public Releases, static artifacts, checksums, source identity and tested publication workflow | X03 |
 | Self-update | 1.2.0 introduced independent update/rollback; 1.2.1 switched to Release manifests | X03 |
+| Native macOS source | 1.5.0 adds native lifecycle, clipboard, installation/update/rollback and a three-platform release pipeline; publication and platform evidence remain in tasks.md | X01, X03 |
 
 The initial MVP was accepted on 2026-10-15. Controlled tests establish coverage of
 subsequent work, not final acceptance of those changes in every target environment.
@@ -24,6 +25,11 @@ The 1.2.2 documentation/license release provides the next real version for testi
 1.2.1 → 1.2.2 updates without inventing additional runtime features.
 
 ## Next steps
+
+The user prioritized macOS implementation on 2026-10-16. Finish its validation and
+release handoff in [tasks.md](tasks.md); the historical WSL acceptance items below
+remain outstanding. Directory automation remains M7/M8 and is not bundled into the
+platform implementation.
 
 | Priority | Work | Acceptance basis |
 | --- | --- | --- |
@@ -35,8 +41,8 @@ The 1.2.2 documentation/license release provides the next real version for testi
 | Later | Assess candidates when concrete scenarios justify them | Preserve the complete [candidate list](requirements.md#post-mvp-scope); do not schedule automatically |
 
 Dedicated restart shortcuts may be worth assessing if explicit stop/start becomes
-frequent. Dependency orchestration, probes, crash restart, reboot recovery, expanded
-platforms, workspace profiles, interactive services, aggregation, and AI assistance
+frequent. Dependency orchestration, probes, crash restart, reboot recovery, native
+Windows, workspace profiles, interactive services, aggregation, and AI assistance
 remain candidates. Existing planning code does not establish runtime dependency
 support. A candidate's presence is neither a promise nor authorization to implement it.
 

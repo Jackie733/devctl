@@ -29,7 +29,20 @@ env:
 
 jobs:
   build:
-    runs-on: ubuntu-22.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-22.04
+            target: x86_64-unknown-linux-musl
+          - runner: macos-14
+            target: aarch64-apple-darwin
+          - runner: macos-15-intel
+            target: x86_64-apple-darwin
+    runs-on: ${{ matrix.runner }}
+    env:
+      TMPDIR: /tmp
+      MACOSX_DEPLOYMENT_TARGET: '14.0'
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
@@ -39,9 +52,11 @@ jobs:
           persist-credentials: false
       - name: Install build and test tools
         run: |
-          sudo apt-get update
-          sudo apt-get install -y musl-tools python3 zsh
-          rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal --component rustfmt,clippy --target x86_64-unknown-linux-musl
+          if [[ "$RUNNER_OS" == Linux ]]; then
+            sudo apt-get update
+            sudo apt-get install -y musl-tools python3 zsh
+          fi
+          rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal --component rustfmt,clippy --target "${{ matrix.target }}"
           rustup override set "$RUST_TOOLCHAIN"
       - name: Validate release version
         run: |
@@ -59,20 +74,24 @@ jobs:
           cargo clippy --locked --all-targets -- -D warnings
           cargo test --locked
           python3 tests/support/install_scripts.py
-      - name: Build and verify the static artifact
+          python3 tests/support/merge_release.py
+      - name: Build and verify the native artifact
         run: |
-          cargo build --release --locked --target x86_64-unknown-linux-musl
-          version=$(./target/x86_64-unknown-linux-musl/release/devctl --version)
-          python3 tests/support/release_artifact.py ./target/x86_64-unknown-linux-musl/release/devctl "${version#devctl }"
-          python3 tests/support/package_release.py ./target/x86_64-unknown-linux-musl/release/devctl
-          for scenario in lifecycle reconnect slow high discovery navigation copying windows-copying history disk-history; do
-            python3 tests/support/tui_pty.py ./target/x86_64-unknown-linux-musl/release/devctl "$scenario"
+          cargo build --release --locked --target "${{ matrix.target }}"
+          if [[ "$RUNNER_OS" == macOS ]]; then
+            codesign --force --sign - ./target/${{ matrix.target }}/release/devctl
+          fi
+          version=$(./target/${{ matrix.target }}/release/devctl --version)
+          python3 tests/support/release_artifact.py ./target/${{ matrix.target }}/release/devctl "${version#devctl }"
+          python3 tests/support/package_release.py ./target/${{ matrix.target }}/release/devctl
+          for scenario in lifecycle reconnect slow high discovery navigation copying windows-copying mac-copying history disk-history; do
+            python3 tests/support/tui_pty.py ./target/${{ matrix.target }}/release/devctl "$scenario"
           done
       - name: Package the exact source commit
-        run: bash scripts/package-release.sh ./target/x86_64-unknown-linux-musl/release/devctl dist
+        run: bash scripts/package-release.sh ./target/${{ matrix.target }}/release/devctl dist
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: release-${{ github.run_id }}
+          name: release-${{ github.run_id }}-${{ matrix.target }}
           path: dist/*
           if-no-files-found: error
           retention-days: 7
@@ -86,10 +105,16 @@ jobs:
       contents: write
       actions: read
     steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ inputs.tag && format('refs/tags/{0}', inputs.tag) || github.ref }}
+          persist-credentials: false
       - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
         with:
-          name: release-${{ github.run_id }}
-          path: dist
+          pattern: release-${{ github.run_id }}-*
+          path: bundles
+      - name: Merge verified platform bundles
+        run: python3 scripts/merge-release.py bundles dist
       - name: Verify and publish the complete release
         working-directory: dist
         env:
@@ -98,7 +123,7 @@ jobs:
           TAG: ${{ env.RELEASE_TAG }}
         run: |
           sha256sum --check SHA256SUMS
-          assets=("devctl-$TAG-x86_64-unknown-linux-musl" devctl-update "devctl-$TAG-source.tar.gz" update.json SHA256SUMS)
+          assets=("devctl-$TAG-x86_64-unknown-linux-musl" "devctl-$TAG-aarch64-apple-darwin" "devctl-$TAG-x86_64-apple-darwin" devctl-update "devctl-$TAG-source.tar.gz" update.json SHA256SUMS)
           if gh release view "$TAG" --json isDraft --jq .isDraft > "$RUNNER_TEMP/release-state"; then
             [[ $(cat "$RUNNER_TEMP/release-state") == true ]] || { echo 'Refusing to replace an already published release.' >&2; exit 1; }
             gh release upload "$TAG" "${assets[@]}" --clobber

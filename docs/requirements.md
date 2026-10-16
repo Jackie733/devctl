@@ -22,7 +22,11 @@ ending development is an explicit stop/shutdown action.
 
 The confirmed primary environment is WSL2, Ubuntu 22.04.5 LTS, x86_64, using Linux
 runtimes and project directories. The initial complete MVP workflow was accepted
-on 2026-10-15 and released as 1.0.0. Native Windows/macOS acceptance is not implied.
+on 2026-10-15 and released as 1.0.0. On 2026-10-16 the user authorized native
+macOS implementation and supplied the local bogu project for real-project
+verification. The source target is macOS 14+ on Apple Silicon and Intel; record
+actual platform/build/publication evidence separately in [tasks.md](tasks.md).
+Native Windows acceptance is not implied.
 Vim-style navigation, compact terminal layout, complete-line copying, and Windows
 Terminal/WSL clipboard behavior refine U01/L01 without expanding platform guarantees.
 
@@ -100,7 +104,8 @@ simplifying documentation must not silently cancel it.
 | D04, D05 | HTTP probes, one-shot tasks, sustained health checks, cascaded control | Candidate |
 | U01, P07 | Multiple services per project and aggregate workspace/project/service UI | Candidate; current one-command-per-project scope remains |
 | U02 | Expanded non-TUI foreground presentation | Candidate; existing foreground run and control CLI remain available |
-| X01, X02 | Native macOS and Windows | Candidate |
+| X01 | Native macOS operation | Authorized; 1.5.0 source implementation, native install/update/rollback and real bogu verification; platform/release evidence in tasks.md |
+| X02 | Native Windows | Candidate |
 | X03 | Public distribution and self-update | Public releases and updater delivered; full target WSL acceptance pending |
 | P06 | Service PTYs, stdin forwarding, interactive commands | Candidate |
 | W05 | package.json/Procfile import and devctl-managed file-watch restart | package.json import is included in A01; Procfile import and file-watch restart remain candidates |
@@ -184,10 +189,10 @@ Research starting points (not selected implementation mechanisms):
 
 ### Public releases and self-update (X03)
 
-Users should obtain a supported precompiled version from `devctl update` in WSL,
+Users should obtain a supported precompiled version from `devctl update` on a supported platform,
 without cloning source or installing Rust for routine updates.
 
-- Publish distinguishable stable versions with source identity, executable Linux
+- Publish distinguishable stable versions with source identity, native Linux/Mac
   artifacts, checksums, and notes in the existing public `Jackie733/devctl` repository.
 - Test/build before publication. Generate the update manifest from the artifact;
   upload a complete draft before exposing it as Latest. Normal client discovery
@@ -204,9 +209,11 @@ without cloning source or installing Rust for routine updates.
 - Clearly separate file replacement from already-running supervisors. Initially users
   explicitly shut down each workspace before switching versions. Automatic discovery
   or restart of all workspaces requires separate assessment.
-- Current target is Linux x86_64 musl installed in `~/.local/bin`. Hashes trust the
-  same public HTTPS source. Private authentication, package-manager distribution,
-  additional platforms, and new publication authorization are separate concerns.
+- Install native Linux x86_64 musl or macOS arm64/x86_64 programs in `~/.local/bin`.
+  Historical Linux-only release availability is documented in the installation
+  guide. Hashes trust the same public HTTPS source. Private authentication,
+  package-manager distribution, other platforms and publication authorization
+  remain separate concerns.
 
 Commands are defined in [self-update](interaction.md#self-update); release mechanics
 in [releasing.md](releasing.md); actual results in [tasks.md](tasks.md). WSL acceptance

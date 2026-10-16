@@ -795,13 +795,11 @@ mod tests {
             .unwrap();
     }
 
-    #[cfg(target_os = "linux")]
     struct StopFixture {
         dir: std::path::PathBuf,
         pids: Vec<nix::unistd::Pid>,
     }
 
-    #[cfg(target_os = "linux")]
     impl StopFixture {
         fn new() -> Self {
             let dir = std::env::temp_dir()
@@ -844,7 +842,6 @@ mod tests {
         }
     }
 
-    #[cfg(target_os = "linux")]
     impl Drop for StopFixture {
         fn drop(&mut self) {
             for pid in &self.pids {
@@ -854,7 +851,6 @@ mod tests {
         }
     }
 
-    #[cfg(target_os = "linux")]
     #[tokio::test]
     async fn stop_all_notifies_every_task_before_waiting_and_survives_cancellation() {
         use nix::{errno::Errno, sys::signal::kill};

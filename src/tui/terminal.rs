@@ -93,6 +93,7 @@ impl Drop for TerminalGuard {
 
 pub enum CopyTarget {
     Windows,
+    Mac,
     Terminal,
 }
 
@@ -102,8 +103,16 @@ pub async fn copy_logs(text: &str) -> Result<CopyTarget, String> {
             .is_ok_and(|release| release.to_ascii_lowercase().contains("microsoft"));
     // Over SSH, target the displaying terminal rather than a remote Windows desktop.
     if wsl && std::env::var_os("SSH_CONNECTION").is_none() {
-        copy_to_command(Command::new("clip.exe"), text, Duration::from_secs(3)).await?;
+        // clip.exe expects Windows Unicode input, independent of code pages.
+        let bytes: Vec<u8> = text.encode_utf16().flat_map(u16::to_le_bytes).collect();
+        copy_to_command(Command::new("clip.exe"), &bytes, Duration::from_secs(3)).await?;
         Ok(CopyTarget::Windows)
+    } else if cfg!(target_os = "macos") && std::env::var_os("SSH_CONNECTION").is_none() {
+        let mut command = Command::new("pbcopy");
+        // pbcopy selects its input encoding from locale, including LC_ALL.
+        command.env("LC_ALL", "en_US.UTF-8");
+        copy_to_command(command, text.as_bytes(), Duration::from_secs(3)).await?;
+        Ok(CopyTarget::Mac)
     } else {
         copy_osc52(&mut stdout().lock(), text).map_err(|error| error.to_string())?;
         Ok(CopyTarget::Terminal)
@@ -112,22 +121,25 @@ pub async fn copy_logs(text: &str) -> Result<CopyTarget, String> {
 
 async fn copy_to_command(
     mut command: Command,
-    text: &str,
+    bytes: &[u8],
     deadline: Duration,
 ) -> Result<(), String> {
+    let program = command
+        .as_std()
+        .get_program()
+        .to_string_lossy()
+        .into_owned();
     let mut child = command
         .stdin(Stdio::piped())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .kill_on_drop(true)
         .spawn()
-        .map_err(|error| format!("cannot start clip.exe: {error}"))?;
+        .map_err(|error| format!("cannot start {program}: {error}"))?;
     let mut input = child.stdin.take().expect("Clipboard stdin is piped.");
-    // clip.exe expects Windows Unicode input; UTF-16LE avoids code-page loss.
-    let bytes: Vec<u8> = text.encode_utf16().flat_map(u16::to_le_bytes).collect();
     let result = timeout(deadline, async {
         input
-            .write_all(&bytes)
+            .write_all(bytes)
             .await
             .map_err(|error| error.to_string())?;
         drop(input);
@@ -135,11 +147,11 @@ async fn copy_to_command(
         if status.success() {
             Ok(())
         } else {
-            Err(format!("clip.exe exited with {status}"))
+            Err(format!("{program} exited with {status}"))
         }
     })
     .await
-    .unwrap_or_else(|_| Err("clip.exe timed out".into()));
+    .unwrap_or_else(|_| Err(format!("{program} timed out")));
     if result.is_err() {
         // Kill and reap a stalled reader as well as a child whose pipe closed early.
         let _ = child.kill().await;
@@ -180,18 +192,23 @@ mod tests {
 
     #[tokio::test]
     async fn native_clipboard_receives_unicode_and_reports_exit_failure_and_timeout() {
-        let mut command = Command::new("python3");
-        command.args([
-            "-c",
-            "import sys; assert sys.stdin.buffer.read().decode('utf-16le') == '中文🙂\\tline\\n'",
-        ]);
-        copy_to_command(command, "中文🙂\tline\n", Duration::from_secs(3))
-            .await
-            .unwrap();
+        for encoding in ["utf-16le", "utf-8"] {
+            let mut command = Command::new("python3");
+            command.args(["-c", &format!("import sys; assert sys.stdin.buffer.read().decode('{encoding}') == '中文🙂\\tline\\n'")]);
+            let text = "中文🙂\tline\n";
+            let bytes = if encoding == "utf-16le" {
+                text.encode_utf16().flat_map(u16::to_le_bytes).collect()
+            } else {
+                text.as_bytes().to_vec()
+            };
+            copy_to_command(command, &bytes, Duration::from_secs(3))
+                .await
+                .unwrap();
+        }
         let mut command = Command::new("sh");
         command.args(["-c", "exit 7"]);
         assert!(
-            copy_to_command(command, "", Duration::from_secs(3))
+            copy_to_command(command, b"", Duration::from_secs(3))
                 .await
                 .unwrap_err()
                 .contains("exit status: 7")
@@ -199,7 +216,7 @@ mod tests {
         let mut command = Command::new("sh");
         command.args(["-c", "exec sleep 60"]);
         assert!(
-            copy_to_command(command, "test", Duration::from_millis(50))
+            copy_to_command(command, b"test", Duration::from_millis(50))
                 .await
                 .unwrap_err()
                 .contains("timed out")

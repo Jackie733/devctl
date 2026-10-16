@@ -139,11 +139,12 @@ source/instance/sequence prefixes, UI padding, and status labels. The limit is
 selection. Only one copy is in flight, and cancelling selection does not retract
 an already issued clipboard request.
 
-Local WSL uses `clip.exe` through Windows interoperability. SSH and other supported
-Linux sessions use OSC 52 to the display terminal, subject to terminal/multiplexer
-support. A failed `clip.exe` operation is reported without channel fallback. Copy
-never reads the clipboard and occurs only on `y`. Success reports a completed
-`clip.exe` process or an OSC 52 send; paste manually to verify the actual clipboard.
+Local WSL uses `clip.exe` through Windows interoperability; local macOS uses
+`pbcopy`. SSH and other Linux sessions use OSC 52 to the display terminal, subject
+to terminal/multiplexer support. A failed native clipboard operation is reported
+without channel fallback. Copy never reads the clipboard and occurs only on `y`.
+Success reports a completed native process or an OSC 52 send; paste manually to
+verify the actual clipboard.
 
 ### Layout, help, and confirmation
 
@@ -285,7 +286,7 @@ used to adopt processes after a crash or reboot.
 ## Self-update
 
 Available since 1.2.0; clients 1.2.1 and later use Release manifests. Supported on
-Linux/WSL2 x86_64, fixed to `Jackie733/devctl` public releases, with no private-source
+Linux/WSL2 x86_64 and macOS 14+ arm64/x86_64, fixed to `Jackie733/devctl` public releases, with no private-source
 authentication or alternate source URL. Workspace configuration is never loaded,
 even with an explicit nonexistent `--config`.
 

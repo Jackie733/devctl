@@ -1,4 +1,4 @@
-#![cfg(target_os = "linux")]
+#![cfg(any(target_os = "linux", target_os = "macos"))]
 
 mod support;
 use support::ConfigFixture;
@@ -128,18 +128,8 @@ impl Batch {
         if let Some(pid) = self.worker {
             let deadline = Instant::now() + Duration::from_secs(3);
             loop {
-                match std::fs::read_to_string(format!("/proc/{pid}/stat")) {
-                    Ok(stat)
-                        if matches!(
-                            stat.rsplit_once(") ").unwrap().1.as_bytes()[0],
-                            b'Z' | b'X'
-                        ) =>
-                    {
-                        break;
-                    }
-                    Ok(_) => {}
-                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => break,
-                    Err(error) => panic!("Cannot check worker: {error}"),
+                if !support::process_is_live(pid) {
+                    break;
                 }
                 assert!(Instant::now() < deadline, "The worker is still running.");
                 thread::sleep(Duration::from_millis(10));

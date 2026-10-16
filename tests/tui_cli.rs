@@ -1,4 +1,4 @@
-#![cfg(target_os = "linux")]
+#![cfg(any(target_os = "linux", target_os = "macos"))]
 
 use std::{path::Path, process::Command};
 
@@ -66,4 +66,10 @@ fn history_pages_pause_bookmarks_and_expiry_work_in_a_real_terminal() {
 #[test]
 fn disk_history_search_copy_and_fresh_entry_follow_work_in_a_real_terminal() {
     scenario("disk-history");
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn mac_copy_handles_unicode_failure_and_in_flight_navigation_without_touching_host_clipboard() {
+    scenario("mac-copying");
 }

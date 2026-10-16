@@ -21,7 +21,7 @@ interface without stopping your services, then reconnect when you need it.
   Since 1.4.0, state symbols, focus/shortcut emphasis, waiting animations, and brief
   completion feedback make operations clearer without requiring Nerd Fonts.
 - **Logs for daily debugging.** Read stdout/stderr, pause and page through retained
-  history, search literal text, and copy complete lines with their surrounding context.
+  history, search literal text, and copy complete lines with their surrounding context (local Mac uses pbcopy).
 - **Bounded storage.** Keep recent logs in memory and save history with configurable
   disk limits and retention. Inspect past sessions without starting services.
 - **Verified updates.** Download public release manifests, verify SHA-256 and the
@@ -32,7 +32,9 @@ interface without stopping your services, then reconnect when you need it.
 
 The supported release target is **Linux x86_64**, including **Windows WSL2**.
 Release binaries use musl and do not require Rust or a particular glibc version.
-Native Windows and macOS are not currently supported release targets.
+The 1.5.0 source tree adds native **macOS 14+ (Apple Silicon and Intel)**.
+The current public 1.4.0 release is Linux-only; use the [Mac source installation](docs/install.md#macos)
+until multi-platform artifacts are published. Native Windows remains unsupported.
 
 Commands must run without interactive input. Dependency validation and planning
 are available, but runtime dependency orchestration, readiness probes, automatic
@@ -47,7 +49,7 @@ increment. See [scope and open decisions](docs/requirements.md#directory-onboard
 
 ## Installation
 
-Get the binary, external installer, and checksums from
+For the current Linux release, get the binary, external installer, and checksums from
 [GitHub Releases](https://github.com/Jackie733/devctl/releases/latest), then follow
 the [installation guide](docs/install.md#prebuilt-binary) to verify and install them
 into `~/.local/bin/devctl`. No GitHub account, token, or local compilation is needed.

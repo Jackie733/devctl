@@ -1,8 +1,8 @@
 # Release maintenance
 
 Public distribution and self-update implement X03. The
-[release workflow](../.github/workflows/release.yml) produces Linux/WSL2 x86_64
-artifacts. [tasks.md](tasks.md) records publication authorization, actual outcomes,
+[release workflow](../.github/workflows/release.yml) builds Linux/WSL2 x86_64 and macOS Apple Silicon/Intel artifacts.
+The current public 1.4.0 release remains Linux-only until 1.5.0 is published. [tasks.md](tasks.md) records publication authorization, actual outcomes,
 and pending real-environment acceptance.
 
 ## Prepare and trigger
@@ -24,11 +24,15 @@ commit. Intermediate artifacts are isolated by run ID and consumed only by that 
 
 ## Checks and artifacts
 
-Build has `contents: read`, uses pinned official actions, and runs on Ubuntu 22.04
-with Rust 1.98.1. It checks fmt, clippy, all Rust tests, and installer tests, then
-builds `x86_64-unknown-linux-musl`. The actual static artifact must pass dynamic-loader/
-dependency checks, isolated install/reinstall/bad-digest/rollback checks, generated
-manifest consumption by a real client, and ten real PTY scenarios.
+Build has `contents: read`, uses pinned official actions and Rust 1.98.1, and runs
+on Ubuntu 22.04, macos-14 (Apple Silicon) and macos-15-intel. Mac builds set
+MACOSX_DEPLOYMENT_TARGET=14.0. Each job checks fmt, clippy, all applicable Rust tests,
+installer tests and bundle-merging tests, then builds its native release target.
+The actual program must pass native dependency checks (static ELF on Linux;
+system-library-only, valid Mach-O code signature on Mac), isolated installation/
+reinstallation/bad-digest/rollback, generated-manifest consumption by a real client,
+and terminal scenarios including native Mac clipboard behavior. Local acceptance
+and CI execution are distinct evidence; see tasks.md.
 
 The [packager](../scripts/package-release.sh) requires a clean worktree, matching
 binary/package/tag versions, and a new output directory. `git archive HEAD` produces
@@ -38,10 +42,17 @@ The new [MIT license](../LICENSE) and documentation are included in normal sourc
 | Public attachment | Purpose |
 | --- | --- |
 | `devctl-vVERSION-x86_64-unknown-linux-musl` | Static executable |
+| `devctl-vVERSION-aarch64-apple-darwin` | Apple Silicon executable, macOS 14+ |
+| `devctl-vVERSION-x86_64-apple-darwin` | Intel executable, macOS 14+ |
 | `devctl-update` | External bootstrap, migration, and recovery installer |
 | `devctl-vVERSION-source.tar.gz` | Exact source tree |
 | `update.json` | Version/platform/name/size/digest from the actual executable |
-| `SHA256SUMS` | SHA-256 for the four attachments above |
+| `SHA256SUMS` | SHA-256 for the six attachments above |
+
+Each job uploads its own versioned bundle. The [merger](../scripts/merge-release.py)
+requires all three distinct targets, validates their bytes and checksums, and rejects
+mismatching source archives, installers or build-commit notes before producing one
+manifest and checksum file. Missing or failed platform jobs prevent publication.
 
 The manifest contract is owned by [DESIGN.md](../DESIGN.md#update-manifest-contract).
 Internal `release-notes.md` extracts the current changelog section and appends the
@@ -62,16 +73,16 @@ replace a same-tag draft, but an already published release is never overwritten.
 Fix a published problem with a new version.
 
 After publication, the reusable [public verifier](../.github/workflows/verify-release.yml)
-checks anonymous attachments/checksums, static executable, no-config latest/explicit
+checks all anonymous attachments/checksums and each native executable, no-config latest/explicit
 checks, explicit online installation, offline rollback, external recovery, and
 configuration preservation in a temporary HOME. It can run manually for an existing
-manifest-format release. A failure here occurs **after** publication; investigate or
+manifest-format release; select `linux_only=true` for historical Linux-only versions. A failure here occurs **after** publication; investigate or
 retry without claiming the release stayed private.
 
 ## Handoff checklist
 
 - Confirm build, publish, and verify success, tag/build identity, Latest status, and
-  all five uploaded attachments.
+  all seven uploaded attachments.
 - Download anonymously; verify digests, manifest, binary version/static linking,
   and the source archive against the build commit.
 - For a cross-version update claim, install the real prior public binary in a

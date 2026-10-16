@@ -469,6 +469,7 @@ pub async fn run(path: &Path) -> Result<(), String> {
                                     if unchanged { app.logs.selection = None; }
                                     let feedback = match target {
                                         terminal::CopyTarget::Windows => format!("Copied {count} lines via clip.exe; verify paste."),
+                                        terminal::CopyTarget::Mac => format!("Copied {count} lines via pbcopy; verify paste."),
                                         terminal::CopyTarget::Terminal => format!("Sent {count} lines via OSC 52; terminal support required; verify paste."),
                                     };
                                     app.success(feedback);

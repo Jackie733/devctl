@@ -16,7 +16,7 @@ maintainer references in English.
 
 ## Development setup
 
-Use Linux or WSL2, Git, Rust, Python 3, and the usual build tools. The release
+Use Linux/WSL2 or macOS 14+, Git, Rust, Python 3, and the usual build tools (Apple Command Line Tools on Mac). The release
 workflow is tested with Rust 1.98.1. `sh`, `sleep`, Bash, and Zsh are used by
 integration and installation tests. See [source builds](docs/install.md#build-from-source)
 for setup commands.
@@ -40,11 +40,11 @@ cargo fmt --check
 cargo clippy --locked --all-targets -- -D warnings
 cargo test --locked
 python3 tests/support/install_scripts.py
+python3 tests/support/merge_release.py
 python3 tests/support/package_release.py ./target/debug/devctl
 ```
 
-Tests need a Linux environment that permits local Unix sockets, PTYs, process
-groups, and signals. They use temporary configurations and controlled child
+Tests need Linux or macOS with local Unix sockets, PTYs, process groups, and signals. They use temporary configurations and controlled child
 processes rather than your development projects. Clipboard tests use a fake
 `clip.exe` or captured OSC 52 output.
 

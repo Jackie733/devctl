@@ -8,6 +8,7 @@ import shutil
 import subprocess
 import tempfile
 import unittest
+import time
 
 
 SCRIPTS = Path(__file__).resolve().parents[2] / "scripts"
@@ -148,6 +149,46 @@ class InstallScripts(unittest.TestCase):
         digest = hashlib.sha256(path.read_bytes()).hexdigest()
         self.run_script("devctl-update", "https://example.invalid/devctl", digest.upper())
         self.assertEqual(self.target.read_bytes(), path.read_bytes())
+
+    def test_lock_remains_held_while_candidate_validation_is_running(self):
+        self.install_version("first")
+        ready = self.home / "ready"
+        release = self.home / "release"
+        path = self.candidate("slow", f'touch "{ready}"; while [ ! -f "{release}" ]; do sleep 0.05; done; echo "devctl second"')
+        digest = hashlib.sha256(path.read_bytes()).hexdigest()
+        process = subprocess.Popen(["bash", str(SCRIPTS / "devctl-update"), str(path), digest],
+                                   env=self.env, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        try:
+            deadline = time.monotonic() + 3
+            while not ready.exists():
+                self.assertIsNone(process.poll())
+                self.assertLess(time.monotonic(), deadline)
+                time.sleep(.01)
+            result = self.run_script("devctl-update", "--rollback", ok=False)
+            self.assertIn("Another update", result.stderr)
+        finally:
+            release.touch()
+            stdout, stderr = process.communicate(timeout=10)
+        self.assertEqual(process.returncode, 0, stdout + stderr)
+        self.assertEqual(self.target.read_bytes(), path.read_bytes())
+
+    def test_candidate_timeout_preserves_installation_and_backup(self):
+        first = self.install_version("first")
+        second = self.install_version("second")
+        path = self.candidate("stalled", "exec sleep 60")
+        digest = hashlib.sha256(path.read_bytes()).hexdigest()
+        result = self.run_script("devctl-update", path, digest, ok=False)
+        self.assertIn("Candidate cannot run", result.stderr)
+        self.assertEqual(self.target.read_bytes(), second)
+        self.assertEqual(self.previous.read_bytes(), first)
+
+    def test_destination_becoming_a_directory_is_not_reported_as_installed(self):
+        # Simulate a filesystem change after the installer's initial path checks.
+        path = self.candidate("raced", 'mkdir "$HOME/.local/bin/devctl"; echo "devctl raced"')
+        result = self.run_script("devctl-update", path, hashlib.sha256(path.read_bytes()).hexdigest(), ok=False)
+        self.assertNotIn("Installed:", result.stdout)
+        self.assertTrue(self.target.is_dir())
+        self.assertEqual(list(self.target.iterdir()), [])
 
     def test_path_setup_is_repeatable_and_prefers_new_install(self):
         rc = self.home / ".bashrc"

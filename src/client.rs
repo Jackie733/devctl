@@ -266,7 +266,12 @@ mod tests {
     struct Endpoint(PathBuf);
     impl Endpoint {
         fn new() -> (Self, PathBuf, UnixListener) {
-            let root = std::env::temp_dir().join(format!(
+            let temporary = if cfg!(target_os = "macos") {
+                PathBuf::from("/tmp")
+            } else {
+                std::env::temp_dir()
+            };
+            let root = temporary.join(format!(
                 "devctl-client-{}-{}",
                 std::process::id(),
                 NEXT.fetch_add(1, Ordering::Relaxed)

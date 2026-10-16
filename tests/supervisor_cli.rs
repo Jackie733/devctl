@@ -1,4 +1,4 @@
-#![cfg(target_os = "linux")]
+#![cfg(any(target_os = "linux", target_os = "macos"))]
 
 mod support;
 use support::ConfigFixture;
@@ -307,4 +307,37 @@ fn timeouts_release_capacity_and_signals_do_not_wait_for_silent_clients() {
         "Signal shutdown waited for probe deadlines."
     );
     assert!(!path.exists());
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn detached_supervisor_does_not_hold_an_inherited_caller_pipe_open() {
+    let fixture = ConfigFixture::new("process.toml");
+    let output = Command::new("python3")
+        .args([
+            "-c",
+            r#"
+import os, select, signal, subprocess, sys
+signal.alarm(15)
+reader, writer = os.pipe()
+process = subprocess.Popen([sys.argv[1], '--config', sys.argv[2], 'supervise', '--detached'],
+                           pass_fds=(writer,), stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+os.close(writer)
+try:
+    assert process.stdout.readline() == b'READY\n'
+    assert process.poll() is None
+    assert select.select([reader], [], [], 2)[0], 'Supervisor retained caller pipe'
+    assert os.read(reader, 1) == b''
+finally:
+    process.terminate()
+    process.communicate(timeout=5)
+    os.close(reader)
+assert process.returncode == 0
+"#,
+        ])
+        .arg(env!("CARGO_BIN_EXE_devctl"))
+        .arg(&fixture.path)
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "{output:?}");
 }
