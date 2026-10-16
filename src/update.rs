@@ -222,7 +222,7 @@ fn https_get(url: &str) -> Command {
     let mut command = Command::new("curl");
     command.args([
         "--disable",
-        "--fail",
+        "--fail-with-body",
         "--location",
         "--silent",
         "--show-error",
@@ -244,6 +244,21 @@ fn https_get(url: &str) -> Command {
     command
 }
 
+fn metadata_error(path: &Path, error: String) -> String {
+    let rate_limited = fs::read(path)
+        .ok()
+        .and_then(|body| serde_json::from_slice::<serde_json::Value>(&body).ok())
+        .and_then(|body| body.get("message")?.as_str().map(str::to_owned))
+        .is_some_and(|message| message.to_ascii_lowercase().contains("rate limit"));
+    if rate_limited {
+        "GitHub API rate limit exceeded. Retry after the limit resets; the installed program and backup are unchanged.".into()
+    } else {
+        format!(
+            "{error} Release metadata requires a reachable public repository with a published release; private repositories are not supported by this updater."
+        )
+    }
+}
+
 async fn fetch_and_update(check: bool, requested: Option<&Version>) -> Result<(), String> {
     let repo = REPOSITORY;
     let staging = Staging::new()?;
@@ -257,7 +272,7 @@ async fn fetch_and_update(check: bool, requested: Option<&Version>) -> Result<()
         1024 * 1024,
     )
     .await
-    .map_err(|error| format!("{error} Release metadata requires a reachable public repository with a published release; private repositories are not supported by this updater."))?;
+    .map_err(|error| metadata_error(&metadata, error))?;
     let release: Release =
         serde_json::from_slice(&fs::read(metadata).map_err(|error| error.to_string())?)
             .map_err(|error| format!("Invalid release metadata: {error}"))?;

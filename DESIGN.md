@@ -272,9 +272,11 @@ Linux 初版采用本地 Unix socket，运行目录仅当前用户可访问。�
 
 `main` 在配置发现前将 Update 分支交给 `update` 模块。它不访问 Manager、工作区锁、控制 socket 或日志目录，也不停止服务。回退直接调用嵌入的 `scripts/devctl-update`，不执行网络请求。安装目标与外部安装器一致，固定为 `~/.local/bin/devctl`；当前版本是运行中二进制的 Cargo 包版本。
 
-用户确认后续公开现有 `Jackie733/devctl` 仓库，更新源固定为该仓库的 GitHub Releases。按 [GitHub Releases API](https://docs.github.com/en/rest/releases/releases) 请求 latest 或指定 `vMAJOR.MINOR.PATCH` 标签，拒绝草稿、预发布、版本不符及缺失/重复/未上传/过大的附件。latest 由 GitHub 的发布标记决定，不扫描全部标签推断版本；用 SemVer 比较，默认不降级当前运行版本，指定版本可显式降级。运行时不接受任意来源 URL，不读取 GitHub 凭据；私有阶段只保证本地受控验证，线上可用性待仓库公开及新版本发布后验收。
+用户已将现有 `Jackie733/devctl` 仓库公开，更新源固定为该仓库的 GitHub Releases。按 [GitHub Releases API](https://docs.github.com/en/rest/releases/releases) 请求 latest 或指定 `vMAJOR.MINOR.PATCH` 标签，拒绝草稿、预发布、版本不符及缺失/重复/未上传/过大的附件。latest 由 GitHub 的发布标记决定，不扫描全部标签推断版本；用 SemVer 比较，默认不降级当前运行版本，指定版本可显式降级。运行时不接受任意来源 URL，不读取 GitHub 凭据；公开入口与已有附件可分别验证，含新命令的版本发布及目标 WSL 完整验收仍待完成。
 
 保留现有附件名 `devctl-v<VERSION>-x86_64-unknown-linux-musl` 与 SHA256SUMS。程序自行组合固定 HTTPS 下载路径，从同一发布取回清单并要求唯一、格式正确、文件名精确匹配的 SHA-256。元数据、清单、程序的下载上限分别为 1 MiB、64 KiB、128 MiB。curl 禁用配置文件、仅允许 HTTPS 及 HTTPS 重定向、最多 5 次跳转、连接期限 10 秒、请求期限 180 秒；Rust 以 64 KiB 缓冲流式写盘并限制总量，外层期限 190 秒，避免旧版 [curl --max-filesize](https://curl.se/docs/manpage.html#--max-filesize) 在未知 Content-Length 时无法限制下载。失败时结束并回收下载子进程。
+
+curl 使用 [--fail-with-body](https://curl.se/docs/manpage.html#--fail-with-body) 保留受上述大小约束的 HTTP 错误正文，需要 curl 7.76.0+；HTTP 失败仍返回错误，正文不作为成功的发布数据。元数据失败且错误 JSON 的 message 表明 rate limit 时，返回明确的限流与重试提示，不输出原始响应，不将其混同为私有仓库。匿名 API 额度可能由共享出口耗尽，遵循 [GitHub 限流说明](https://docs.github.com/en/rest/using-the-rest-api/rate-limits-for-the-rest-api)，不自动重试、加入凭据或切换来源。固定附件的匿名下载不依赖 REST API 额度，可用于外部安装入口。
 
 每次调用独占一个安装目录下 0700 的暂存子目录，资源守卫在正常返回和错误返回时清理，仅删除自身创建的目录；强杀或掉电后的暂存目录不保证自动回收。下载阶段不持安装锁，实际替换由嵌入的原安装脚本串行化，和外部更新器共享 `.devctl-update.lock`。安装器先校验摘要，再以 5 秒期限运行候选的 --version，并核对其与发布版本完全相等，最后备份旧程序、以同文件系统 rename 替换。校验或下载失败不改变当前程序及备份；相同内容不覆盖备份。校验值信任同一 HTTPS 发布来源，不声称独立签名验证。
 

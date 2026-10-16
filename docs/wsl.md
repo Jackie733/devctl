@@ -4,19 +4,21 @@
 
 ## 0. 安装 1.1.0 发布程序（无需 Rust）
 
-[v1.1.0 Release](https://github.com/Jackie733/devctl/releases/tag/v1.1.0) 提供 Linux x86_64 musl 静态程序，不依赖宿主 glibc 版本；目标架构应为 `uname -m` 输出的 `x86_64`。仓库保持私有，需要有访问权限的 GitHub 账号；不能直接把私有附件 URL 交给不支持认证的外部更新器。可在已安装并登录 GitHub CLI 的 WSL 中下载：
+[v1.1.0 Release](https://github.com/Jackie733/devctl/releases/tag/v1.1.0) 提供 Linux x86_64 musl 静态程序，不依赖宿主 glibc 版本；目标架构应为 `uname -m` 输出的 `x86_64`。仓库已公开，可直接通过 HTTPS 下载，无需 GitHub 账号或 GitHub CLI：
 
 ```sh
-gh auth status
-gh release download v1.1.0 --repo Jackie733/devctl \
-  --pattern devctl-v1.1.0-x86_64-unknown-linux-musl \
-  --pattern devctl-update --pattern SHA256SUMS \
-  --dir "$HOME/Downloads/devctl-v1.1.0"
+mkdir -p "$HOME/Downloads/devctl-v1.1.0"
 cd "$HOME/Downloads/devctl-v1.1.0"
+curl --disable --fail --fail-early --location \
+  --proto '=https' --proto-redir '=https' \
+  --connect-timeout 10 --max-time 180 --remote-name-all \
+  'https://github.com/Jackie733/devctl/releases/download/v1.1.0/devctl-v1.1.0-x86_64-unknown-linux-musl' \
+  'https://github.com/Jackie733/devctl/releases/download/v1.1.0/devctl-update' \
+  'https://github.com/Jackie733/devctl/releases/download/v1.1.0/SHA256SUMS'
 sha256sum --check --ignore-missing SHA256SUMS
 ```
 
-也可从 Release 页面登录下载相同三个附件，再进入下载目录校验。校验全部成功后，已有版本的用户先按 §5 结束各工作区旧后台并退出 TUI，再安装；首次安装直接执行：
+也可从 Release 页面直接下载相同三个附件，再进入下载目录校验。下载与校验全部成功后，已有版本的用户先按 §5 结束各工作区旧后台并退出 TUI，再安装；首次安装直接执行：
 
 ```sh
 binary_sha=$(awk '$2 == "devctl-v1.1.0-x86_64-unknown-linux-musl" { print $1 }' SHA256SUMS)
@@ -234,7 +236,7 @@ devctl --config "$HOME/.config/devctl/devctl.toml" logs web --limit 20
 
 ## 5. 更新与排查
 
-开发版已增加[命令内自更新](interaction.md#4-命令内自更新开发版尚未发布)，尚未包含在 1.1.0 发布程序中；仓库公开并发布含新命令的版本后才能完成线上验收。当前安装和更新仍可使用本节的外部更新器。
+开发版已增加[命令内自更新](interaction.md#4-命令内自更新开发版尚未发布)，尚未包含在 1.1.0 发布程序中；仓库已公开，仍需发布含新命令的版本并完成目标 WSL 验收。当前安装和更新可使用本节的外部更新器，其直接下载发布附件不依赖 GitHub REST API。
 
 更新 devctl 二进制或变更配置/Node 环境前，先结束使用该配置的后台；新客户端不会替换仍在运行的旧后台或重新加载其配置和环境。如果管理多个配置，需要逐一结束对应后台。shutdown 会停止该工作区的服务；1.0.0 的内存日志会丢失，1.1.0 已成功保存的历史仍按保留策略可查，安排在方便重启的时候进行；`q` 和 `stop --all` 都不会结束后台。
 
@@ -264,7 +266,7 @@ cargo +stable build --release --locked
 sha256sum target/release/devctl
 ```
 
-将 `target/release/devctl` 传到目标 WSL，例如保存为 `~/Downloads/devctl`，同时从构建方取得输出中的 64 位 SHA-256。WSL 收到预编译程序后无需 Rust 或 Cargo。目标架构可用 `uname -m` 核对；仅架构相同仍不足以保证系统库兼容，需要实际运行验证。当前发布附件通过 §0 的认证下载取得；只有无需认证的 HTTPS 来源才能直接交给外部更新器。
+将 `target/release/devctl` 传到目标 WSL，例如保存为 `~/Downloads/devctl`，同时从构建方取得输出中的 64 位 SHA-256。WSL 收到预编译程序后无需 Rust 或 Cargo。目标架构可用 `uname -m` 核对；仅架构相同仍不足以保证系统库兼容，需要实际运行验证。当前公开附件可按 §0 直接下载，也可将已确认的 HTTPS 附件地址交给外部更新器。
 
 SHA-256 用于核对文件是否符合预期；程序与预期校验值应来自可信的构建或发布来源。更新器会在执行候选程序前比较校验值。
 

@@ -88,7 +88,7 @@ args = sys.argv[1:]
 assert args[0] == '--disable'
 assert args[args.index('--proto') + 1] == '=https'
 assert args[args.index('--proto-redir') + 1] == '=https'
-assert '--fail' in args and '--location' in args
+assert '--fail-with-body' in args and '--location' in args
 assert '--connect-timeout' in args and '--max-time' in args
 url = args[-1]
 with (root / 'requests').open('a') as log:
@@ -100,6 +100,7 @@ elif url.startswith('https://github.com/Jackie733/devctl/releases/download/'):
 else:
     sys.exit(22)
 if (root / ('fail-' + name)).exists():
+    sys.stdout.buffer.write((root / name).read_bytes())
     sys.exit(22)
 sys.stdout.buffer.write((root / name).read_bytes())
 "#,
@@ -253,6 +254,41 @@ fn failed_download_checksum_and_candidate_checks_preserve_program_and_backup() {
         assert_eq!(fixture.contents("devctl"), current, "{failure}");
         assert_eq!(fixture.contents("devctl.previous"), previous, "{failure}");
         assert!(!fixture.root.join("executed-unverified").exists());
+        fixture.assert_clean();
+    }
+}
+
+#[test]
+fn api_rate_limits_report_retry_and_preserve_installation() {
+    for message in [
+        "API rate limit exceeded for a shared address.",
+        "You have exceeded a secondary rate limit.",
+    ] {
+        let fixture = Fixture::new();
+        let current = fixture.program("devctl", "1.1.0");
+        let previous = fixture.program("devctl.previous", "1.0.0");
+        fixture.release("1.2.0", "1.2.0");
+        fs::write(
+            fixture.root.join("release"),
+            serde_json::json!({ "message": message }).to_string(),
+        )
+        .unwrap();
+        fs::write(fixture.root.join("fail-release"), "").unwrap();
+        let output = fixture.run(&["update", "--check"]);
+        assert_eq!(output.status.code(), Some(1));
+        let error = String::from_utf8_lossy(&output.stderr);
+        assert!(error.contains("GitHub API rate limit exceeded"), "{error}");
+        assert!(error.contains("Retry after the limit resets"));
+        assert!(!error.contains("private repositories"));
+        assert_eq!(fixture.contents("devctl"), current);
+        assert_eq!(fixture.contents("devctl.previous"), previous);
+        assert_eq!(
+            fs::read_to_string(fixture.root.join("requests"))
+                .unwrap()
+                .lines()
+                .count(),
+            1
+        );
         fixture.assert_clean();
     }
 }

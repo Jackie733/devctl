@@ -6,7 +6,7 @@ Rust 开发项目管理工具：在一个终端界面中启动 web、小程序�
 
 当前版本为 **1.1.0**，包含日志保存、历史查询、搜索高亮与浮窗阅读优化。WSL 自行构建、安装和测试见 [源码安装指南](docs/wsl.md#2-构建测试并安装-110-源码版)。
 
-开发版已接入 `devctl update`、`--check`、`--version VERSION` 和离线 `--rollback`，无需工作区配置；[操作与边界](docs/interaction.md#4-命令内自更新开发版尚未发布) 单独说明。这些命令尚未包含在 1.1.0 发布附件中；用户计划后续公开现有仓库，在线更新待仓库公开及新版本发布后验收。
+开发版已接入 `devctl update`、`--check`、`--version VERSION` 和离线 `--rollback`，无需工作区配置；[操作与边界](docs/interaction.md#4-命令内自更新开发版尚未发布) 单独说明。仓库已公开，可匿名下载发布附件；这些命令尚未包含在 1.1.0 发布附件中，仍待新版本发布与目标 WSL 验收。
 
 ## 项目规划
 
@@ -21,7 +21,7 @@ Rust 开发项目管理工具：在一个终端界面中启动 web、小程序�
 
 ## 当前运行方式
 
-从 [v1.1.0 Release](https://github.com/Jackie733/devctl/releases/tag/v1.1.0) 获取 Linux x86_64 静态程序、源码和 SHA-256 校验值。仓库保持私有，下载需要仓库访问权限。Windows WSL2 的安装、三个真实项目配置和验收步骤见 [WSL2 安装指南](docs/wsl.md)。
+从 [v1.1.0 Release](https://github.com/Jackie733/devctl/releases/tag/v1.1.0) 获取 Linux x86_64 静态程序、源码和 SHA-256 校验值。仓库已公开，下载无需登录。Windows WSL2 的安装、三个真实项目配置和验收步骤见 [WSL2 安装指南](docs/wsl.md)。
 
 终端界面（将配置路径替换为自己的配置）：
 
