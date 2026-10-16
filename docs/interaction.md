@@ -154,6 +154,21 @@ services retain output labeled as retained logs; stale “ready” text does not
 current readiness. Earlier process instances are marked `old` only when confirmed.
 Unconfirmed cleanup and unknown control completion retain their own diagnostics.
 
+Service states pair text with symbols: `○ Stopped`, `● Running`, `× Failed`, and
+`? Unknown`; `Starting`/`Stopping` use a spinner. No Nerd Font is required. The
+focused panel has a cyan, bold title; `▸` marks the selected project independently
+of focus, and selection preserves readable state colors. A confirmed transition
+to Running or Stopped briefly highlights the state for 300 ms. Running still means
+process alive, not application readiness.
+
+Spinners advance while connecting, awaiting a control or clipboard result, loading
+logs, or searching. `FOLLOW`, `READ`, and `V-LINE` use distinct emphasis without
+animating log text. Shortcut keys are highlighted within the existing footer.
+Successful stop/copy feedback leaves the bottom row after two seconds; its full
+text, including clipboard caveats, remains in help until replaced. Start acceptance
+is not treated as confirmed startup. Failures and unknown completion do not expire;
+connection, service, and log-loss diagnostics remain visible independently.
+
 The bottom is always two rows: feedback and relevant shortcuts. Full IDs, errors,
 saving paths, and operation details are available in scrollable help. Logs do not
 wrap; one record occupies one row. The viewport remains anchored while reading.

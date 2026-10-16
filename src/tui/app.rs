@@ -1,4 +1,7 @@
-use std::collections::{BTreeMap, VecDeque};
+use std::{
+    collections::{BTreeMap, VecDeque},
+    time::{Duration, Instant},
+};
 
 use crate::{
     control::{Request, Response},
@@ -590,6 +593,12 @@ impl LogWindow {
 }
 
 pub struct App {
+    pub animation_frame: usize,
+    animation_at: Instant,
+    presentation_now: Instant,
+    highlights: BTreeMap<String, Instant>,
+    success_feedback: Option<(String, Instant)>,
+    pub copying: bool,
     bookmarks: BTreeMap<String, Bookmark>,
     pub focus: Focus,
     pub goto_top: bool,
@@ -613,7 +622,14 @@ pub struct App {
 
 impl App {
     pub fn new() -> Self {
+        let now = Instant::now();
         Self {
+            animation_frame: 0,
+            animation_at: now,
+            presentation_now: now,
+            highlights: BTreeMap::new(),
+            success_feedback: None,
+            copying: false,
             bookmarks: BTreeMap::new(),
             focus: Focus::Projects,
             goto_top: false,
@@ -634,6 +650,68 @@ impl App {
             help: false,
             search_input: None,
         }
+    }
+
+    pub fn busy(&self) -> bool {
+        self.pending.is_some()
+            || self.copying
+            || (!self.connected && self.workspace_id.is_none() && self.connection_error.is_none())
+            || (self.connected
+                && (self.services.values().any(|status| {
+                    matches!(
+                        status.state,
+                        crate::manager::ServiceState::Starting
+                            | crate::manager::ServiceState::Stopping
+                    )
+                }) || (self.selected.is_some()
+                    && !self.logs_loaded
+                    && self.logs_error.is_none())
+                    || self
+                        .logs
+                        .search
+                        .as_ref()
+                        .is_some_and(|search| search.running)
+                    || self.logs.requested.is_some()))
+    }
+
+    // Presentation clocks never advance service state or the log reading position.
+    pub fn tick(&mut self, now: Instant) -> bool {
+        let mut changed = false;
+        if self.busy() && now.duration_since(self.animation_at) >= Duration::from_millis(100) {
+            self.animation_frame = (self.animation_frame + 1) % 10;
+            self.animation_at = now;
+            changed = true;
+        }
+        let count = self.highlights.len();
+        self.highlights.retain(|_, until| now < *until);
+        changed |= count != self.highlights.len();
+        if let Some((text, until)) = &self.success_feedback {
+            changed |= text == &self.feedback && self.presentation_now < *until && now >= *until;
+        }
+        self.presentation_now = now;
+        changed
+    }
+
+    pub fn success(&mut self, text: String) {
+        self.success_feedback = Some((text.clone(), Instant::now() + Duration::from_secs(2)));
+        self.feedback = text;
+    }
+
+    pub fn feedback_visible(&self) -> bool {
+        !self
+            .success_feedback
+            .as_ref()
+            .is_some_and(|(text, until)| text == &self.feedback && self.presentation_now >= *until)
+    }
+
+    pub fn feedback_succeeded(&self) -> bool {
+        self.success_feedback
+            .as_ref()
+            .is_some_and(|(text, _)| text == &self.feedback)
+    }
+
+    pub fn highlighted(&self, id: &str) -> bool {
+        self.connected && self.highlights.contains_key(id)
     }
 
     pub fn focus(&mut self, focus: Focus) {
@@ -784,6 +862,27 @@ impl App {
             !self.connected || self.workspace_id.as_ref() != Some(&response.workspace_id);
         let changed = reconnected || self.services != response.services;
         if reconnected {
+            self.highlights.clear();
+        } else {
+            for (id, status) in &response.services {
+                if self
+                    .services
+                    .get(id)
+                    .is_some_and(|old| old.state != status.state)
+                    && matches!(
+                        status.state,
+                        crate::manager::ServiceState::Running
+                            | crate::manager::ServiceState::Stopped
+                    )
+                {
+                    self.highlights
+                        .insert(id.clone(), Instant::now() + Duration::from_millis(300));
+                }
+            }
+            self.highlights
+                .retain(|id, _| response.services.contains_key(id));
+        }
+        if reconnected {
             if self
                 .workspace_id
                 .as_ref()
@@ -821,6 +920,7 @@ impl App {
     }
 
     pub fn disconnect(&mut self, message: String) {
+        self.highlights.clear();
         self.remember_position();
         self.connected = false;
         self.epoch += 1;
@@ -894,6 +994,9 @@ impl App {
             Operation::StopAll => "All services stopped; background workspace retained.".into(),
             Operation::Shutdown => "Workspace ended.".into(),
         };
+        if matches!(operation, Operation::Stop(_) | Operation::StopAll) {
+            self.success(self.feedback.clone());
+        }
         matches!(operation, Operation::Shutdown)
     }
 }
@@ -1228,6 +1331,78 @@ mod tests {
         assert!(app.feedback.contains("Start b was not sent"));
         app.control_response(&Operation::Stop("a".into()), "one", status("one"));
         assert_eq!(app.feedback, "a: stopped; cleanup confirmed.");
+    }
+
+    #[test]
+    fn presentation_timers_expire_success_without_hiding_later_errors() {
+        let mut app = App::new();
+        app.apply_status(status("one"));
+        app.apply_logs(Batch::default());
+        let now = Instant::now();
+        assert!(!app.tick(now));
+        app.success("Copied 12 lines; verify paste.".into());
+        let until = app.success_feedback.as_ref().unwrap().1;
+        assert!(app.feedback_visible());
+        assert!(!app.tick(until - Duration::from_millis(1)));
+        assert!(app.feedback_visible());
+        assert!(app.tick(until));
+        assert!(!app.feedback_visible());
+        assert!(!app.tick(until + Duration::from_secs(1)));
+        assert!(app.feedback.contains("verify paste"));
+        app.feedback = "Stop a: completion unknown.".into();
+        assert!(app.feedback_visible());
+        assert!(!app.feedback_succeeded());
+        app.tick(until + Duration::from_secs(10));
+        assert!(app.feedback_visible());
+    }
+
+    #[test]
+    fn animation_only_runs_while_busy_and_never_advances_service_or_log_state() {
+        let mut app = App::new();
+        app.apply_status(status("one"));
+        app.apply_logs(batch(1..=10, 1));
+        app.logs.pause(4);
+        let position = (app.logs.top, app.logs.cursor, app.logs.reading);
+        let now = app.animation_at;
+        assert!(!app.tick(now + Duration::from_secs(1)));
+        assert!(app.begin(Operation::Start("a".into())));
+        assert!(app.tick(now + Duration::from_secs(2)));
+        assert_eq!(app.animation_frame, 1);
+        assert_eq!(app.services["a"].state, ServiceState::Stopped);
+        assert_eq!((app.logs.top, app.logs.cursor, app.logs.reading), position);
+        assert!(!app.tick(now + Duration::from_millis(2099)));
+        app.control_response(&Operation::Start("a".into()), "one", status("one"));
+        assert!(!app.feedback_succeeded());
+        assert!(!app.tick(now + Duration::from_secs(3)));
+        app.copying = true;
+        assert!(app.tick(now + Duration::from_secs(4)));
+        app.copying = false;
+        assert!(!app.tick(now + Duration::from_secs(5)));
+    }
+
+    #[test]
+    fn only_confirmed_state_changes_flash_and_reconnection_clears_highlights() {
+        let mut app = App::new();
+        let response = |state| {
+            let mut response = status("one");
+            response.services.get_mut("a").unwrap().state = state;
+            response
+        };
+        app.apply_status(response(ServiceState::Running));
+        app.apply_logs(Batch::default());
+        assert!(!app.highlighted("a"));
+        app.apply_status(response(ServiceState::Stopped));
+        assert!(app.highlighted("a"));
+        let until = app.highlights["a"];
+        assert!(!app.tick(until - Duration::from_millis(1)));
+        assert!(app.tick(until));
+        assert!(!app.highlighted("a"));
+        app.apply_status(response(ServiceState::Running));
+        assert!(app.highlighted("a"));
+        app.disconnect("lost".into());
+        assert!(!app.highlighted("a"));
+        app.apply_status(response(ServiceState::Running));
+        assert!(!app.highlighted("a"));
     }
 
     #[test]

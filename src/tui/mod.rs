@@ -2,7 +2,11 @@ mod app;
 mod terminal;
 mod view;
 
-use std::{io::stdout, path::Path, time::Duration};
+use std::{
+    io::stdout,
+    path::Path,
+    time::{Duration, Instant},
+};
 
 use crossterm::event::{Event, EventStream, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use futures_util::StreamExt;
@@ -425,6 +429,7 @@ pub async fn run(path: &Path) -> Result<(), String> {
                                         Ok((text, count)) => {
                                             let context = (app.epoch, app.selection_epoch, app.logs.selection);
                                             copies.spawn(async move { (context, count, terminal::copy_logs(&text).await) });
+                                            app.copying = true;
                                             app.feedback = format!("Copying {count} log lines...");
                                         }
                                         Err(error) => app.feedback = error.into(),
@@ -455,16 +460,18 @@ pub async fn run(path: &Path) -> Result<(), String> {
                     }
                 }
                 Some(completion) = copies.join_next(), if !copies.is_empty() => {
+                    app.copying = false;
                     match completion {
                         Ok((context, count, result)) => {
                             let unchanged = context == (app.epoch, app.selection_epoch, app.logs.selection);
                             match result {
                                 Ok(target) => {
                                     if unchanged { app.logs.selection = None; }
-                                    app.feedback = match target {
+                                    let feedback = match target {
                                         terminal::CopyTarget::Windows => format!("Copied {count} lines via clip.exe; verify paste."),
                                         terminal::CopyTarget::Terminal => format!("Sent {count} lines via OSC 52; terminal support required; verify paste."),
                                     };
+                                    app.success(feedback);
                                 }
                                 Err(error) => app.feedback = format!("Clipboard copy failed: {error}. Select again or retry y."),
                             }
@@ -558,6 +565,7 @@ pub async fn run(path: &Path) -> Result<(), String> {
                 _ = status_tick.tick() => status_due = true,
                 _ = logs_tick.tick() => logs_due = true,
                 _ = draw_tick.tick() => {
+                    dirty |= app.tick(Instant::now());
                     if dirty {
                         terminal.draw(|frame| view::render(frame, &app)).map_err(|error| error.to_string())?;
                         dirty = false;

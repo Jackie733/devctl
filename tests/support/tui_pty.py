@@ -522,7 +522,9 @@ def copying():
         ui.pump(.1)
         assert ui.screen.clipboard_requests == 1, 'Help leaked copy key'
         ui.send(b'\x1b')
-        ui.wait('V-LINE')
+        # V-LINE also exists behind help. Wait for Escape to close the modal
+        # before changing PTY dimensions and resetting the screen interpreter.
+        ui.wait(lambda text: ' Help ' not in text and 'V-LINE' in text)
         ui.resize(36, 10)
         ui.wait('y copy')
         ui.send(b'\x1b')

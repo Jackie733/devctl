@@ -18,6 +18,9 @@ interface without stopping your services, then reconnect when you need it.
   running. Reconnect to the same supervisor instead of starting duplicate processes.
 - **A keyboard-driven TUI.** Navigate with Vim-style keys, switch between projects
   and logs, and use contextual help in wide or compact terminals.
+  Current source adds state symbols, focus/shortcut emphasis, waiting animations,
+  and brief completion feedback without requiring Nerd Fonts; these refinements
+  are not included in the published 1.3.0 release.
 - **Logs for daily debugging.** Read stdout/stderr, pause and page through retained
   history, search literal text, and copy complete lines with their surrounding context.
 - **Bounded storage.** Keep recent logs in memory and save history with configurable

@@ -26,6 +26,12 @@ on 2026-10-15 and released as 1.0.0. Native Windows/macOS acceptance is not impl
 Vim-style navigation, compact terminal layout, complete-line copying, and Windows
 Terminal/WSL clipboard behavior refine U01/L01 without expanding platform guarantees.
 
+The confirmed U01 visual refinement adds state symbols, distinct focus/selection,
+emphasized shortcuts and log modes, and bounded waiting/completion feedback.
+Acceptance checks that state remains identifiable when selected or disconnected,
+animations preserve log reading positions, and failures remain visible after ordinary
+success feedback expires. Actual WSL appearance remains a user acceptance step.
+
 ## Initial scope and acceptance
 
 Preserve the original requirement IDs. Post-MVP proposals below do not become

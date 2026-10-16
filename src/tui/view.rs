@@ -3,7 +3,7 @@ use ratatui::{
     layout::{Constraint, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, BorderType, Clear, Padding, Paragraph, Row, Table},
+    widgets::{Block, BorderType, Cell, Clear, Padding, Paragraph, Row, Table},
 };
 
 use super::app::{App, Focus};
@@ -297,10 +297,75 @@ fn status_line(app: &App) -> Line<'static> {
     }
     if let Some(input) = &app.search_input {
         text.push_str(&format!("/{} | Enter search | Esc cancel", clean(input)));
-    } else {
+    } else if app.feedback_visible() {
+        if app.pending.is_some() || app.copying {
+            text.push_str(spinner(app));
+            text.push(' ');
+        } else if app.feedback_succeeded() {
+            text.push_str("✓ ");
+        }
         text.push_str(&clean(&app.feedback));
     }
-    Line::styled(text, style)
+    Line::styled(
+        text,
+        if flags.is_empty() && app.feedback_succeeded() {
+            style.fg(Color::Green)
+        } else {
+            style
+        },
+    )
+}
+
+fn spinner(app: &App) -> &'static str {
+    ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"][app.animation_frame]
+}
+
+fn state_icon(app: &App, id: &str) -> &'static str {
+    if !app.connected {
+        return "?";
+    }
+    match app.services[id].state {
+        ServiceState::Stopped => "○",
+        ServiceState::Running => "●",
+        ServiceState::Starting | ServiceState::Stopping => spinner(app),
+        ServiceState::Failed => "×",
+    }
+}
+
+fn shortcuts(text: String) -> Line<'static> {
+    Line::from(
+        text.split_inclusive(' ')
+            .map(|word| {
+                let key = word.trim();
+                let style = if matches!(
+                    key,
+                    "s/x"
+                        | "j/k"
+                        | "Enter"
+                        | "a"
+                        | "X"
+                        | "Q"
+                        | "/"
+                        | "n/N"
+                        | "v"
+                        | "p"
+                        | "G"
+                        | "g"
+                        | "y"
+                        | "Esc"
+                        | "?"
+                        | "q"
+                ) {
+                    Style::default()
+                        .fg(Color::Yellow)
+                        .add_modifier(Modifier::BOLD)
+                } else {
+                    Style::default()
+                };
+                Span::styled(word.to_owned(), style)
+            })
+            .collect::<Vec<_>>(),
+    )
 }
 
 pub fn layout(area: Rect, app: &App) -> ScreenLayout {
@@ -411,6 +476,13 @@ fn panel(title: String, active: bool) -> Block<'static> {
     Block::bordered()
         .title(title)
         .border_style(Style::default().fg(if active { Color::Cyan } else { Color::DarkGray }))
+        .title_style(if active {
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(Color::DarkGray)
+        })
 }
 
 pub fn render(frame: &mut Frame, app: &App) {
@@ -433,10 +505,32 @@ pub fn render(frame: &mut Frame, app: &App) {
         .chars()
         .take(8)
         .collect();
-    let mut header = vec![Line::from(format!(
-        "devctl {} | {connection} | workspace {identity}",
-        env!("CARGO_PKG_VERSION")
-    ))];
+    let connection_icon = if app.connected {
+        "●"
+    } else if app.connection_error.is_none() && app.workspace_id.is_none() {
+        spinner(app)
+    } else {
+        "?"
+    };
+    let mut header = vec![Line::from(vec![
+        Span::styled(
+            format!("devctl {}", env!("CARGO_PKG_VERSION")),
+            Style::default().add_modifier(Modifier::BOLD),
+        ),
+        Span::raw(" | "),
+        Span::styled(
+            format!("{connection} {connection_icon}"),
+            Style::default().fg(if app.connected {
+                Color::Green
+            } else {
+                Color::Yellow
+            }),
+        ),
+        Span::styled(
+            format!(" | workspace {identity}"),
+            Style::default().fg(Color::DarkGray),
+        ),
+    ])];
     if screen.header.height > 1 {
         header.push(Line::from(format!("{} | 1/0 panel", selected_summary(app))));
     }
@@ -474,8 +568,8 @@ pub fn render(frame: &mut Frame, app: &App) {
     };
     let [context_area, global] =
         Layout::horizontal([Constraint::Min(0), Constraint::Length(17)]).areas(screen.footer);
-    frame.render_widget(Paragraph::new(context), context_area);
-    frame.render_widget(Paragraph::new("? help | q leave"), global);
+    frame.render_widget(Paragraph::new(shortcuts(context)), context_area);
+    frame.render_widget(Paragraph::new(shortcuts("? help | q leave".into())), global);
     overlay(frame, app);
 }
 
@@ -505,21 +599,38 @@ fn projects_view(frame: &mut Frame, area: Rect, app: &App, show_details: bool) {
     let rows = app.services.keys().skip(start).take(height).map(|id| {
         let (status, color) = state(app, id);
         let selected = Some(id) == app.selected.as_ref();
+        let status_style = Style::default()
+            .fg(if selected && active && color == Color::DarkGray {
+                Color::Gray
+            } else {
+                color
+            })
+            .add_modifier(if app.highlighted(id) {
+                Modifier::BOLD | Modifier::REVERSED
+            } else {
+                Modifier::empty()
+            });
         Row::new(vec![
-            format!("{}{}", if selected { "> " } else { "  " }, clean(id)),
-            status.into(),
+            Cell::from(format!(
+                "{}{}",
+                if selected { "▸ " } else { "  " },
+                clean(id)
+            )),
+            Cell::from(Line::styled(
+                format!("{} {status}", state_icon(app, id)),
+                status_style,
+            )),
         ])
         .style(if selected && active {
             Style::default()
-                .fg(Color::White)
                 .bg(Color::DarkGray)
                 .add_modifier(Modifier::BOLD)
         } else {
-            Style::default().fg(color)
+            Style::default()
         })
     });
     frame.render_widget(
-        Table::new(rows, [Constraint::Min(0), Constraint::Length(8)]),
+        Table::new(rows, [Constraint::Min(0), Constraint::Length(10)]),
         list,
     );
     let detail = app
@@ -621,8 +732,35 @@ fn logs_view(frame: &mut Frame, area: Rect, app: &App) {
         },
         clean(app.selected.as_deref().unwrap_or("(none)")),
     );
-    let block =
-        panel(title, app.focus == Focus::Logs).title_bottom(format!("{position}{history}{offset}"));
+    let mode_color = if app.logs.selection.is_some() {
+        Color::Magenta
+    } else if app.logs.paused {
+        Color::Yellow
+    } else {
+        Color::Cyan
+    };
+    let loading = app.connected
+        && (app.logs.requested.is_some()
+            || app
+                .logs
+                .search
+                .as_ref()
+                .is_some_and(|search| search.running));
+    let block = panel(title, app.focus == Focus::Logs).title_bottom(Line::from(vec![
+        Span::styled(
+            position,
+            Style::default().fg(mode_color).add_modifier(Modifier::BOLD),
+        ),
+        Span::raw(format!("{history}{offset}")),
+        Span::styled(
+            if loading {
+                format!(" | {} loading", spinner(app))
+            } else {
+                String::new()
+            },
+            Style::default().fg(Color::Yellow),
+        ),
+    ]));
     frame.render_widget(block, area);
     frame.render_widget(
         Paragraph::new(Line::styled(
@@ -645,7 +783,7 @@ fn logs_view(frame: &mut Frame, area: Rect, app: &App) {
         } else if let Some(error) = &app.logs_error {
             format!("Log read failed: {}", clean(error))
         } else if !app.logs_loaded {
-            "Reading recent output...".into()
+            format!("{} Reading recent output...", spinner(app))
         } else if app
             .selected
             .as_ref()
@@ -1086,6 +1224,75 @@ mod tests {
             .iter()
             .map(|cell| cell.symbol())
             .collect()
+    }
+
+    #[test]
+    fn selection_keeps_status_colors_readable_in_wide_and_narrow_views() {
+        let mut app = App::new();
+        app.apply_status(Response {
+            workspace_id: "one".into(),
+            services: [
+                (
+                    "api".into(),
+                    ServiceStatus {
+                        state: ServiceState::Running,
+                        ..ServiceStatus::default()
+                    },
+                ),
+                ("web".into(), ServiceStatus::default()),
+            ]
+            .into(),
+            ..Response::default()
+        });
+        let mut terminal = Terminal::new(TestBackend::new(120, 30)).unwrap();
+        terminal.draw(|frame| render(frame, &app)).unwrap();
+        let running = terminal
+            .backend()
+            .buffer()
+            .content()
+            .iter()
+            .find(|cell| cell.symbol() == "●" && cell.bg == Color::DarkGray)
+            .unwrap();
+        assert_eq!(running.fg, Color::Green);
+        app.select(1);
+        terminal.draw(|frame| render(frame, &app)).unwrap();
+        let stopped = terminal
+            .backend()
+            .buffer()
+            .content()
+            .iter()
+            .find(|cell| cell.symbol() == "○")
+            .unwrap();
+        assert_ne!(stopped.fg, stopped.bg);
+        for (width, height) in [(120, 30), (80, 12), (36, 10)] {
+            let text = draw(&app, width, height);
+            assert!(text.contains("○ Stopped") && text.contains("q leave"));
+        }
+        app.disconnect("lost".into());
+        let text = draw(&app, 120, 30);
+        assert!(text.contains("? Unknown") && !text.contains("● Running"));
+    }
+
+    #[test]
+    fn expired_success_keeps_diagnostics_and_new_failures_visible() {
+        let mut app = App::new();
+        app.apply_status(Response {
+            workspace_id: "one".into(),
+            ..Response::default()
+        });
+        app.success("Copied 12 lines; verify paste.".into());
+        assert!(status_line(&app).to_string().contains("✓ Copied"));
+        app.tick(std::time::Instant::now() + std::time::Duration::from_secs(3));
+        assert!(!status_line(&app).to_string().contains("Copied"));
+        assert!(
+            diagnostics(&app)
+                .iter()
+                .any(|line| line.to_string().contains("verify paste"))
+        );
+        app.logs.gap = true;
+        app.feedback = "Clipboard copy failed: denied.".into();
+        let text = status_line(&app).to_string();
+        assert!(text.contains("GAP") && text.contains("copy failed"));
     }
 
     #[test]
