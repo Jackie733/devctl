@@ -26,19 +26,40 @@ The 1.2.2 documentation/license release provides the next real version for testi
 
 ## Next steps
 
-The user prioritized macOS implementation on 2026-10-16. Finish its validation and
-release handoff in [tasks.md](tasks.md); the historical WSL acceptance items below
-remain outstanding. Directory automation remains M7/M8 and is not bundled into the
-platform implementation.
+The user requested M7 detailed design on 2026-10-16 after local Mac deployment.
+Its design baseline is recorded; functional implementation remains pending. Existing
+Mac publication and historical WSL acceptance work remain explicit follow-ups in
+[tasks.md](tasks.md), rather than prerequisites that silently block this design.
 
-| Priority | Work | Acceptance basis |
+| Order | Work | Acceptance basis |
 | --- | --- | --- |
-| 1 | Real WSL log and UI feedback | Follow the [WSL checks](wsl.md#verify-logs) with actual project output, search, copy, reconnect and shutdown |
-| 2 | Real WSL cross-version update/rollback | Follow [update verification](wsl.md#verify-updates); confirm paths, versions, backups and retained configuration |
-| 3 | Fix demonstrated usability or reliability issues | Reproduce the issue and connect the smallest fix to an existing requirement |
-| 4 | M7: directory onboarding and environment preparation (A01/A02, W05 package.json import) | Refine open decisions, then implement the [directory workflow](requirements.md#directory-onboarding-and-environment-automation-a01a03); not yet implemented |
-| 5 | M8: infrastructure discovery, monitoring and control (A03) | Research actual database/Redis deployment sources and shared-service behavior before implementation |
-| Later | Assess candidates when concrete scenarios justify them | Preserve the complete [candidate list](requirements.md#post-mvp-scope); do not schedule automatically |
+| Current | M7 design (A01/A02, W05 package.json import) | Detailed [mechanisms](../DESIGN.md#planned-directory-onboarding-and-environment-preparation-m7), [interaction](interaction.md#planned-directory-workflow-m7), acceptance cases and implementation slices recorded; proposed product choices await review |
+| Next | M7 implementation | Advance through the slices below; the milestone is complete only after the whole directory-to-running-project workflow |
+| Following | M8 (A03) | Research actual database/Redis sources, credentials, stopped instances and shared-service control before detailed implementation design |
+| Outstanding | Real WSL log/UI and cross-version update/rollback | Preserve the [log](wsl.md#verify-logs) and [update](wsl.md#verify-updates) checks with real projects |
+| Outstanding | Native Mac publication/platform evidence | Preserve the release and platform handoff in tasks.md; no automatic push/tag/publication |
+| As demonstrated | Reliability/usability fixes | Reproduce issues and connect the smallest fix to an existing requirement |
+| Later | Assess candidates when concrete scenarios justify them | Preserve the [candidate list](requirements.md#post-mvp-scope); do not schedule automatically |
+
+### M7 implementation slices
+
+These are incremental local implementation/commit boundaries, not independent
+claims of user acceptance. Each slice preserves legacy behavior and has focused
+checks; later slices must not be described as already implemented.
+
+| Slice | Deliverable | Required evidence before advancing |
+| --- | --- | --- |
+| M7.1: discovery | Bounded manifest/workspace scan, candidates, source/conflict reporting and read-only import preview | Single package, bogu-shaped workspace, ambiguity, exclusion, symlink/limit and no-command-execution fixtures |
+| M7.2: environment binding | Optional Node config fields, version semantics, bounded doctor checks and service-specific launch binding | npm-range cases, stalled shims, compatible local tools, different per-project versions, nested script tools and unchanged legacy execution |
+| M7.3: configuration import | Selection/replacement flow, stable IDs, comment-preserving atomic writes and active-workspace refusal | New/existing config, repeat/no-op, edits preserved, path aliases, simultaneous import and supervisor-start races |
+| M7.4: setup | Isolated verified tool install, shared-root dependency actions, progress/cancellation/retry and post-checks | Temporary HOME and disposable projects; checksum/network/permission failures, script policy, lockfile policy, shared-root locks and cleanup |
+| M7.5: complete acceptance | Full CLI onboarding into ordinary TUI start/log/stop/leave/reconnect | All [M7 cases](requirements.md#m7-acceptance-cases), actual supplied bogu directory and separate Mac/WSL evidence; no business-data mutations |
+
+Run relevant tests, `cargo fmt --check`, and `cargo clippy --all-targets -- -D warnings`
+for functional changes; broaden the suite for launch/config integration. Re-run
+legacy lifecycle/background/TUI checks when touching their boundaries. Record real
+commands/results and limitations in tasks.md, commit each coherent slice, and do
+not push automatically.
 
 Dedicated restart shortcuts may be worth assessing if explicit stop/start becomes
 frequent. Dependency orchestration, probes, crash restart, reboot recovery, native

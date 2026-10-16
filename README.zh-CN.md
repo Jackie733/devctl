@@ -23,7 +23,9 @@
 
 开发命令需要能够非交互运行。目前支持依赖校验与计划展示，尚未实现运行时依赖编排、就绪探针、自动重启或机器重启后的恢复。已交付和候选功能的区别见[路线图](docs/roadmap.md)。
 
-后续计划支持提供项目目录后自动识别启动指令、生成工作台配置、检查并辅助安装环境与依赖，以及发现、监测和控制数据库、Redis 等服务。上述功能尚未实现；本期不包含创建数据库、执行迁移或生成业务配置。具体范围与待定项见[自动化需求](docs/requirements.md#directory-onboarding-and-environment-automation-a01a03)。
+后续计划支持提供项目目录后自动识别启动指令、生成工作台配置、检查并辅助安装环境与依赖，以及发现、监测和控制数据库、Redis 等服务。上述功能尚未实现；本期不包含创建数据库、执行迁移或生成业务配置。
+
+目前已完成第一期的[详细设计](DESIGN.md#planned-directory-onboarding-and-environment-preparation-m7)和[操作流程](docs/interaction.md#planned-directory-workflow-m7)：先只读识别，再确认导入，检查环境后单独确认安装。首批方案覆盖 Mac 和 Linux/WSL 上使用 npm、pnpm 的 Node 项目；重复导入保留已有修改，保存新配置前需先关闭该工作区后台。这些是待实施方案，设计中的命令目前还不能使用。具体范围与验收见[自动化需求](docs/requirements.md#directory-onboarding-and-environment-automation-a01a03)。
 
 ## 安装
 

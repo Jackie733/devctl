@@ -163,15 +163,21 @@ identify affected projects. Stopping a database must preserve its data.
 Creating databases, executing migrations and generating application/business
 configuration are outside this increment. Runtime/dependency installation is in
 scope; installing new database/Redis instances, supported installation methods,
-privilege handling and version isolation still need assessment. Editor setup is
+privilege handling and infrastructure version isolation still need assessment. Editor setup is
 outside this scenario. Historical D01–D05, P03 and R01 proposals remain available;
 this discussion does not authorize automatic restart, cascading shutdown or reboot
 recovery. Existing configuration and runtime contracts remain until implemented.
 
-Before implementation, settle scan/import policy, monorepo handling, supported
-runtimes/package managers and database types, installation behavior, credential
-handling, and management boundaries across WSL, Windows hosts, containers and remote
-services. Define how generated configuration is applied to a running supervisor.
+A detailed M7 design baseline is now recorded in
+[DESIGN.md](../DESIGN.md#planned-directory-onboarding-and-environment-preparation-m7)
+and the [planned interaction](interaction.md#planned-directory-workflow-m7). It
+proposes bounded Node/npm/pnpm discovery, explicit monorepo selections, exact local
+tool bindings, isolated setup and import only while the target workspace is stopped.
+These are design proposals, not delivered behavior or real-environment acceptance.
+The initial support matrix and script/lockfile policies need product review before
+functional implementation; routine implementation choices need no repeated approval.
+M8 still needs database-type, management-source, credential and cross-host/control
+research; the M7 design does not settle those separate decisions.
 
 Acceptance must cover a real supplied directory without manual TOML authoring,
 missing/incompatible dependencies, ambiguous commands, repeated import preserving
@@ -179,6 +185,35 @@ edits, installation failure/retry, and normal start/log/stop behavior. For A03,
 include stopped and unreachable instances, authentication failure, unavailable
 management permissions, and two projects sharing one service. Tests alone do not
 establish real-environment acceptance.
+
+#### M7 acceptance cases
+
+The following cases make A01/A02 observable; mechanisms and numeric budgets remain
+in DESIGN.md. Fixture checks must be paired with the real supplied-project workflow.
+
+| Case | Expected result |
+| --- | --- |
+| Single npm project with one dev script | Preview the actual command, save without hand-written TOML, set up, start/read logs/stop |
+| Bogu-style pnpm workspace | Offer root and member alternatives; independently control web/API with one shared install, avoiding duplicate starts |
+| Multiple scripts or independent projects | Require explicit selections; never guess an ambiguous executable entry |
+| Existing canonical/symlink project alias | Reimport without duplicates; preserve comments, IDs and user edits; replacement is explicit |
+| Root/member or manager declaration conflict | Explain conflicting evidence and block apply until resolved |
+| Version pin/range conflict, unsupported syntax or ecosystem | Report incompatible/unknown/unsupported; no silent version or manager substitution |
+| Missing or incompatible Node/manager | Offer a reviewed exact-version binding/install and recheck before startup |
+| Existing shim hangs or attempts activation | Bounded failure; no probe download, shell initialization or indefinite wait |
+| pnpm runtime switching/configuration hooks | Read-only checks cannot execute hooks or fetch tools; setup/start either use proven adapter controls or explain unsupported settings |
+| Terminal and supervisor have different PATH | Managed service uses the reviewed tools, including scripts' nested invocations |
+| Different projects need different versions | Their bindings coexist and do not change legacy services or shell defaults |
+| Existing dependencies, stale metadata or removed files | Do not infer correctness solely from directory presence; explain limits and stale evidence |
+| Lockfile absent, stale or frozen install fails | Show writes before apply; no silent lockfile-changing retry |
+| Installation scripts/native builds needed | Show suppression and incomplete build evidence; script-enabled action requires explicit selection |
+| Network/checksum/disk/permission failure | Existing verified tools remain usable; show partial dependency changes and allow a rechecked retry |
+| Cancellation/deadline and child processes | Clean up active setup descendants; do not report rollback or leak the install lock |
+| Concurrent imports or config changed after preview | One complete valid file or a conflict; no overwritten user edits or partial file |
+| Running supervisor/foreground runner | Preview works, apply refuses without stopping services; explicit shutdown/apply/reopen loads the new config |
+| Shared dependency root in two managed workspaces | Installation cannot mutate a root held by live managed services; unrelated roots remain usable |
+| Private registry configuration | Normal authentication can be used without saving credentials in config or receipts |
+| macOS and WSL2 real workflow | Verify each claimed platform independently; Mac-only tests do not establish WSL acceptance |
 
 Research starting points (not selected implementation mechanisms):
 

@@ -45,7 +45,12 @@ Planned automation will accept a project directory, derive startup configuration
 check and help install its environment/dependencies, and discover, monitor and
 control database/Redis services. These features are not implemented. Database
 creation, migrations and application configuration generation are outside this
-increment. See [scope and open decisions](docs/requirements.md#directory-onboarding-and-environment-automation-a01a03).
+increment. M7 now has a [detailed design](DESIGN.md#planned-directory-onboarding-and-environment-preparation-m7)
+and [planned command flow](docs/interaction.md#planned-directory-workflow-m7):
+read-only discovery, reviewed import, environment checks and separately reviewed
+setup. The initial proposal covers Node with npm/pnpm on Mac and Linux/WSL, preserves
+existing configuration edits, and applies imports only while the workspace is
+stopped. Proposed commands are not available yet. See [scope and acceptance](docs/requirements.md#directory-onboarding-and-environment-automation-a01a03).
 
 ## Installation
 

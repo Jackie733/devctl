@@ -341,3 +341,131 @@ substeps are not claimed complete before the installer confirms its result.
 
 The client currently running the update controls presentation. An initial upgrade
 from 1.2.2 uses the older output; subsequent updates from 1.3.0 use this display.
+
+## Planned directory workflow (M7)
+
+**Design only; none of the commands or flags in this section exist yet.** Current
+configuration/command behavior above remains authoritative for the shipped program.
+[A01/A02](requirements.md#directory-onboarding-and-environment-automation-a01a03) owns
+scope; [planned mechanisms](../DESIGN.md#planned-directory-onboarding-and-environment-preparation-m7)
+own discovery rules, supported tools, limits, storage and transactions.
+
+### Planned commands
+
+| Command | Observable behavior |
+| --- | --- |
+| `devctl import DIR` | Read evidence, select packages/scripts and preview additions plus environment findings; no file writes, installs or service changes |
+| `devctl import DIR --apply` | Review then atomically save the selected configuration changes; do not install or start |
+| `devctl doctor [SERVICE...]` | Check selected imported services, or all when omitted; show tool/dependency evidence and repair guidance without installing |
+| `devctl setup [SERVICE...]` | Preview the exact setup actions for selected imported services, or all when omitted |
+| `devctl setup [SERVICE...] --apply` | Review, execute the selected setup actions, then recheck; do not start services |
+
+`--config PATH` chooses the target workspace, including a new file for import.
+Without it, import reuses the existing discovery order. If no candidate exists,
+it proposes `~/.config/devctl/devctl.toml`; it shows the full destination before
+apply and does not create directories during preview. An invalid existing config
+is an error, never replaced by a new one. Without absolute HOME, new workspaces
+require `--config`. doctor/setup require an existing valid workspace. Update/help/
+version retain their existing independence from workspace discovery.
+
+Import options are deliberately bounded:
+
+- Repeat `--project RELATIVE_PATH` to select candidates; `.` selects the supplied root.
+  Paths identify displayed packages relative to DIR, not package display names.
+- Repeat `--script RELATIVE_PATH=SCRIPT` to choose an actual declared script.
+- `--node-version EXACT` and `--package-manager npm@EXACT|pnpm@EXACT` select
+  versions compatible with the shown constraints. They do not change declarations.
+- `--node ABSOLUTE_PATH` selects an existing executable for checking/adoption;
+  its observed version must agree with `--node-version` when both are present.
+- `--replace PROJECT_ID` explicitly includes a proposed changed existing entry
+  in the diff. Without it, reimport preserves existing entries and reports drift.
+  New version choices affect existing environment references only through such a
+  reviewed replacement; do not mutate a shared environment tuple in place.
+
+Only apply commands accept `--yes`, which skips the final confirmation of an
+already explicit, fully resolved plan. It never selects ambiguous packages/scripts,
+changes lockfiles, enables lifecycle scripts or stops services. In a non-TTY,
+apply requires `--yes` and all necessary selections as flags; otherwise fail before
+mutation with the missing selections listed. A read-only preview may show unresolved
+choices, but returns nonzero while the plan cannot be applied. Do not read passwords
+from stdin or hang waiting for choices in redirected use.
+
+Setup accepts `--node ABSOLUTE_PATH` for adopting an exact matching local Node.
+`--allow-lockfile-change` explicitly selects a non-frozen install action when a
+lockfile exists. `--allow-scripts` explicitly selects normal manager lifecycle
+execution (including explicitly displayed package-manager hooks) subject to the
+repository's build policy; the default suppresses lifecycle scripts and pnpmfile
+hooks. Neither option repairs or edits repository approval policy automatically. With
+`--yes`, these explicit flags are still necessary. Without a lockfile, the preview
+always states that installation creates one.
+
+### Guided workflow and feedback
+
+1. Import shows the effective repository/scan roots, completion or limits, project
+   paths, declared scripts, shared installation roots and sources for each decision.
+   In a TTY, arrows/j/k move, Space selects packages, Enter chooses a script or
+   advances; Esc/Ctrl-C cancels before apply. Unknown choices stay visible.
+2. Show a configuration diff and four-state environment findings. Saving changes
+   and installing software are separate reviewed actions. In a TTY, `--apply` asks
+   one final confirmation of the concrete changes; default is cancel.
+3. Successful import prints saved path and project/service IDs, plus exact
+   doctor/setup and ordinary TUI/start commands. An unchanged repeat says no change
+   and does not rewrite the file. No implied application readiness or auto-start.
+4. Setup preview shows tool versions, executable paths, downloads, every command
+   and working directory, affected workspace members, script policy, possible
+   dependency-tree replacement and lockfile writes. Already satisfied actions are
+   skipped with evidence. Unresolved actions cannot be applied.
+5. Applied setup displays one active stage and live sanitized child output.
+   Failure identifies the stage, what may already have changed, and a recheck/retry
+   command. Recheck reports each result separately; "installation completed" does
+   not imply the application or its database is ready.
+6. Open the existing TUI and use its normal start/log/stop/leave controls. Imported
+   projects behave like existing independent services. TUI managed-service startup
+   failures show the doctor/setup command; unknown dependency evidence requires an
+   explicit confirmation before that start only. CLI `start/run` can acknowledge
+   that same limitation with `--allow-unverified-dependencies`. Legacy commands
+   keep their current behavior.
+
+Doctor results contain the checked item, satisfied/missing/incompatible/unknown,
+required/observed version, source path, check time and next step. Show "dependency
+check satisfied; lifecycle builds skipped" when appropriate, not "ready". A new
+process observation cannot erase a failed/unknown environment check. Do not expose
+credential values or `.env` contents in evidence.
+
+Configuration apply is refused while the workspace is managed. Explain: "This
+workspace is running. Import preview is available. Shut down this workspace, apply
+the import, then reopen it." Do not stop it automatically, even if it is idle.
+Dependency setup refuses roots held by live managed services and names affected
+projects; unrelated tool downloads can still be planned separately. Legacy/external
+processes are an explicit limitation of this protection, not verified idle roots.
+
+Esc cancels a selection without changes. Ctrl-C during setup cancels the active
+process group and reports partial changes; it does not imply rollback. Terminal
+closure also ends setup, unlike persistent development services. No automatic
+retry, privileged prompt or unbounded wait.
+
+A complete preview/apply with no blocking findings exits 0; unresolved choices,
+failed checks/installations, lock contention and cancellation exit 1; invalid CLI
+usage exits 2. A saved import may exit 0 while reporting missing dependencies: its
+named operation is saving configuration. doctor/setup recheck exits 1 if requested
+checks remain missing, incompatible or unknown. Print the outcome distinction.
+
+### Example after implementation
+
+For a repository with web/API workspace members (versions here are illustrative):
+
+```sh
+devctl import /absolute/repository
+devctl import /absolute/repository --project apps/web --project apps/api \
+  --script apps/web=dev --script apps/api=dev \
+  --node-version 24.18.0 --package-manager pnpm@10.3.0 --apply
+devctl doctor web api
+devctl setup web api
+devctl setup web api --apply
+devctl
+```
+
+Actual IDs appear in the import diff; commands above assume the reviewed IDs are
+web/api. A compatible existing tool can be adopted rather than downloaded. No
+manual TOML authoring is needed for this path. Existing application settings and
+external infrastructure must already be supplied; import does not generate them.

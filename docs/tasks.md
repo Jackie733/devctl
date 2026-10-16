@@ -3,7 +3,65 @@
 Keep current work and necessary handoff here; Git retains history. Collaboration
 rules are in [AGENTS.md](../AGENTS.md).
 
-## Current: native Mac local deployment complete; public release pending (X01, X03)
+## Current: M7 detailed design complete; implementation pending (A01/A02, W05)
+
+Requested on 2026-10-16. Source remains **1.5.0, unreleased**; this task changes
+documentation only. Requirement scope remains in
+[automation requirements](requirements.md#directory-onboarding-and-environment-automation-a01a03).
+
+Completion criteria: specify inputs/results, bounded discovery and monorepo rules,
+script/tool/version selection, environment checks and installation/retry behavior,
+config preservation and running-workspace boundaries, planned commands, acceptance
+cases and ordered implementation slices. Distinguish proposals from available
+features and keep the Chinese overview consistent.
+
+- Recorded the detailed baseline in
+  [DESIGN.md](../DESIGN.md#planned-directory-onboarding-and-environment-preparation-m7),
+  proposed operations in [interaction](interaction.md#planned-directory-workflow-m7),
+  [acceptance cases](requirements.md#m7-acceptance-cases), and
+  [implementation slices](roadmap.md#m7-implementation-slices).
+- Proposed first support: Node with npm 10/11 or pnpm 10 on native Mac and
+  Ubuntu/Linux/WSL x64. Package ecosystems beyond that matrix remain assessable.
+  Proposed import preserves edits and requires an inactive target workspace;
+  installation is separately reviewed, with exact local tool bindings and visible
+  script/lockfile policies. These product choices need review before implementation;
+  an explicit instruction to implement this baseline supplies that review/authorization
+  without a repeated approval question. No candidate feature was implemented.
+- Read existing config/CLI/launch/lock behavior and inspected only bogu manifests/
+  workspace declarations. Confirmed root/child startup overlap and one shared pnpm
+  install root; no Node pin in those manifests. No bogu files, machine configuration,
+  tools, dependencies or service states were changed.
+- Consulted upstream Node/npm/pnpm/Corepack documentation; references are kept in
+  DESIGN.md. A full M8 database/Redis design remains separate and requires source/
+  credential/shared-service research; it is not cancelled.
+
+Validation performed for this documentation change:
+
+- `git diff --check`: passed.
+- `python3` inline documentation checker: passed for all seven changed Markdown
+  files, 92 relative links/anchors, closed code fences and ten TOML/shell examples
+  (`tomllib.loads` and `bash -n`; examples were parsed, not executed). Checked
+  design topic coverage and explicit not-implemented labels.
+- Reviewed the complete new design/operation sections and cross-document scope,
+  platform, installation, cancellation and active-workspace behavior.
+- No Rust functionality changed; cargo tests/clippy were not rerun. No planned
+  command or installation was executed; runtime/real-environment acceptance remains
+  future implementation work.
+
+## Next steps
+
+1. Review the concrete M7 baseline, then implement M7.1 through M7.5 in order.
+   No discovery/import/doctor/setup command exists yet. Complete real supplied-project
+   and platform acceptance before calling M7 delivered.
+2. Preserve public Mac release/platform gaps and real WSL U01/log and X03 update/
+   rollback acceptance. Remote CI, macOS 14/physical Intel verification, and anonymous
+   public Mac download/update verification remain outstanding. Public 1.4.0 remains
+   Linux-only according to the prior
+   handoff; this task did not re-fetch public release status. No push/tag/publication.
+3. Continue M8 discovery/control research after M7; native Windows and reboot
+   recovery remain candidates.
+
+## Retained Mac deployment and release handoff (X01, X03)
 
 Authorized on 2026-10-16, using the user's existing bogu repository. Source version
 is **1.5.0, unreleased**. Platform scope and acceptance remain owned by
@@ -41,7 +99,7 @@ actual evidence and public-release limitations.
   caller pipe. Added a deterministic inherited-pipe regression and fixed Mac startup;
   30 subsequent eight-client concurrency checks passed.
 
-## Validation and local handoff
+### Recorded Mac validation
 
 - `cargo fmt --check`; `cargo clippy --locked --all-targets -- -D warnings`;
   Linux cross-target clippy with `--target x86_64-unknown-linux-gnu`: passed.
@@ -70,20 +128,6 @@ actual evidence and public-release limitations.
   record is documentation-only. No local bundle has been published.
 - Final cleanup confirmed no verification supervisor or listeners on 5174/3001;
   the original PostgreSQL process remains running. The bogu Git worktree is clean.
-
-## Next steps
-
-1. Public 1.4.0 remains Linux-only. Actual remote CI, macOS 14/Intel-hardware
-   checks and anonymous Mac
-   release/update verification remain pending. Do not equate local mock downloads
-   or Rosetta execution with those checks. Do not push, tag or publish automatically.
-2. Retain real WSL U01/log and X03 cross-version update/rollback acceptance from
-   [the existing roadmap](roadmap.md#next-steps) and [WSL checks](wsl.md).
-3. Continue M7 (A01/A02, W05 package.json import), then M8 (A03), according to
-   [automation scope](requirements.md#directory-onboarding-and-environment-automation-a01a03).
-   Directory import, runtime/dependency installation and database/Redis discovery/
-   control are still unimplemented. Native Windows and reboot recovery remain
-   candidates; this task does not expand those features.
 
 ## Existing public release handoff
 
