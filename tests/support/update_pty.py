@@ -33,7 +33,11 @@ if mode == 'rollback':
     args.append('--rollback')
 process = subprocess.Popen(args, env=env, cwd=root, stdin=slave,
                            stdout=subprocess.PIPE if mode == 'redirect' else slave,
-                           stderr=subprocess.PIPE if mode == 'stderr-redirect' else slave)
+                           stderr=subprocess.PIPE if mode == 'stderr-redirect' else slave,
+                           # Crossterm queries /dev/tty before stdout: use this PTY,
+                           # not the controlling terminal of the test runner.
+                           start_new_session=True,
+                           preexec_fn=lambda: fcntl.ioctl(slave, termios.TIOCSCTTY, 0))
 output = bytearray()
 try:
     deadline = time.monotonic() + 12

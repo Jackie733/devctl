@@ -3,7 +3,26 @@
 Keep current work and necessary handoff here; Git retains history. Collaboration
 rules are in [AGENTS.md](../AGENTS.md).
 
-## Current: update progress implemented, unreleased (X03)
+## Current: isolate the updater PTY controlling terminal (X03)
+
+- Reproduced the reported narrow-terminal failure by running the update CLI suite
+  under a 120-column controlling PTY. The fixture redirected standard streams to
+  its own 24-column PTY but inherited the outer controlling terminal; Crossterm's
+  `/dev/tty` size lookup therefore returned the wrong width. The same test passed
+  without an outer controlling terminal, explaining the earlier validation gap.
+- The updater PTY child now starts a new session and acquires its own PTY as its
+  controlling terminal, matching the existing TUI test convention. Width assertions
+  remain unchanged; no production code or release configuration changed.
+- Validation: `cargo test --locked --offline --test update_cli` passed all 11 tests
+  both with and without an outer controlling terminal, including all ten updater
+  PTY modes. The controlled outer-terminal command used
+  `/tmp/devctl-test-controlling-tty.py` with a 120-column PTY.
+- `cargo fmt --check`, `cargo clippy --locked --offline --all-targets -- -D warnings`,
+  Python AST parsing, and `git diff --check` passed. The full suite was not rerun
+  for this test-fixture-only change. Next: prepare a new release when requested;
+  real WSL acceptance remains pending. No push or publication is assumed.
+
+## Previous implementation: update progress, unreleased (X03)
 
 - The user confirmed the three-stage terminal design: checking, downloading, and
   verifying/installing; real bytes/percentage/speed/ETA; compact width, plain redirected
@@ -21,7 +40,7 @@ rules are in [AGENTS.md](../AGENTS.md).
   contract in [interaction.md](interaction.md#progress-display-development-version),
   and the confirmed requirement under [X03](requirements.md#public-releases-and-self-update-x03).
 
-## Validation
+## Previous implementation validation
 
 - All existing update CLI cases passed with the new output path. New real PTY coverage
   passed interactive, NO_COLOR, TERM=dumb, stdout/stderr redirection, narrow terminal, failed
