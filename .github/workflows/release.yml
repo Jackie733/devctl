@@ -4,18 +4,28 @@ on:
   push:
     tags: ['v*']
   workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing version tag to build (empty uses the selected ref)
+        type: string
+        default: ''
+      publish:
+        description: Publish the existing tag after all checks (requires a version tag)
+        type: boolean
+        default: false
 
 permissions:
   contents: read
 
 concurrency:
-  group: release-${{ github.ref }}
+  group: release-${{ inputs.tag || github.ref_name }}
   cancel-in-progress: false
 
 env:
   CARGO_TERM_COLOR: always
   RUST_TOOLCHAIN: '1.98.1'
-  RELEASE_TAG: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
+  RELEASE_TAG: ${{ inputs.tag || (github.ref_type == 'tag' && github.ref_name) || '' }}
+  PUBLISH_REQUESTED: ${{ inputs.publish || false }}
 
 jobs:
   build:
@@ -24,6 +34,7 @@ jobs:
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
+          ref: ${{ inputs.tag && format('refs/tags/{0}', inputs.tag) || github.ref }}
           fetch-depth: 0
           persist-credentials: false
       - name: Install build and test tools
@@ -40,6 +51,7 @@ jobs:
           version = next(p['version'] for p in metadata['packages'] if p['name'] == 'devctl' and p['id'] in metadata['workspace_members'])
           assert re.fullmatch(r'(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)', version), 'Stable version required'
           assert not os.environ['RELEASE_TAG'] or os.environ['RELEASE_TAG'] == 'v' + version, 'Tag/package version mismatch'
+          assert os.environ['PUBLISH_REQUESTED'] != 'true' or os.environ['RELEASE_TAG'], 'Manual publishing requires an existing version tag'
           PY
       - name: Check and test
         run: |
@@ -59,13 +71,13 @@ jobs:
         run: bash scripts/package-release.sh ./target/x86_64-unknown-linux-musl/release/devctl dist
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: release-${{ github.sha }}
+          name: release-${{ github.run_id }}
           path: dist/*
           if-no-files-found: error
           retention-days: 7
 
   publish:
-    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    if: (github.event_name == 'push' || inputs.publish) && (inputs.tag != '' || startsWith(github.ref, 'refs/tags/v'))
     needs: build
     runs-on: ubuntu-22.04
     timeout-minutes: 10
@@ -75,14 +87,14 @@ jobs:
     steps:
       - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
         with:
-          name: release-${{ github.sha }}
+          name: release-${{ github.run_id }}
           path: dist
       - name: Verify and publish the complete release
         working-directory: dist
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-          TAG: ${{ github.ref_name }}
+          TAG: ${{ env.RELEASE_TAG }}
         run: |
           sha256sum --check SHA256SUMS
           assets=("devctl-$TAG-x86_64-unknown-linux-musl" devctl-update "devctl-$TAG-source.tar.gz" SHA256SUMS)
