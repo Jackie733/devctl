@@ -3,47 +3,60 @@
 Keep the current task, necessary handoff, and next step here. Git retains history;
 collaboration rules are in [AGENTS.md](../AGENTS.md).
 
-## Current: public documentation and 1.2.2 release (X03)
+## Current: 1.2.2 released; target WSL upgrade acceptance pending (X03)
 
-- The user authorized English public documentation, a Chinese README, version
-  publication/push, and a real self-update exercise. They explicitly selected MIT.
-- Prepared an English README and matching README.zh-CN, contributor guidance, MIT
-  license and Cargo metadata. Reworked user/maintainer references in English,
-  replaced personal project paths with generic examples, and kept confirmed scope,
-  engineering invariants, and candidate features distinct.
-- Installation now lives in [install.md](install.md); [wsl.md](wsl.md) owns Windows
-  integration and hands-on checks. Architecture, usage, requirements, roadmap,
-  logging decisions, changelog, and release notes use English.
-- Version 1.2.2 is a documentation/license patch, with no service-management behavior
-  change. The new public artifact enables a real 1.2.1 → 1.2.2 default update test.
-  Previous tags/releases must not be modified. Publishing, checks, and final public
-  upgrade evidence are pending; preparation is not publication.
+- The user authorized English public documentation, a Chinese README, publication/push,
+  and a real self-update exercise, and explicitly selected MIT. The repository now has
+  English/Chinese READMEs, MIT LICENSE, CONTRIBUTING, Cargo package metadata, and English
+  user/maintainer references. GitHub recognizes the repository license as MIT.
+- Personal project paths were replaced with generic examples. Confirmed behavior,
+  engineering invariants, pending acceptance, and candidate features remain distinct.
+  This is a documentation/license patch with no service-management behavior change.
+- [v1.2.2](https://github.com/Jackie733/devctl/releases/tag/v1.2.2) is public, Latest,
+  non-draft, and stable. All five attachments are uploaded: the musl executable,
+  external installer, source archive, update.json, and SHA256SUMS.
+- The annotated tag points to 19d79f024af983d8a236adf6fa7dedcfcb905ed6. English release
+  notes record that build identity. Older tags and published attachments were not modified.
+- [Run 38871736455](https://github.com/Jackie733/devctl/actions/runs/38871736455) was
+  triggered by the tag push; build, publish, and anonymous verify all succeeded.
+  A transient local status-poll network interruption did not restart the workflow.
 
-## Validation evidence and release next step
+## Validation evidence
 
-- Local `cargo test --locked --offline`: 235 passed (142 unit, 93 integration,
-  including ten real PTY scenarios). Log: /tmp/devctl-v1.2.2-tests.log.
-- `cargo fmt --check` and `cargo clippy --locked --offline --all-targets -- -D warnings`
-  passed. Installer tests: 11 passed. The 1.2.2 musl build, four real-artifact
-  packaging/manifest tests, and static-link/install/reinstall/bad-digest/rollback/
-  configuration-preservation checks passed.
-- All 15 Markdown documents passed 104 local-link/anchor checks and fence checks.
-  Both READMEs contain matching TOML, validated/planned by the real 1.2.2 parser
-  from a different working directory. All 25 shell blocks passed Bash syntax checks;
-  documented update/log flags agree with CLI help. English content, MIT text,
-  package metadata, Bash packaging syntax, and actionlint checks passed.
-- Next: commit, inspect the clean-source bundle and English release notes, then push
-  main and a new annotated v1.2.2 tag. Monitor build/publication/anonymous verification.
-- After publication, download all five public assets, verify checksums/source identity,
-  and use the real 1.2.1 binary in a temporary HOME for default online upgrade to
-  1.2.2, backup/config preservation, offline rollback, and external recovery.
+- Local and cloud Rust checks passed: 235 tests (142 unit, 93 integration, including
+  ten real PTY scenarios), fmt, and clippy with warnings denied. Installer tests: 11.
+  Real-artifact packaging/manifest tests: 4. The final musl program passed static-link,
+  install/reinstall/bad-digest/rollback/configuration checks; cloud also passed all
+  ten PTY scenarios using the shipped static program.
+- All 15 Markdown documents passed local-link/anchor and fence checks. Both READMEs
+  use matching TOML, validated/planned by the real 1.2.2 parser from another directory.
+  All 25 shell blocks passed Bash syntax checks; documented flags match CLI help.
+  MIT text, Cargo metadata, English content, packaging syntax, and actionlint passed.
+- Clean-source packaging included both READMEs, LICENSE, CONTRIBUTING, installation
+  documentation, correct version metadata, and English notes. Publicly downloaded
+  source was compared against the tag for every Markdown file, license, Cargo files,
+  updater source, and release workflow; all matched.
+- All five release attachments were downloaded anonymously; four SHA-256 entries,
+  manifest version/name/size/digest, executable version, and static linking matched.
+- In a temporary HOME, installed the real verified public 1.2.1 binary, observed
+  1.2.2 availability without workspace config, and invoked that old client's default
+  `devctl update`. It installed the exact published 1.2.2 bytes and retained the exact
+  1.2.1 binary as backup. Latest/explicit checks, same-version reinstall, no-newer-version
+  protection, offline rollback to 1.2.1, external recovery, and configuration preservation
+  all passed. This was a cross-version online upgrade, not just a new client reinstalling itself.
+- Local logs: /tmp/devctl-v1.2.2-tests.log, /tmp/devctl-v1.2.2-actions.log, and
+  /tmp/devctl-v1.2.2-public-verification.log. Preflight bundle:
+  /tmp/devctl-v1.2.2-preflight-arz_3eff/bundle. Temporary files are not permanent evidence;
+  the Actions link and committed results are the durable handoff.
 
-## Previous release and handoff
+## User handoff
 
-- [v1.2.1](https://github.com/Jackie733/devctl/releases/tag/v1.2.1) is the previous stable
-  manifest-format release. Its build commit is 9f76c8da2d1fe562608387009e8bc5c6e96a40ce;
-  [run 38868608804](https://github.com/Jackie733/devctl/actions/runs/38868608804) passed
-  build, publication, and anonymous verification.
-- Complete target WSL experience remains user acceptance, separate from controlled
-  tests. This task does not alter real installations, stop real projects, or mark
-  X03 fully accepted. Follow [WSL update checks](wsl.md#verify-updates) after release.
+1. From an installed 1.2.1 client, follow [WSL update checks](wsl.md#verify-updates):
+   check for 1.2.2, shut down each active workspace and leave its TUI, run the default
+   update, and verify the executable path/version and previous-version backup.
+2. New users and legacy API-limited clients use [fixed attachments](install.md#prebuilt-binary).
+   User documentation starts at [README.md](../README.md) or [README.zh-CN.md](../README.zh-CN.md).
+3. Verify logs, controls, reconnect, and rollback in the real target environment.
+   This task did not modify real installations or stop real projects; controlled
+   success does not establish full X03 acceptance. Future publication requires its
+   corresponding task authorization; [release maintenance](releasing.md) describes the process.
