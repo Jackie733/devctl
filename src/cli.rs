@@ -19,6 +19,12 @@ pub struct Cli {
 
 #[derive(Debug, Subcommand)]
 pub enum Command {
+    /// Preview project directories and declared scripts without executing or writing.
+    Import {
+        #[arg(value_name = "DIR")]
+        directory: PathBuf,
+    },
+
     /// Check, install, or roll back the devctl program (no workspace config needed).
     Update {
         /// Check the latest stable release without changing the installation.

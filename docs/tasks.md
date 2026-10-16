@@ -3,56 +3,73 @@
 Keep current work and necessary handoff here; Git retains history. Collaboration
 rules are in [AGENTS.md](../AGENTS.md).
 
-## Current: M7 detailed design complete; implementation pending (A01/A02, W05)
+## Current: M7.1 read-only project discovery implemented (A01, W05)
 
-Requested on 2026-10-16. Source remains **1.5.0, unreleased**; this task changes
-documentation only. Requirement scope remains in
-[automation requirements](requirements.md#directory-onboarding-and-environment-automation-a01a03).
+The user authorized implementation of the detailed M7 baseline on 2026-10-16.
+Source remains **1.5.0, unreleased**. This coherent slice implements discovery only;
+M7.2–M7.5 remain necessary for the complete A01/A02 workflow. Scope/acceptance are in
+[requirements](requirements.md#directory-onboarding-and-environment-automation-a01a03),
+mechanisms in [DESIGN.md](../DESIGN.md#discovery-and-evidence), operations in
+[interaction](interaction.md#read-only-project-discovery-m71), and slice order in
+[roadmap](roadmap.md#m7-implementation-slices).
 
-Completion criteria: specify inputs/results, bounded discovery and monorepo rules,
-script/tool/version selection, environment checks and installation/retry behavior,
-config preservation and running-workspace boundaries, planned commands, acceptance
-cases and ordered implementation slices. Distinguish proposals from available
-features and keep the Chinese overview consistent.
+Completion criteria: expose a config-independent read-only preview; identify single
+packages, independent directories and declared workspace members; report actual
+scripts/sources, cwd and shared dependency roots; preserve ambiguity/conflict and
+unsupported evidence; enforce filesystem/size/time bounds; execute no repository
+commands or tools and write no files; verify real bogu discovery and legacy behavior.
 
-- Recorded the detailed baseline in
-  [DESIGN.md](../DESIGN.md#planned-directory-onboarding-and-environment-preparation-m7),
-  proposed operations in [interaction](interaction.md#planned-directory-workflow-m7),
-  [acceptance cases](requirements.md#m7-acceptance-cases), and
-  [implementation slices](roadmap.md#m7-implementation-slices).
-- Proposed first support: Node with npm 10/11 or pnpm 10 on native Mac and
-  Ubuntu/Linux/WSL x64. Package ecosystems beyond that matrix remain assessable.
-  Proposed import preserves edits and requires an inactive target workspace;
-  installation is separately reviewed, with exact local tool bindings and visible
-  script/lockfile policies. These product choices need review before implementation;
-  an explicit instruction to implement this baseline supplies that review/authorization
-  without a repeated approval question. No candidate feature was implemented.
-- Read existing config/CLI/launch/lock behavior and inspected only bogu manifests/
-  workspace declarations. Confirmed root/child startup overlap and one shared pnpm
-  install root; no Node pin in those manifests. No bogu files, machine configuration,
-  tools, dependencies or service states were changed.
-- Consulted upstream Node/npm/pnpm/Corepack documentation; references are kept in
-  DESIGN.md. A full M8 database/Redis design remains separate and requires source/
-  credential/shared-service research; it is not cancelled.
+- Added `devctl import DIR` with bounded manifest/version/lockfile evidence, npm/pnpm
+  workspace membership, canonical paths and deterministic ordering. New dependencies
+  are globset and serde_yaml_ng, locked to the reviewed versions; no shell or runtime
+  is needed for discovery. Scripts are displayed but never executed.
+- Root/member command overlap is explicitly advisory; multiple startup candidates
+  require later selection. Stop/restart, migration, seed, build and similar action
+  components are excluded from startup suggestions, including bogu's `dev:stop`.
+  Missing manager/version information remains unknown/unresolved, not fabricated.
+- Declared patterns prune unrelated trees and stop below members where no recursive
+  member can exist. A first real bogu scan exposed irrelevant-directory exhaustion;
+  prefix traversal fixed it without raising limits, with representative regression
+  coverage. Symlink directories are not followed; contained declaration links are
+  supported, while escaping/broken/special declarations fail clearly.
+- Full import selection/saving, doctor/setup, managed runtime binding and startup
+  changes are not available. `--apply` is rejected; explicit `--config` is explained
+  rather than ignored. Discovery does not load or compare existing workspace config.
+- Real bogu root scan passed: root plus API, web, domain, extension and knowledge-agent
+  (six candidates); pnpm 10.3.0 inherited from root; shared install root and overlapping
+  root/member commands reported. Separate web/API scans passed. Manifest/workspace/
+  lockfile hashes and bogu Git state were identical before/after. No business-data,
+  dependency, installed-devctl or machine-config changes were made.
 
-Validation performed for this documentation change:
+## Validation
 
-- `git diff --check`: passed.
-- `python3` inline documentation checker: passed for all seven changed Markdown
-  files, 92 relative links/anchors, closed code fences and ten TOML/shell examples
-  (`tomllib.loads` and `bash -n`; examples were parsed, not executed). Checked
-  design topic coverage and explicit not-implemented labels.
-- Reviewed the complete new design/operation sections and cross-document scope,
-  platform, installation, cancellation and active-workspace behavior.
-- No Rust functionality changed; cargo tests/clippy were not rerun. No planned
-  command or installation was executed; runtime/real-environment acceptance remains
-  future implementation work.
+- Focused discovery checks: 19 unit tests and seven real CLI tests passed, including
+  fake executables/scripts that must never run, no config requirement, no generated
+  files, declaration conflicts, malformed/unsupported evidence, YAML restrictions,
+  symlink/special files, terminal controls and every scan budget.
+- `cargo fmt --check`: passed. Native `cargo clippy --locked --all-targets -- -D warnings`:
+  passed. Full final `cargo test --locked`: **267 passed**, including 19 discovery
+  unit tests and seven discovery CLI tests (output retained at
+  `/tmp/devctl-m71-cargo-test.log`).
+- Real `target/debug/devctl import` on bogu root/web/API passed (approximately 8/5/5 ms
+  in the recorded run); the test inspected output and source hashes/Git status.
+- `cargo clippy --locked --all-targets --target x86_64-unknown-linux-gnu -- -D warnings`:
+  passed after the final no-Git declaration-boundary refinement.
+- New dependency licenses verified through `cargo metadata --locked --format-version 1`:
+  globset 0.4.20 is Unlicense OR MIT; serde_yaml_ng 0.10.0 is MIT.
+- `git diff --check` and the inline Python documentation checker passed: eight
+  Markdown files, 95 local links/anchors, 11 TOML/shell examples (parsed with
+  tomllib/bash -n, not executed), and closed fences. Reviewed the final code/diff
+  and current-versus-planned feature labels.
+- This is agent verification of read-only discovery, not user acceptance of complete
+  onboarding/setup. No Linux/WSL runtime acceptance or publication is claimed.
 
 ## Next steps
 
-1. Review the concrete M7 baseline, then implement M7.1 through M7.5 in order.
-   No discovery/import/doctor/setup command exists yet. Complete real supplied-project
-   and platform acceptance before calling M7 delivered.
+1. Continue M7.2 (environment checks and exact tool binding), then M7.3 config
+   import, M7.4 setup and M7.5 complete acceptance. The baseline is authorized; do
+   not ask again for routine implementation. Only read-only `import DIR` exists.
+   Complete real supplied-project and platform acceptance before calling M7 delivered.
 2. Preserve public Mac release/platform gaps and real WSL U01/log and X03 update/
    rollback acceptance. Remote CI, macOS 14/physical Intel verification, and anonymous
    public Mac download/update verification remain outstanding. Public 1.4.0 remains

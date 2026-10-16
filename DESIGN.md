@@ -535,15 +535,18 @@ reboot recovery while those features remain proposals.
 
 ## Planned directory onboarding and environment preparation (M7)
 
-Status: detailed design baseline requested on 2026-10-16, **not implemented**.
+Status: baseline requested on 2026-10-16 and implementation authorized afterward.
+M7.1 read-only discovery is implemented; config saving, environment checks/binding,
+setup and managed startup below remain **not implemented**.
 [A01/A02 requirements](docs/requirements.md#directory-onboarding-and-environment-automation-a01a03)
 own scope and acceptance; the [planned interaction](docs/interaction.md#planned-directory-workflow-m7)
-owns commands, selections and feedback. Product choices below are a concrete proposal
-for this increment, not a claim of user acceptance or authorization to run setup.
+owns commands, selections and feedback. This baseline guides the authorized
+implementation; progress does not establish real-environment acceptance or grant
+permission to execute setup in a user's project.
 
 ### Design baseline and compatibility
 
-The first complete workflow targets Node.js projects using npm 10/11 or pnpm 10,
+The planned complete workflow targets Node.js projects using npm 10/11 or pnpm 10,
 on native macOS 14+ (arm64/x64) and Ubuntu 22.04+ x64, including WSL2. Automated
 Node installation uses official glibc Linux or Darwin archives for that platform;
 the devctl musl executable does not make Node work on musl. Use native architecture
@@ -602,7 +605,9 @@ when no Git root exists. If the bound is reached, require an explicit enclosing
 root instead of claiming no parent workspace exists. Reject special files and
 broken manifest symlinks; an explicitly selected symlink directory is allowed after
 canonicalization. A linked declaration may be read only if its target stays inside
-the effective repository root.
+the effective repository root. Without Git, declaration links are bounded to the
+supplied directory or its explicitly discovered enclosing workspace; inspecting
+parents up to the filesystem root does not grant declaration links that wider scope.
 
 Read `package.json`, `package-lock.json`/`npm-shrinkwrap.json`, `pnpm-lock.yaml`,
 `pnpm-workspace.yaml`, `.nvmrc`, `.node-version` and matching Node fields from
@@ -617,12 +622,15 @@ workspace membership before assigning its dependency root. For a workspace root,
 expand declared member patterns and show runnable members and the root as candidates.
 Read npm `workspaces` arrays and the `packages` array in pnpm YAML; support relative
 literal paths, `*`, `**`, `?` and leading `!` exclusions. Unknown pattern syntax,
-unsupported YAML tags or malformed declarations produce an incomplete/unknown result,
+unsupported YAML tags/anchors/aliases or malformed declarations produce an incomplete/unknown result,
 not a partial successful import. Resolve exclusions before membership assignment.
 Nested workspace declarations define their own installation units; conflicting
 manager/root claims must be resolved before applying. Never let two selected install
 units overlap unless they are the same canonical root.
 
+For declared workspaces, match directory prefixes before descending and stop below
+matched members unless a declared recursive/nested workspace can contain more
+members. Unrelated and excluded trees do not consume descendant scan budgets.
 If there is no workspace declaration, search descendants for independent manifests.
 Exclude `.git`, `node_modules`, `.pnpm`, `.yarn`, `vendor`, `target`, `dist`, `build`,
 `coverage`, `.next` and `.turbo`. Do not automatically import every discovered manifest.
@@ -632,7 +640,8 @@ may overlap; do not select both by default or attempt to infer Turbo task graphs
 
 Budgets: depth 6 below the supplied root; 10,000 visited entries; 200 manifests;
 1 MiB per manifest/version/workspace declaration; 16 MiB per lockfile; 64 MiB total
-input; 5 seconds elapsed filesystem discovery, checked between operations. These
+input; at most 200 patterns per workspace, 4,096 bytes/32 components per pattern;
+5 seconds elapsed filesystem discovery, checked between operations. These
 are stopping budgets, not a hard timeout for an uninterruptible filesystem call.
 Budget exhaustion and unreadable relevant directories mark discovery incomplete
 and block apply for affected installation units. Offer selecting a narrower root;
@@ -651,7 +660,9 @@ Read script names/values without executing them. Suggest `dev`, `dev:*`, then
 `start`; retain all declared scripts for explicit selection. One plausible entry
 may be preselected for review; multiple development entries require a selection.
 Never invent commands for absent scripts or automatically select build, migration,
-seed, release or stop scripts. A selected script yields `[manager, "run", script]`
+seed, release or stop scripts. M7.1 suppresses suggestions whose colon/hyphen/underscore
+name components identify these actions (including `dev:stop`), case-insensitively;
+all declared scripts remain visible. Name filtering does not prove script safety. A selected script yields `[manager, "run", script]`
 in that package directory, including monorepo members; install runs at dependency
 root, not at each member. Preserve script text inside the manifest: the package
 manager owns its normal shell semantics.
@@ -905,8 +916,10 @@ engine, scheduler, task dependency runtime or persistent installation daemon.
 
 Likely new dependencies are a comment-preserving TOML editor, a bounded YAML parser
 and workspace-pattern matching; npm range parsing needs its own explicit review.
-Choose maintained minimal libraries during implementation, check licenses and run
-fixture conformance; no library is selected solely by this design.
+M7.1 uses Unlicense/MIT globset for path patterns and MIT serde_yaml_ng
+for typed YAML declarations. Both are locked in Cargo.lock. Unknown YAML fields
+are skipped; tagged/anchored/aliased YAML is explicitly unsupported in this slice.
+The other libraries remain to be selected during their implementation slices.
 
 Real evidence: read only the existing bogu root and web/API manifests plus workspace
 declaration on 2026-10-16. It declares pnpm 10.3.0, `apps/*`/`packages/*` members,

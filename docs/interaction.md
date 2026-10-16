@@ -8,8 +8,8 @@ For installation and version switching, see [install.md](install.md).
 
 With no subcommand, `devctl` opens the TUI. `devctl tui` is the explicit equivalent.
 Other subcommands perform only their named operation; an unknown command is an error.
-Help and version exit without loading workspace configuration, as does the independent
-`update` path.
+Help and version exit without loading workspace configuration, as do the independent
+`update` and read-only `import` paths.
 
 Workspace commands select the first existing configuration, without merging:
 
@@ -342,10 +342,43 @@ substeps are not claimed complete before the installer confirms its result.
 The client currently running the update controls presentation. An initial upgrade
 from 1.2.2 uses the older output; subsequent updates from 1.3.0 use this display.
 
+## Read-only project discovery (M7.1)
+
+`devctl import DIR` now previews Node projects and their declared scripts without
+loading a workspace config, launching tools/scripts or writing files. It works
+without an installed Node/npm/pnpm. It reports package paths, script source/content,
+working directories, shared dependency roots, package-manager/version declarations
+and raw Node version evidence. This is discovery, not an environment compatibility
+check, a config diff or an import that saves projects.
+
+Startup suggestions prioritize development entries and leave other declared
+scripts visible for later explicit selection. Multiple suggestions are labeled as
+requiring selection. Root/member commands may overlap; the preview warns without
+executing or interpreting task graphs. Libraries without scripts are listed without
+inventing a startup command. Missing manager evidence stays unknown. Limits and
+pattern rules belong to [DESIGN.md](../DESIGN.md#discovery-and-evidence).
+
+Exit 0 means the discovery scan completed without malformed/unsupported/conflicting
+evidence. It does not mean script/tool selections are resolved or the project is
+ready. Problems or incomplete scans exit 1; invalid CLI arguments exit 2. Control
+characters from repository text are escaped. Repeated scans do not create files.
+
+This first slice accepts only DIR: `--apply`, selections, environment checks and
+setup are not available. Explicit `--config` is rejected with an explanation rather
+than ignored. Unlike workspace operations, preview does not read local devctl.toml;
+an invalid existing workspace therefore does not prevent examining a directory.
+It also does not compare that workspace to discovery candidates yet.
+
+```sh
+devctl import /absolute/repository
+devctl import /absolute/repository/apps/web
+```
+
 ## Planned directory workflow (M7)
 
-**Design only; none of the commands or flags in this section exist yet.** Current
-configuration/command behavior above remains authoritative for the shipped program.
+**Planned full workflow.** Only the read-only `import DIR` subset described above
+exists. Saving/selection flags, doctor, setup and managed startup changes below are
+not implemented. Current configuration/command behavior above remains authoritative.
 [A01/A02](requirements.md#directory-onboarding-and-environment-automation-a01a03) owns
 scope; [planned mechanisms](../DESIGN.md#planned-directory-onboarding-and-environment-preparation-m7)
 own discovery rules, supported tools, limits, storage and transactions.

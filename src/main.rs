@@ -4,6 +4,7 @@ mod client;
 mod config;
 mod control;
 mod control_socket;
+mod discovery;
 mod logs;
 mod manager;
 mod plan;
@@ -51,6 +52,12 @@ async fn run(cli: Cli) -> ExitCode {
 
 async fn execute(cli: Cli) -> Result<(), String> {
     let command = cli.command.unwrap_or(Command::Tui);
+    if let Command::Import { directory } = &command {
+        if cli.config.is_some() {
+            return Err("The read-only import preview does not select a workspace yet; omit --config. Configuration saving is not implemented.".into());
+        }
+        return discovery::preview(directory);
+    }
     if let Command::Update {
         check,
         version,
@@ -61,6 +68,9 @@ async fn execute(cli: Cli) -> Result<(), String> {
     }
     let config_path = config::resolve_path(cli.config)?;
     match command {
+        Command::Import { .. } => {
+            unreachable!("Import preview is handled before config discovery.")
+        }
         Command::Update { .. } => unreachable!("Updates are handled before config discovery."),
         Command::Tui => tui::run(&config_path).await,
         Command::Supervise { detached } => supervisor::run(&config_path, detached).await,

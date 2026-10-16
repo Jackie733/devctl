@@ -5,6 +5,11 @@ User-facing changes are grouped by released version. Download artifacts from
 
 ## 1.5.0 — Unreleased
 
+- Add config-independent, read-only `import DIR` discovery for Node manifests,
+  npm/pnpm workspace members, declared scripts and package-manager evidence.
+  Explain command overlap, conflicts and bounded/incomplete scans without running
+  tools/scripts or writing files. Saving projects and environment setup remain pending.
+
 - Add native macOS 14+ operation on Apple Silicon and Intel, preserving process-group
   cleanup, background services, reconnect, retained logs and terminal restoration.
 - Use pbcopy for local Mac log copying, UTF-16LE clip.exe for local WSL and OSC 52

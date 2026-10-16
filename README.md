@@ -28,6 +28,11 @@ interface without stopping your services, then reconnect when you need it.
   candidate version, and keep an offline rollback copy. In 1.3.0 and later, follow
   terminal stages and download progress, with plain output when redirected.
 
+Source 1.5.0 also includes `devctl import DIR`: a read-only preview of Node project
+paths, declared scripts, shared installation roots and npm/pnpm evidence. It does
+not execute project commands, save workspace configuration or install dependencies.
+See [discovery usage](docs/interaction.md#read-only-project-discovery-m71).
+
 ## Platform support
 
 The supported release target is **Linux x86_64**, including **Windows WSL2**.
@@ -43,14 +48,14 @@ restarts, and recovery after a machine reboot are not implemented. See the
 
 Planned automation will accept a project directory, derive startup configuration,
 check and help install its environment/dependencies, and discover, monitor and
-control database/Redis services. These features are not implemented. Database
+control database/Redis services. Only read-only directory/script discovery is implemented so far. Database
 creation, migrations and application configuration generation are outside this
 increment. M7 now has a [detailed design](DESIGN.md#planned-directory-onboarding-and-environment-preparation-m7)
 and [planned command flow](docs/interaction.md#planned-directory-workflow-m7):
 read-only discovery, reviewed import, environment checks and separately reviewed
 setup. The initial proposal covers Node with npm/pnpm on Mac and Linux/WSL, preserves
 existing configuration edits, and applies imports only while the workspace is
-stopped. Proposed commands are not available yet. See [scope and acceptance](docs/requirements.md#directory-onboarding-and-environment-automation-a01a03).
+stopped. Import saving, doctor/setup and their flags are not available yet. See [scope and acceptance](docs/requirements.md#directory-onboarding-and-environment-automation-a01a03).
 
 ## Installation
 

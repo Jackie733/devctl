@@ -109,7 +109,7 @@ simplifying documentation must not silently cancel it.
 | X03 | Public distribution and self-update | Public releases and updater delivered; full target WSL acceptance pending |
 | P06 | Service PTYs, stdin forwarding, interactive commands | Candidate |
 | W05 | package.json/Procfile import and devctl-managed file-watch restart | package.json import is included in A01; Procfile import and file-watch restart remain candidates |
-| A01–A03 | Directory onboarding, environment checks and setup, infrastructure discovery/monitoring/control | Confirmed future scope; see [automation](#directory-onboarding-and-environment-automation-a01a03); not implemented |
+| A01–A03 | Directory onboarding, environment checks and setup, infrastructure discovery/monitoring/control | M7.1 read-only discovery implemented; saving, setup and infrastructure control pending; see [automation](#directory-onboarding-and-environment-automation-a01a03) |
 | Configuration extensions | Environment/tilde path expansion, env_files/env overrides | Candidate; existing literal path/environment behavior remains |
 
 An earlier 20-service performance budget is a proposal, not measured evidence.
@@ -120,9 +120,10 @@ log assistance remain candidates, with logging foundations preceding AI assessme
 
 ### Directory onboarding and environment automation (A01–A03)
 
-Confirmed for future development on 2026-10-16; this records product intent, not
-implementation or user acceptance. The priority scenario is: provide an existing
-project directory, inspect its environment, derive installation/start commands,
+Confirmed on 2026-10-16; M7.1 now implements read-only Node project/script
+discovery. Configuration saving, environment setup and A03 remain unimplemented;
+this partial delivery does not establish complete-workflow or user acceptance.
+The priority scenario is: provide an existing project directory, inspect its environment, derive installation/start commands,
 and add it to the workspace without hand-writing `devctl.toml`.
 
 | ID | Capability | Observable acceptance |
@@ -173,9 +174,9 @@ A detailed M7 design baseline is now recorded in
 and the [planned interaction](interaction.md#planned-directory-workflow-m7). It
 proposes bounded Node/npm/pnpm discovery, explicit monorepo selections, exact local
 tool bindings, isolated setup and import only while the target workspace is stopped.
-These are design proposals, not delivered behavior or real-environment acceptance.
-The initial support matrix and script/lockfile policies need product review before
-functional implementation; routine implementation choices need no repeated approval.
+The user authorized implementation of this baseline. Only M7.1 discovery has been
+implemented; the full matrix, setup/startup policies and real-environment acceptance
+remain future evidence. Routine implementation choices need no repeated approval.
 M8 still needs database-type, management-source, credential and cross-host/control
 research; the M7 design does not settle those separate decisions.
 

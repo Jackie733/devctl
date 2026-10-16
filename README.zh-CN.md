@@ -17,15 +17,17 @@
 - **有界日志存储**：近期记录保存在内存，历史记录按容量与期限保留；查询旧会话不启动服务。
 - **校验与回退**：通过公开 Release 清单更新，验证 SHA-256 和候选程序版本，并保留离线回退副本。1.3.0 起显示终端阶段与下载进度，重定向时使用纯文本输出。
 
+1.5.0 源码现已提供 `devctl import 目录`，可只读查看 Node 项目、已有指令、共享依赖安装位置及 npm/pnpm 声明。识别过程不会执行项目命令、保存工作区配置或安装软件，详见[识别操作说明](docs/interaction.md#read-only-project-discovery-m71)。
+
 ## 平台支持
 
 当前发布目标为 **Linux x86_64**，包含 **Windows WSL2**。发布程序使用 musl 静态构建，无需安装 Rust，也不依赖特定 glibc 版本。1.5.0 源码已加入 **macOS 14 及以上版本（Apple 芯片和 Intel）**的原生支持；当前公开的 1.4.0 仍只有 Linux 程序，多平台版本发布前请使用 [Mac 源码安装步骤](docs/install.md#macos)。Windows 原生支持仍未提供。
 
 开发命令需要能够非交互运行。目前支持依赖校验与计划展示，尚未实现运行时依赖编排、就绪探针、自动重启或机器重启后的恢复。已交付和候选功能的区别见[路线图](docs/roadmap.md)。
 
-后续计划支持提供项目目录后自动识别启动指令、生成工作台配置、检查并辅助安装环境与依赖，以及发现、监测和控制数据库、Redis 等服务。上述功能尚未实现；本期不包含创建数据库、执行迁移或生成业务配置。
+后续计划支持提供项目目录后自动识别启动指令、生成工作台配置、检查并辅助安装环境与依赖，以及发现、监测和控制数据库、Redis 等服务。目前仅完成只读识别；其余功能尚未实现。本期不包含创建数据库、执行迁移或生成业务配置。
 
-目前已完成第一期的[详细设计](DESIGN.md#planned-directory-onboarding-and-environment-preparation-m7)和[操作流程](docs/interaction.md#planned-directory-workflow-m7)：先只读识别，再确认导入，检查环境后单独确认安装。首批方案覆盖 Mac 和 Linux/WSL 上使用 npm、pnpm 的 Node 项目；重复导入保留已有修改，保存新配置前需先关闭该工作区后台。这些是待实施方案，设计中的命令目前还不能使用。具体范围与验收见[自动化需求](docs/requirements.md#directory-onboarding-and-environment-automation-a01a03)。
+目前已完成第一期的[详细设计](DESIGN.md#planned-directory-onboarding-and-environment-preparation-m7)和[操作流程](docs/interaction.md#planned-directory-workflow-m7)：先只读识别，再确认导入，检查环境后单独确认安装。首批方案覆盖 Mac 和 Linux/WSL 上使用 npm、pnpm 的 Node 项目；重复导入保留已有修改，保存新配置前需先关闭该工作区后台。除只读识别外，其余是待实施方案，保存配置、检查和安装环境的命令目前还不能使用。具体范围与验收见[自动化需求](docs/requirements.md#directory-onboarding-and-environment-automation-a01a03)。
 
 ## 安装
 
