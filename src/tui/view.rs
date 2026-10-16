@@ -3,7 +3,7 @@ use ratatui::{
     layout::{Constraint, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Clear, Padding, Paragraph, Row, Table},
+    widgets::{Block, BorderType, Clear, Padding, Paragraph, Row, Table},
 };
 
 use super::app::{App, Focus};
@@ -199,12 +199,9 @@ fn diagnostics(app: &App) -> Vec<Line<'static>> {
     }
     let mut warnings = Vec::new();
     if let Some(info) = &app.logs.storage {
-        lines.push(Line::from(format!(
-            "Saving: {} | session {} | {}",
-            clean(&info.state),
-            clean(&info.session),
-            clean(&info.directory)
-        )));
+        lines.push(help_action("Saving", &clean(&info.state)));
+        lines.push(help_action("Session", &clean(&info.session)));
+        lines.push(help_action("Directory", &clean(&info.directory)));
         if !info.warning.is_empty() {
             warnings.push(clean(&info.warning));
         }
@@ -745,122 +742,252 @@ fn popup(area: Rect, width: u16, height: u16) -> Rect {
     )
 }
 
-fn shutdown_text(app: &App) -> String {
-    format!(
-        "Stop ALL {} projects and end the background workspace?\n\ny: confirm | n / Esc: cancel\nq / Ctrl-C: leave the interface only",
-        app.services.len()
-    )
-}
-
-// Wrap by terminal columns using Ratatui's width calculation. Rendering and scroll
-// bounds consume these same lines, including long IDs without word boundaries.
+// Wrap at word boundaries when possible, but also split long IDs/paths by terminal
+// columns. Keep graphemes and their styles intact; measurement and drawing share
+// these exact rows so narrow windows cannot hide the end of a diagnostic.
 fn wrapped(lines: Vec<Line<'static>>, width: u16) -> Vec<Line<'static>> {
     if width == 0 {
         return Vec::new();
     }
     let mut result = Vec::new();
     for line in lines {
-        let mut row = String::new();
-        let mut columns = 0;
-        for grapheme in line.styled_graphemes(Style::default()) {
-            let glyph = grapheme.symbol;
-            let size = Span::raw(glyph).width();
-            if columns + size > usize::from(width) && !row.is_empty() {
-                result.push(Line::styled(std::mem::take(&mut row), line.style));
-                columns = 0;
-            }
-            row.push_str(glyph);
-            columns += size;
+        let glyphs: Vec<_> = line.styled_graphemes(Style::default()).collect();
+        if glyphs.is_empty() {
+            result.push(line.clone());
+            continue;
         }
-        result.push(Line::styled(row, line.style));
+        let mut start = 0;
+        while start < glyphs.len() {
+            let mut end = start;
+            let mut columns = 0;
+            let mut space = None;
+            while end < glyphs.len() {
+                let size = Span::raw(glyphs[end].symbol).width();
+                if columns + size > usize::from(width) && end > start {
+                    break;
+                }
+                columns += size;
+                if glyphs[end].symbol.chars().all(char::is_whitespace) {
+                    space = Some(end);
+                }
+                end += 1;
+            }
+            if end < glyphs.len()
+                && !glyphs[end].symbol.chars().all(char::is_whitespace)
+                && let Some(boundary) = space.filter(|&index| index > start)
+            {
+                end = boundary;
+            }
+            let mut spans: Vec<Span<'static>> = Vec::new();
+            for glyph in &glyphs[start..end] {
+                if let Some(last) = spans.last_mut()
+                    && last.style == glyph.style
+                {
+                    last.content.to_mut().push_str(glyph.symbol);
+                } else {
+                    spans.push(Span::styled(glyph.symbol.to_owned(), glyph.style));
+                }
+            }
+            result.push(Line::from(spans));
+            start = end;
+            while start < glyphs.len() && glyphs[start].symbol.chars().all(char::is_whitespace) {
+                start += 1;
+            }
+        }
     }
     result
 }
 
+fn modal_style() -> Style {
+    Style::default().fg(Color::White).bg(Color::Black)
+}
+
+fn modal_block(title: &'static str, accent: Color) -> Block<'static> {
+    Block::bordered()
+        .border_type(BorderType::Rounded)
+        .border_style(Style::default().fg(accent))
+        .title(Span::styled(
+            title,
+            Style::default().fg(accent).add_modifier(Modifier::BOLD),
+        ))
+        .style(modal_style())
+        .padding(Padding::new(2, 2, 1, 1))
+}
+
+// De-emphasize the whole main view, including search/selection backgrounds, then
+// clear a one-cell gutter. Log output must never meet the dialog border directly.
+fn modal_backdrop(frame: &mut Frame, area: Rect) {
+    let screen = frame.area();
+    frame.buffer_mut().set_style(
+        screen,
+        Style::default()
+            .fg(Color::DarkGray)
+            .bg(Color::Black)
+            .remove_modifier(Modifier::all()),
+    );
+    let gutter = Rect::new(
+        area.x.saturating_sub(1).max(screen.x),
+        area.y.saturating_sub(1).max(screen.y),
+        area.width.saturating_add(2),
+        area.height.saturating_add(2),
+    )
+    .intersection(screen);
+    frame.render_widget(Clear, gutter);
+    frame.render_widget(Block::default().style(modal_style()), gutter);
+}
+
+fn help_action(keys: &str, action: &str) -> Line<'static> {
+    Line::from(vec![
+        Span::styled(
+            format!("{keys:<18}"),
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        ),
+        Span::raw(action.to_owned()),
+    ])
+}
+
+fn heading(text: &str) -> Line<'static> {
+    Line::styled(
+        text.to_owned(),
+        Style::default()
+            .fg(Color::Yellow)
+            .add_modifier(Modifier::BOLD),
+    )
+}
+
+fn note(text: &str) -> Line<'static> {
+    Line::styled(text.to_owned(), Style::default().fg(Color::Gray))
+}
+
 fn shutdown_lines(app: &App, width: u16) -> Vec<Line<'static>> {
-    wrapped(
-        shutdown_text(app)
-            .lines()
-            .map(|line| Line::from(line.to_owned()))
-            .collect(),
+    let confirm = Span::styled(
+        "y: confirm",
+        Style::default()
+            .fg(Color::LightRed)
+            .add_modifier(Modifier::BOLD),
+    );
+    let cancel = Span::styled(
+        "n / Esc: cancel",
+        Style::default()
+            .fg(Color::Cyan)
+            .add_modifier(Modifier::BOLD),
+    );
+    let mut lines = vec![
+        heading(&format!("Stop ALL {} projects?", app.services.len())),
+        Line::from("All running projects will stop; the background workspace will end."),
+        Line::default(),
+    ];
+    if usize::from(width) >= confirm.width() + cancel.width() + 4 {
+        lines.push(Line::from(vec![confirm, Span::raw("    "), cancel]));
+    } else {
+        lines.extend([Line::from(confirm), Line::from(cancel)]);
+    }
+    lines.push(note("q / Ctrl-C: leave only; services keep running"));
+    wrapped(lines, width)
+}
+
+fn shutdown_block() -> Block<'static> {
+    modal_block(" End workspace ", Color::LightRed)
+}
+
+fn shutdown_area(area: Rect, app: &App) -> Rect {
+    let width = area.width.saturating_sub(4).min(72);
+    let inner = shutdown_block().inner(Rect::new(0, 0, width, area.height));
+    let height = shutdown_lines(app, inner.width).len().saturating_add(4);
+    popup(
+        area,
         width,
+        (height.min(usize::from(u16::MAX)) as u16).min(area.height.saturating_sub(2)),
     )
 }
 
 pub fn can_confirm(area: Rect, app: &App) -> bool {
-    let popup = popup(area, 68, 9);
-    usable(area)
-        && shutdown_lines(app, popup.width.saturating_sub(2)).len()
-            <= usize::from(popup.height.saturating_sub(2))
+    let inner = shutdown_block().inner(shutdown_area(area, app));
+    usable(area) && shutdown_lines(app, inner.width).len() <= usize::from(inner.height)
 }
 
 fn help_lines(app: &App) -> Vec<Line<'static>> {
-    let context = if app.logs.selection.is_some() {
-        "V-LINE: j/k extend | y copy | Esc cancel | gg/G first/last"
+    let mut lines = vec![heading("CURRENT PANEL")];
+    if app.logs.selection.is_some() {
+        lines.push(help_action(
+            "j/k / Up/Down",
+            "Extend or shrink selected lines",
+        ));
+        lines.push(help_action("y / Esc", "Copy selection / cancel selection"));
+        lines.push(help_action(
+            "gg / G",
+            "Selection endpoint to first / last line",
+        ));
+        lines.push(note("Cancel selection before panel or service controls."));
     } else {
-        match app.focus {
-            Focus::Projects => "j/k or Up/Down: select | gg/G: first/last | Enter: logs",
-            Focus::Logs => {
-                "j/k or Up/Down: move log cursor | gg: oldest | G: follow | Esc: projects"
-            }
-        }
-    };
-    let panels = if app.logs.selection.is_some() {
-        "Cancel selection (Esc) before panel or service controls."
-    } else {
-        "h/l, Tab/Shift-Tab: focus panel | 1 Projects / 0 Logs"
-    };
-    let mut lines: Vec<Line<'static>> = vec![
-        "CURRENT PANEL",
-        context,
-        panels,
-        "SELECTED PROJECT",
-        "s: start selected | x: stop selected",
-        "",
-        "WORKSPACE",
-        "a: start default (autostart=true) | X: stop ALL; keep background",
-        "Q: confirm ending workspace | r: sync existing background",
-        "",
-        "LOGS",
-        "Running means process alive, not business readiness.",
-        "Ctrl-u/d: half page | PageUp/PageDown: page; edges load history",
-        "Home/gg: oldest retained | End/G: follow | p: pause/resume",
-        "j/k: move log cursor; v: select from cursor; j/k: extend selection",
-        "/: highlight literal text; Enter finds; n/N next/previous matching line",
-        "Esc clears search; context stays visible. / refreshes search snapshot.",
-        "In V-LINE: y copies log text; Esc cancels and stays in logs.",
-        "Local WSL: copy via clip.exe; elsewhere: terminal clipboard (OSC 52).",
-        "Copy feedback names the method; verify by pasting. Failures keep selection.",
-        "Selected logs stay anchored; eviction cancels selection.",
-        "Log header/banner shows service state; FOLLOW/READ is only scrolling.",
-        "STOPPED/FAILED logs are retained history; old marks an earlier run.",
-        "H/L or Left/Right: pan | Bounded logs; gaps/losses are reported.",
-        "",
-        "LEAVING",
-        "q / Ctrl-C: leave; services keep running",
-        "",
-        "CURRENT DETAILS",
-    ]
-    .into_iter()
-    .map(Line::from)
-    .collect();
-    lines.push(Line::from(selected_summary(app)));
+        let (motion, ends) = match app.focus {
+            Focus::Projects => ("Select project", "First / last project"),
+            Focus::Logs => ("Move log cursor", "Oldest retained / follow latest logs"),
+        };
+        lines.push(help_action("j/k / Up/Down", motion));
+        lines.push(help_action("gg / G", ends));
+        lines.push(match app.focus {
+            Focus::Projects => help_action("Enter", "Open selected project's logs"),
+            Focus::Logs => help_action("Esc", "Return to projects (clear search first)"),
+        });
+        lines.push(help_action(
+            "h/l / Tab",
+            "Focus panel; Shift-Tab also switches",
+        ));
+        lines.push(help_action("1 / 0", "Focus projects / logs"));
+    }
+    lines.extend([
+        Line::default(),
+        heading("PROJECT & WORKSPACE"),
+        help_action("s / x", "Start / stop selected project"),
+        help_action("a", "Start defaults (autostart = true)"),
+        help_action("X", "Stop ALL projects; keep background"),
+        help_action("Q", "Confirm ending the entire workspace"),
+        help_action("r", "Sync existing background"),
+        note("Running means process alive, not business readiness."),
+        Line::default(),
+        heading("READ LOGS"),
+        help_action("Ctrl-u/d", "Scroll half a page"),
+        help_action("PageUp/Down", "Scroll a page; edges load history"),
+        help_action("Home / End", "Oldest retained / follow latest logs"),
+        help_action("p", "Pause / resume following"),
+        help_action("H/L / Left/Right", "Pan long lines horizontally"),
+        note("FOLLOW/READ describes scrolling; the header shows service state."),
+        note("Stopped/failed logs are history; old marks an earlier run."),
+        Line::default(),
+        heading("SEARCH & COPY"),
+        help_action("/ then Enter", "Highlight literal text and find a match"),
+        help_action("n / N", "Next / previous matching line"),
+        help_action("Esc", "Clear search; keep surrounding logs"),
+        help_action("v then j/k", "Select lines from the log cursor"),
+        help_action("y / Esc", "In selection: copy / cancel"),
+        note("/ starts a fresh search snapshot; context stays visible."),
+        note("WSL: clip.exe; elsewhere: terminal clipboard (OSC 52)."),
+        note("Check copy feedback and paste to verify. Failures keep selection."),
+        note("Selected logs stay anchored; eviction cancels selection."),
+        Line::default(),
+        heading("LEAVING"),
+        help_action("q / Ctrl-C", "Leave interface; services keep running"),
+        Line::default(),
+        heading("CURRENT DETAILS"),
+        Line::from(selected_summary(app)),
+    ]);
     lines.extend(diagnostics(app));
     lines
 }
 
 fn help_block() -> Block<'static> {
-    Block::bordered()
-        .title("Help | j/k scroll | gg/G first/last")
-        .padding(Padding::new(2, 2, 1, 1))
+    modal_block(" Help ", Color::Cyan)
 }
 
 fn help_area(area: Rect, app: &App) -> Rect {
     let width = area.width.saturating_sub(4).min(80);
     let inner = help_block().inner(Rect::new(0, 0, width, area.height));
     let rows = wrapped(help_lines(app), inner.width).len();
-    // Borders, vertical padding and the fixed footer occupy five rows.
-    let height = rows.saturating_add(5).min(usize::from(u16::MAX)) as u16;
+    // Borders, vertical padding and the two fixed footer rows occupy six rows.
+    let height = rows.saturating_add(6).min(usize::from(u16::MAX)) as u16;
     popup(area, width, height.min(area.height.saturating_sub(2)))
 }
 
@@ -868,49 +995,76 @@ pub fn help_height(area: Rect, app: &App) -> u16 {
     help_block()
         .inner(help_area(area, app))
         .height
-        .saturating_sub(1)
+        .saturating_sub(2)
         .max(1)
 }
 
 pub fn help_max_scroll(area: Rect, app: &App) -> u16 {
     let inner = help_block().inner(help_area(area, app));
-    let height = usize::from(inner.height.saturating_sub(1));
+    let height = usize::from(inner.height.saturating_sub(2));
     let count = wrapped(help_lines(app), inner.width).len();
     count.saturating_sub(height).min(usize::from(u16::MAX)) as u16
 }
 
 fn overlay(frame: &mut Frame, app: &App) {
     if app.confirm_shutdown {
-        let area = popup(frame.area(), 68, 9);
-        frame.render_widget(Clear, area);
+        let area = shutdown_area(frame.area(), app);
+        modal_backdrop(frame, area);
+        let block = shutdown_block();
+        let inner = block.inner(area);
         let text = if can_confirm(frame.area(), app) {
-            shutdown_lines(app, area.width.saturating_sub(2))
+            shutdown_lines(app, inner.width)
         } else {
-            vec![
-                Line::from("Enlarge window to confirm."),
-                Line::from("n / Esc: cancel | q: leave"),
-            ]
+            wrapped(
+                vec![
+                    heading("Enlarge window to confirm."),
+                    Line::from("n / Esc: cancel | q: leave"),
+                ],
+                inner.width,
+            )
         };
-        frame.render_widget(
-            Paragraph::new(text).block(Block::bordered().title("End workspace")),
-            area,
-        );
+        frame.render_widget(Paragraph::new(text).style(modal_style()).block(block), area);
     } else if app.help {
         let area = help_area(frame.area(), app);
-        frame.render_widget(Clear, area);
+        modal_backdrop(frame, area);
         let block = help_block();
         let inner = block.inner(area);
         frame.render_widget(block, area);
         let [body, footer] =
-            Layout::vertical([Constraint::Min(0), Constraint::Length(1)]).areas(inner);
+            Layout::vertical([Constraint::Min(0), Constraint::Length(2)]).areas(inner);
+        let max = help_max_scroll(frame.area(), app);
+        let scroll = app.help_scroll.min(max);
+        let lines = wrapped(help_lines(app), body.width);
+        let count = lines.len();
         frame.render_widget(
-            Paragraph::new(wrapped(help_lines(app), body.width))
-                .scroll((app.help_scroll.min(help_max_scroll(frame.area(), app)), 0)),
+            Paragraph::new(lines)
+                .style(modal_style())
+                .scroll((scroll, 0)),
             body,
         );
-        let prefix = if app.goto_top { "g ... | " } else { "" };
+        let navigation = if app.goto_top {
+            "g ... | gg first"
+        } else {
+            "j/k scroll | gg/G ends"
+        };
+        let mut position = navigation.to_owned();
+        let counter = format!(
+            "{}-{}/{}",
+            usize::from(scroll) + 1,
+            (usize::from(scroll) + usize::from(body.height)).min(count),
+            count
+        );
+        if usize::from(footer.width) >= position.len() + counter.len() + 2 {
+            position
+                .push_str(&" ".repeat(usize::from(footer.width) - position.len() - counter.len()));
+            position.push_str(&counter);
+        }
         frame.render_widget(
-            Paragraph::new(format!("{prefix}?/Esc close | q leave | j/k scroll")),
+            Paragraph::new(vec![
+                Line::styled(position, Style::default().fg(Color::Gray)),
+                Line::styled("?/Esc close | q leave", Style::default().fg(Color::Cyan)),
+            ])
+            .style(modal_style()),
             footer,
         );
     }
@@ -1149,7 +1303,12 @@ mod tests {
         let large = Rect::new(7, 3, 300, 64);
         let popup = help_area(large, &app);
         assert_eq!(popup.width, 80);
-        assert!(popup.height < 40);
+        let inner_width = help_block().inner(popup).width;
+        assert_eq!(
+            usize::from(popup.height),
+            wrapped(help_lines(&app), inner_width).len() + 6
+        );
+        assert!(popup.height < large.height - 2);
         assert_eq!(popup.x, large.x + (large.width - popup.width) / 2);
         assert_eq!(popup.y, large.y + (large.height - popup.height) / 2);
         assert_eq!(help_max_scroll(large, &app), 0);
@@ -1206,6 +1365,9 @@ mod tests {
             .flat_map(|line| line.spans.iter().map(|span| span.content.as_ref()))
             .collect();
         assert!(flattened.contains(&id));
+        assert!(wrapped.iter().flat_map(|line| &line.spans).any(|span| {
+            span.content.contains("END-OF-DIAGNOSTIC") && span.style.fg == Some(Color::LightRed)
+        }));
         for scroll in 0..=max {
             app.help_scroll = scroll;
             if draw(&app, 36, 10).contains("END-OF-DIAGNOSTIC") {
@@ -1296,6 +1458,117 @@ mod tests {
     #[test]
     fn external_names_and_diagnostics_cannot_emit_terminal_controls() {
         assert_eq!(clean("name\x1b[2J\r\n\t"), "name\\u{1b}[2J\\r\\n    ");
+    }
+
+    #[test]
+    fn modal_wrapping_keeps_words_and_key_colors() {
+        let lines = wrapped(
+            vec![Line::from(vec![
+                Span::styled("n / N", Style::default().fg(Color::Cyan)),
+                Span::raw("  Next / previous matching line"),
+            ])],
+            20,
+        );
+        assert_eq!(
+            lines.iter().map(Line::to_string).collect::<Vec<_>>(),
+            ["n / N  Next /", "previous matching", "line"]
+        );
+        assert_eq!(lines[0].spans[0].style.fg, Some(Color::Cyan));
+        let lines = wrapped(vec![heading("one two three")], 7);
+        assert_eq!(
+            lines.iter().map(Line::to_string).collect::<Vec<_>>(),
+            ["one two", "three"]
+        );
+        assert!(lines.iter().flat_map(|line| &line.spans).all(|span| {
+            span.style.fg == Some(Color::Yellow) && span.style.add_modifier.contains(Modifier::BOLD)
+        }));
+    }
+
+    #[test]
+    fn modals_mask_busy_logs_and_leave_a_clear_gutter_on_every_redraw() {
+        let mut app = searched_app();
+        for record in &mut app.logs.records {
+            record.text = "needle BACKGROUND 中文日志👩‍💻 ".repeat(16);
+        }
+        let mut terminal = Terminal::new(TestBackend::new(120, 30)).unwrap();
+        for confirm in [false, true] {
+            app.help = !confirm;
+            app.confirm_shutdown = confirm;
+            let screen = Rect::new(0, 0, 120, 30);
+            let area = if confirm {
+                shutdown_area(screen, &app)
+            } else {
+                help_area(screen, &app)
+            };
+            for _ in 0..2 {
+                terminal.draw(|frame| render(frame, &app)).unwrap();
+                let buffer = terminal.backend().buffer();
+                assert_eq!(buffer[(area.x, area.y)].symbol(), "╭");
+                assert_eq!(
+                    buffer[(area.x, area.y)].fg,
+                    if confirm {
+                        Color::LightRed
+                    } else {
+                        Color::Cyan
+                    }
+                );
+                for y in area.y - 1..=area.bottom() {
+                    for x in area.x - 1..=area.right() {
+                        let cell = &buffer[(x, y)];
+                        assert_eq!(cell.bg, Color::Black);
+                        if !area.contains((x, y).into()) {
+                            assert_eq!(cell.symbol(), " ");
+                        }
+                    }
+                }
+                // Outside the gutter, original text remains as a subdued backdrop.
+                assert_eq!(buffer[(0, 0)].fg, Color::DarkGray);
+                let text: String = (area.y..area.bottom())
+                    .flat_map(|y| (area.x..area.right()).map(move |x| buffer[(x, y)].symbol()))
+                    .collect();
+                assert!(!text.contains("BACKGROUND"));
+                assert!(text.contains(if confirm {
+                    "y: confirm"
+                } else {
+                    "?/Esc close | q leave"
+                }));
+                app.logs
+                    .records
+                    .back_mut()
+                    .unwrap()
+                    .text
+                    .push_str(" new output");
+            }
+        }
+        app.help = false;
+        app.confirm_shutdown = false;
+        terminal.draw(|frame| render(frame, &app)).unwrap();
+        assert!(
+            terminal
+                .backend()
+                .buffer()
+                .content
+                .iter()
+                .any(|cell| cell.bg == Color::LightYellow)
+        );
+        assert!(draw(&app, 120, 30).contains("BACKGROUND"));
+    }
+
+    #[test]
+    fn shutdown_never_offers_confirmation_when_its_scope_or_actions_are_clipped() {
+        let mut app = App::new();
+        app.confirm_shutdown = true;
+        for (width, height) in [(36, 10), (80, 10), (36, 20), (80, 12), (120, 30)] {
+            let screen = Rect::new(0, 0, width, height);
+            let text = draw(&app, width, height);
+            assert_eq!(text.contains("y: confirm"), can_confirm(screen, &app));
+            if can_confirm(screen, &app) {
+                assert!(text.contains("Stop ALL 0 projects?"));
+                assert!(text.contains("n / Esc: cancel"));
+            } else {
+                assert!(text.contains("Enlarge window to confirm."));
+            }
+        }
     }
     #[test]
     fn trimming_a_retrievable_client_window_is_not_reported_as_log_loss() {
