@@ -23,7 +23,8 @@ interface without stopping your services, then reconnect when you need it.
 - **Bounded storage.** Keep recent logs in memory and save history with configurable
   disk limits and retention. Inspect past sessions without starting services.
 - **Verified updates.** Download public release manifests, verify SHA-256 and the
-  candidate version, and keep an offline rollback copy.
+  candidate version, and keep an offline rollback copy. In 1.3.0 and later, follow
+  terminal stages and download progress, with plain output when redirected.
 
 ## Platform support
 

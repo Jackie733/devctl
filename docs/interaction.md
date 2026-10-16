@@ -301,9 +301,9 @@ Follow [version-switching steps](install.md#before-switching-versions) before an
 installation or rollback. The updater does not stop projects, replace running
 supervisors, or rewrite configuration and saved logs.
 
-### Progress display (development version)
+### Progress display
 
-The development updater shows checking, downloading, and verifying/installing stages
+The updater in 1.3.0 and later shows checking, downloading, and verifying/installing stages
 on stderr. With stdout and stderr attached to terminals and TERM other than `dumb`,
 a single line animates at roughly ten frames per second; completed stages remain
 in scrollback. Download percentage comes from bytes actually written and the manifest's
@@ -323,4 +323,5 @@ the current animation so even partial diagnostics are not overwritten. The insta
 still performs checksum/candidate/backup/replacement work as one reported stage;
 substeps are not claimed complete before the installer confirms its result.
 
-These presentation changes are not included in the published 1.2.2 binary yet.
+The client currently running the update controls presentation. An initial upgrade
+from 1.2.2 uses the older output; subsequent updates from 1.3.0 use this display.

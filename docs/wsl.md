@@ -95,7 +95,7 @@ in your normal workload.
 
 ## Verify updates
 
-To exercise **1.2.1 → 1.2.2**, begin with the installed 1.2.1 client:
+To exercise **1.2.2 → 1.3.0**, begin with the installed 1.2.2 client:
 
 ```sh
 command -v devctl
@@ -103,7 +103,7 @@ devctl --version
 devctl update --check
 ```
 
-The check should find 1.2.2 without requiring workspace configuration. Follow the
+The check should find 1.3.0 without requiring workspace configuration. Follow the
 [shutdown step](install.md#before-switching-versions), then run:
 
 ```sh
@@ -113,9 +113,9 @@ devctl --version
 devctl update --check
 ```
 
-Expect 1.2.2 and a current-version result. Bash users can use `hash -r` instead of
-`rehash`. Verify `devctl.previous` retains 1.2.1. To test rollback, shut down any
-new workspaces first, run `devctl update --rollback`, and confirm 1.2.1. You may then
+Expect 1.3.0 and a current-version result. Bash users can use `hash -r` instead of
+`rehash`. Verify `devctl.previous` retains 1.2.2. To test rollback, shut down any
+new workspaces first, run `devctl update --rollback`, and confirm 1.2.2. You may then
 upgrade again using `devctl update`, or recover using the external installer as
 shown in the [rollback guide](install.md#rollback).
 
