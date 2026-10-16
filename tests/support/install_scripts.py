@@ -12,6 +12,10 @@ import unittest
 
 SCRIPTS = Path(__file__).resolve().parents[2] / "scripts"
 PATH_LINE = 'export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"'
+CHECK_INSTALLED = (
+    'test "$(command -v devctl)" = "$HOME/.local/bin/devctl"'
+    ' && test "$(devctl)" = "devctl first"'
+)
 
 
 class InstallScripts(unittest.TestCase):
@@ -136,11 +140,12 @@ class InstallScripts(unittest.TestCase):
 
     def test_path_setup_is_repeatable_and_prefers_new_install(self):
         rc = self.home / ".bashrc"
-        rc.write_text("# existing settings without final newline")
+        original = "printf '%s\\n' 'WSL startup notice'\n# existing settings without final newline"
+        rc.write_text(original)
         self.run_script("setup-path.sh", "bash")
         self.run_script("setup-path.sh", "bash")
         self.assertEqual(rc.read_text().count(PATH_LINE), 1)
-        self.assertTrue(rc.read_text().startswith("# existing settings without final newline\n"))
+        self.assertTrue(rc.read_text().startswith(original + "\n"))
         self.install_version("first")
         cargo_bin = self.home / ".cargo/bin"
         cargo_bin.mkdir(parents=True)
@@ -148,11 +153,19 @@ class InstallScripts(unittest.TestCase):
         old.write_text("#!/bin/sh\necho old\n")
         old.chmod(0o755)
         result = subprocess.run(
-            ["bash", "--noprofile", "-ic", "command -v devctl"],
+            ["bash", "--noprofile", "-ic", CHECK_INSTALLED],
             env=self.env, capture_output=True, text=True, timeout=10,
         )
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(result.stdout.strip(), str(self.target))
+        self.assertIn("WSL startup notice", result.stdout)
+        # System startup files may print WSL/sudo notices. Check resolution
+        # inside the shell rather than treating its entire stdout as one path.
+        wrong_path = subprocess.run(
+            ["bash", "--noprofile", "-ic",
+             'PATH="$HOME/.cargo/bin:/usr/bin:/bin"; ' + CHECK_INSTALLED],
+            env=self.env, capture_output=True, text=True, timeout=10,
+        )
+        self.assertNotEqual(wrong_path.returncode, 0, wrong_path.stdout)
 
     def test_zsh_custom_startup_directory_and_unknown_shell(self):
         custom = self.home / "zsh config"
@@ -188,11 +201,10 @@ class InstallScripts(unittest.TestCase):
                     (self.home / ".zshenv").write_text(prefix)
                 for flags in ("-ic", "-lic"):
                     result = subprocess.run(
-                        ["zsh", flags, "command -v devctl"], env=self.env,
+                        ["zsh", flags, CHECK_INSTALLED], env=self.env,
                         capture_output=True, text=True, timeout=10,
                     )
                     self.assertEqual(result.returncode, 0, result.stderr)
-                    self.assertEqual(result.stdout.strip(), str(self.target))
 
 
 if __name__ == "__main__":

@@ -2,24 +2,24 @@
 
 这里只保留当前任务与必要交接；历史见 Git，协作规则见 [AGENTS.md](../AGENTS.md)。
 
-## 当前任务：源码版本升级至 1.1.0，准备 WSL 自行构建与试用
+## 当前任务：修复 WSL 环境的日志保留与安装测试失败
 
-- 本轮起点 bfdd69f，工作区干净。上一轮已实现 L01–L04 收敛后的日志增强；本轮按用户要求将 Cargo.toml 与 Cargo.lock 中 devctl 包版本从 1.0.0 升为 1.1.0，依赖版本不变。CLI 与 TUI 顶栏继续使用包元数据，不另加硬编码版本。
-- 已将日志变更归入 CHANGELOG.md 的 1.1.0 源码版本，README 明确源码与已有 1.0.0 附件的区别。未创建远程 Release、Git 标签或推送提交。
-- [wsl.md](wsl.md) §1–§2 已补齐新版源码核对、工具准备、自动测试、release 构建与安装；统一使用已有更新器安装到 ~/.local/bin，避免 Cargo 路径优先级导致继续执行旧版。构建/测试先完成，最后再由用户显式结束旧后台并切换程序；不改原配置。
-- [wsl.md](wsl.md) §4.1 补齐三项目日志保存、暂停/跟随、搜索/复制、重新进入默认跟随、结束后台后查历史及会话隔离的试用流程。操作与存储机制继续由 interaction.md、DESIGN.md 维护。
+- 本轮从 5224e6f 的干净工作区开始。用户反馈日志保留测试出现 storage=degraded，以及 Ubuntu/WSL sudo 启动提示导致 PATH 测试比较失败；原失败断言未打印完整保存诊断，不能仅据该截图确定用户机器的全部 I/O 原因。
+- 已用测试进程专用的 LD_PRELOAD 包装 fsync 注入 500ms 延迟，在临时工作区复现旧日志测试失败，实际提示 757 条未保存、storage queue overloaded。原测试每隔 1ms 输出一条，把固定速率当作磁盘吞吐保证；这与 L03 有界队列允许过载退化的边界冲突。
+- tests/logging_cli.rs 改为每批 100 条，等待存储线程处理后的查询响应，再用临时标记文件允许下一批，累计输出仍超过 4096 条缓存。无 degraded、跨内存回看、离线搜索与导出等断言继续保留；保存降级失败时打印完整 stderr，未放宽或关闭真实过载告警。
+- 安装测试显式注入启动提示复现旧失败；改在交互 shell 内校验实际命令路径及运行版本，而不把整个 stdout 当作一个路径。另验证选到旧 Cargo 路径时确实失败；Bash/Zsh 的正常启动输出不影响判断。
+- 只修改测试与说明，产品代码、保存策略、队列预算和安装脚本保持原样，源码版本仍为 1.1.0。排查说明见 [wsl.md](wsl.md#源码测试出现-degraded-或-shell-启动提示)。
 
 ## 验证证据
 
-- `cargo check --locked --offline`、`cargo fmt --check`、`cargo clippy --locked --offline --all-targets -- -D warnings` 全部通过。
-- `cargo test --locked --offline`：214 项全部通过（131 单元、83 集成，含 10 项真实 PTY）；本轮以 1.1.0 重新运行，不沿用上一轮结果。
-- `python3 tests/support/install_scripts.py`：10 项安装/更新/回退与 PATH 测试通过，使用临时 HOME，不修改用户实际安装或配置。
-- `cargo build --release --locked --offline` 成功，实际运行 `./target/release/devctl --version` 输出 `devctl 1.1.0`。本机构建使用 Rust/Cargo 1.98.1，不将此结果冒充目标 WSL 的构建或安装验收。
-- Markdown 本地链接/锚点/围栏、`git diff --check` 通过；已审查版本改动与安装指令，未修改功能实现或依赖。
+- 旧历史保留测试在 500ms 同步延迟下失败，新测试在同一注入条件下通过（1 项专项检查），全过程仅使用临时工作区；未修改用户三个项目或实际后台。
+- `cargo test --locked --offline`：214 项全部通过（131 单元、83 集成，含 10 项真实 PTY）；本轮重新运行。
+- `python3 tests/support/install_scripts.py`：10 项通过，包含启动提示和错误 PATH 的回归检查。
+- `cargo fmt --check`、`cargo clippy --locked --offline --all-targets -- -D warnings`、Markdown 本地链接/锚点/围栏及 git diff --check 通过，已审查本轮差异。
+- 未在用户目标 WSL 直接执行修复版；用户需要同步本轮源码后复验。实际运行中的 degraded 仍应根据完整诊断检查，不能因测试适配就当作正常保存。
 
 ## 下一步与交接
 
-1. 将包含本轮版本提交的源码同步到目标 WSL；本地未推送的提交不会通过另一个克隆的 git pull 自动取得，也不能用 v1.0.0 的源码包构建日志新版。
-2. 用户按 wsl.md §2 在目标 WSL 运行自动检查并构建；确认版本为 1.1.0 后，方便停止项目时结束旧后台，再安装并按 §4.1 试用。助手未结束现有后台、替换安装程序或操作三个真实项目；WSL 实际体验仍待用户验收。
-3. 必要实现交接：bfdd69f 已完成独立有界归档、轮转/期限、磁盘历史、单项目字面搜索与查询页重定向；不实施跨退出书签、跨项目聚合或复杂筛选。保存格式和故障边界见 [DESIGN.md](../DESIGN.md#53-mvp-后日志增强方案)。
-4. MVP 1.0.0 的既有发布见 [Release](https://github.com/Jackie733/devctl/releases/tag/v1.0.0)；AI、X03 公开下载及命令内更新继续保留后续讨论，本轮不启动。
+1. 用户在目标 WSL 同步修复源码，运行 cargo +stable test --locked --test logging_cli 和 python3 tests/support/install_scripts.py；通过后继续 wsl.md §2 的构建安装与 §4.1 的实际项目试用。
+2. 若仍失败，保留新版断言输出的完整 stderr、源码提交和 Rust 版本继续排查；不以本机通过代替目标环境验收。助手未推送、发布、替换实际安装或停止用户后台。
+3. 1.1.0 版本提交为 5224e6f，日志功能提交为 bfdd69f；功能边界见 [requirements.md](requirements.md) §4.2、[DESIGN.md](../DESIGN.md#53-mvp-后日志增强方案)。无跨退出书签、跨项目聚合或复杂筛选；AI 和 X03 仍保留后续讨论。

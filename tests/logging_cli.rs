@@ -25,10 +25,16 @@ impl Workspace {
             value["services"]["long_running"].clone(),
         )]));
         value["services"]["web"]["cmd"] = toml::Value::Array(
-            ["python3", "-u", "-c", script]
-                .into_iter()
-                .map(|s| toml::Value::String(s.into()))
-                .collect(),
+            [
+                "python3",
+                "-u",
+                "-c",
+                script,
+                config.path.parent().unwrap().to_str().unwrap(),
+            ]
+            .into_iter()
+            .map(|s| toml::Value::String(s.into()))
+            .collect(),
         );
         fs::write(&config.path, toml::to_string(&value).unwrap()).unwrap();
         Self { config, state }
@@ -83,13 +89,28 @@ impl Drop for Workspace {
 #[test]
 fn logs_outside_memory_survive_shutdown_and_can_be_searched_and_exported_without_starting() {
     let w = Workspace::new(
-        "import time\nfor i in range(4300):\n print('old needle 日志' if i == 0 else 'line-'+str(i))\n time.sleep(.001)\nprint('done')\ntime.sleep(60)",
+        "import pathlib,sys,time\nroot=pathlib.Path(sys.argv[1])\nfor batch in range(43):\n for i in range(batch*100,(batch+1)*100):\n  print('old needle 日志' if i == 0 else 'line-'+str(i))\n while not (root/('continue-'+str(batch))).exists(): time.sleep(.005)\nprint('done')\ntime.sleep(60)",
     );
     w.ok(&["start", "web"]);
+    // Each batch fits both bounded queues. A log response is processed by the
+    // archive owner after the preceding records, keeping one bounded batch in
+    // flight. This tests retention, not a disk-speed SLA.
+    for batch in 0..43 {
+        w.wait_log(&format!("line-{}", (batch + 1) * 100 - 1));
+        fs::write(
+            w.config.path.with_file_name(format!("continue-{batch}")),
+            "",
+        )
+        .unwrap();
+    }
     w.wait_log("done");
     let saved = w.ok(&["logs", "web", "--after", "0", "--limit", "3"]);
     assert!(String::from_utf8_lossy(&saved.stdout).contains("old needle 日志"));
-    assert!(!String::from_utf8_lossy(&saved.stderr).contains("degraded"));
+    assert!(
+        !String::from_utf8_lossy(&saved.stderr).contains("degraded"),
+        "Unexpected storage degradation: {}",
+        String::from_utf8_lossy(&saved.stderr)
+    );
     let session = w.session();
     w.ok(&["shutdown"]);
     let search = w.ok(&["logs", "web", "--contains", "old needle", "--after", "0"]);

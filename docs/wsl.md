@@ -296,6 +296,19 @@ devctl --config "$HOME/.config/devctl/devctl.toml" tui
 
 继续使用源码安装也可以：在更新后的源码目录执行 `cargo +stable install --path . --locked`。若已安装 `~/.local/bin/devctl`，它会优先于 Cargo 版本；不要混用两套更新入口后仅凭版本字符串判断实际执行位置。
 
+### 源码测试出现 degraded 或 shell 启动提示
+
+旧源码的历史保留测试每隔 1ms 输出一条日志；WSL 文件同步或调度较慢时可能超过有界保存队列，出现真实的 `storage queue overloaded`。修复后的测试每批输出 100 条，等待存储线程处理后的查询响应再继续，仍要求全部保留场景无 degraded，并在失败时输出完整保存诊断。过载退化本身由独立测试验证。
+
+Ubuntu/WSL 的交互 shell 可能输出 sudo 使用提示，这是正常启动输出。修复后的安装测试在 shell 内检查 devctl 的实际路径和运行版本，允许启动提示存在；测试还验证优先选到旧 Cargo 安装时确实失败。同步修复源码后，在源码目录执行：
+
+```sh
+cargo +stable test --locked --test logging_cli
+python3 tests/support/install_scripts.py
+```
+
+若仍失败，保留新版断言输出的完整 stderr、源码提交和 Rust 版本继续排查；实际使用中的保存降级仍表示日志可能未完整保存，应按提示中的 I/O 错误或过载原因检查。
+
 ### 更新后底部仍显示三行
 
 143dce2 已将主界面底部固定为一行状态和一行快捷键，054665a 又将日志状态与 FOLLOW/READ 分开显示。若仍看到底部独立的 `q leave (keep running) | ? help | a start default` 一行、日志标题为 `Logs: web | FOLLOW`，应先检查是否仍在运行旧 TUI 客户端。
