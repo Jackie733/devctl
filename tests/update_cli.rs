@@ -10,6 +10,11 @@ use std::{
 
 static NEXT: AtomicU64 = AtomicU64::new(0);
 
+fn newer_version() -> String {
+    let current = semver::Version::parse(env!("CARGO_PKG_VERSION")).unwrap();
+    format!("{}.0.0", current.major + 1)
+}
+
 struct Fixture {
     root: PathBuf,
     home: PathBuf,
@@ -170,7 +175,8 @@ fn rollback_is_offline_and_independent_of_workspace_config() {
 fn check_only_reads_metadata_and_never_changes_installation() {
     let fixture = Fixture::new();
     let current = fixture.program("devctl", "1.0.0");
-    fixture.release("1.2.0", "1.2.0");
+    let version = newer_version();
+    fixture.release(&version, &version);
     let output = fixture.run(&["update", "--check"]);
     assert!(output.status.success(), "{output:?}");
     assert!(String::from_utf8_lossy(&output.stdout).contains("An update is available"));
@@ -186,7 +192,8 @@ fn check_only_reads_metadata_and_never_changes_installation() {
 fn latest_install_explicit_downgrade_and_rollback_preserve_config() {
     let fixture = Fixture::new();
     let initial = fixture.program("devctl", "1.1.0");
-    let next = fixture.release("1.2.0", "1.2.0");
+    let version = newer_version();
+    let next = fixture.release(&version, &version);
     let output = fixture.run(&["--config", "/missing.toml", "update"]);
     assert!(output.status.success(), "{output:?}");
     assert_eq!(fixture.contents("devctl"), next);
@@ -230,12 +237,13 @@ fn failed_download_checksum_and_candidate_checks_preserve_program_and_backup() {
         let fixture = Fixture::new();
         let current = fixture.program("devctl", "1.1.0");
         let previous = fixture.program("devctl.previous", "1.0.0");
+        let version = newer_version();
         fixture.release(
-            "1.2.0",
+            &version,
             if failure == "version" {
-                "9.9.9"
+                "0.0.0"
             } else {
-                "1.2.0"
+                &version
             },
         );
         match failure {

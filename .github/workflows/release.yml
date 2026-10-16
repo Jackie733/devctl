@@ -1,0 +1,96 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_TOOLCHAIN: '1.98.1'
+  RELEASE_TAG: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Install build and test tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y musl-tools python3 zsh
+          rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal --component rustfmt,clippy --target x86_64-unknown-linux-musl
+          rustup override set "$RUST_TOOLCHAIN"
+      - name: Validate release version
+        run: |
+          python3 - <<'PY'
+          import json, os, re, subprocess
+          metadata = json.loads(subprocess.check_output(['cargo', 'metadata', '--locked', '--no-deps', '--format-version', '1']))
+          version = next(p['version'] for p in metadata['packages'] if p['name'] == 'devctl' and p['id'] in metadata['workspace_members'])
+          assert re.fullmatch(r'(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)', version), 'Stable version required'
+          assert not os.environ['RELEASE_TAG'] or os.environ['RELEASE_TAG'] == 'v' + version, 'Tag/package version mismatch'
+          PY
+      - name: Check and test
+        run: |
+          cargo fmt --check
+          cargo clippy --locked --all-targets -- -D warnings
+          cargo test --locked
+          python3 tests/support/install_scripts.py
+      - name: Build and verify the static artifact
+        run: |
+          cargo build --release --locked --target x86_64-unknown-linux-musl
+          version=$(./target/x86_64-unknown-linux-musl/release/devctl --version)
+          python3 tests/support/release_artifact.py ./target/x86_64-unknown-linux-musl/release/devctl "${version#devctl }"
+          for scenario in lifecycle reconnect slow high discovery navigation copying windows-copying history disk-history; do
+            python3 tests/support/tui_pty.py ./target/x86_64-unknown-linux-musl/release/devctl "$scenario"
+          done
+      - name: Package the exact source commit
+        run: bash scripts/package-release.sh ./target/x86_64-unknown-linux-musl/release/devctl dist
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: release-${{ github.sha }}
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
+        with:
+          name: release-${{ github.sha }}
+          path: dist
+      - name: Verify and publish the complete release
+        working-directory: dist
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          sha256sum --check SHA256SUMS
+          assets=("devctl-$TAG-x86_64-unknown-linux-musl" devctl-update "devctl-$TAG-source.tar.gz" SHA256SUMS)
+          if gh release view "$TAG" --json isDraft --jq .isDraft > "$RUNNER_TEMP/release-state"; then
+            [[ $(cat "$RUNNER_TEMP/release-state") == true ]] || { echo 'Refusing to replace an already published release.' >&2; exit 1; }
+            gh release upload "$TAG" "${assets[@]}" --clobber
+            gh release edit "$TAG" --title "$TAG" --notes-file release-notes.md
+          else
+            gh release create "$TAG" "${assets[@]}" --verify-tag --draft --title "$TAG" --notes-file release-notes.md
+          fi
+          gh release edit "$TAG" --draft=false --latest
