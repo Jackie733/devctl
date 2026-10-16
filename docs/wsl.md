@@ -1,6 +1,6 @@
 # WSL2 安装与项目配置
 
-目标环境是 Windows WSL2、Ubuntu 22.04.5 LTS、x86_64；2026-10-15 用户确认 MVP 完整验收通过，发布版本为 1.0.0。以下保留安装、配置与验收流程，验证证据见 [tasks.md](tasks.md)。
+目标环境是 Windows WSL2、Ubuntu 22.04.5 LTS、x86_64；2026-10-15 用户确认 MVP 完整验收通过，发布版本为 1.0.0。当前源码版本为 **1.1.0**（日志增强），尚无该版本的远程发布附件；自行构建按 §1–§2，真实项目试用按 §4.1。以下保留安装、配置与验收流程，验证证据见 [tasks.md](tasks.md)。
 
 ## 0. 安装 1.0.0 发布程序（无需 Rust）
 
@@ -16,7 +16,7 @@ cd "$HOME/Downloads/devctl-v1.0.0"
 sha256sum --check --ignore-missing SHA256SUMS
 ```
 
-也可从 Release 页面登录下载相同三个附件，再进入下载目录校验。校验全部成功后，已有版本的用户先按 §4 结束各工作区旧后台并退出 TUI，再安装；首次安装直接执行：
+也可从 Release 页面登录下载相同三个附件，再进入下载目录校验。校验全部成功后，已有版本的用户先按 §5 结束各工作区旧后台并退出 TUI，再安装；首次安装直接执行：
 
 ```sh
 binary_sha=$(awk '$2 == "devctl-v1.0.0-x86_64-unknown-linux-musl" { print $1 }' SHA256SUMS)
@@ -41,9 +41,9 @@ wsl -l -v
 
 源码建议放在 WSL 的 `~/code/devctl`，三个项目也使用已确认的 WSL 路径。微软建议使用 Linux 工具开发时将项目放在 WSL 文件系统中；参考 [WSL 文件系统说明](https://learn.microsoft.com/en-us/windows/wsl/filesystems) 与 [WSL 基本命令](https://learn.microsoft.com/en-us/windows/wsl/basic-commands)。
 
-源码可从 Release 的 `devctl-v1.0.0-source.tar.gz` 获取，或克隆仓库后检出 `v1.0.0` 标签；无需复制 target 编译缓存。`devctl --help` 会列出默认配置查找路径。
+构建 1.1.0 需要包含本轮升级提交的源码工作副本，不能使用 `v1.0.0` 标签或旧 Release 源码包。先同步源码到 WSL，再核对 `Cargo.toml` 中包版本为 `1.1.0`；若本地提交尚未推送，另一个克隆仅执行 git pull 不会取得它，应先同步该提交或源码文件。无需复制 target 编译缓存。`devctl --help` 会列出默认配置查找路径。
 
-发布源码归档解压后是 devctl-1.0.0 目录，不含 .git 或 target；使用归档时跳过下面的 git log。可以先解压到独立目录，避免覆盖已有源码，再将源码目录放到 ~/code/devctl。
+若使用源码归档，先解压到独立目录，避免覆盖已有工作副本；归档不含 .git 或 target，跳过下面的 git log。
 
 ```sh
 cd "$HOME/code/devctl"
@@ -64,27 +64,49 @@ sudo apt update
 sudo apt install -y build-essential curl git python3
 ```
 
-## 2. 编译安装 release
+## 2. 构建、测试并安装 1.1.0 源码版
 
-在最新源码目录执行：
+先在目标 WSL 的源码目录完成构建和受控测试，不必提前停下日常项目。以下假定源码位于 `~/code/devctl`，使用 rustup 管理工具链，且没有自定义 Cargo target/target-dir：
 
 ```sh
-cargo +stable install --path . --locked --force
-"$HOME/.cargo/bin/devctl" --version
+cd "$HOME/code/devctl"
+head -n 5 Cargo.toml
+rustup update stable
+rustup component add --toolchain stable rustfmt clippy
+cargo +stable fmt --check
+cargo +stable clippy --locked --all-targets -- -D warnings
+cargo +stable test --locked
+python3 tests/support/install_scripts.py
+cargo +stable build --release --locked
+./target/release/devctl --version
 ```
 
-当前稳定版本为 1.0.0，安装后版本输出应为 `devctl 1.0.0`。
+先核对包版本为 1.1.0。自动测试预期 214 项 Rust/集成检查（其中 10 个真实 PTY 场景）全部通过；安装脚本另有独立 Python 测试，使用临时 HOME，不替换当前安装。测试使用临时配置、进程和状态目录，不启动上述三个真实项目、不写入真实 Windows 剪贴板。最后一行必须输出 `devctl 1.1.0`。
 
-`cargo install` 默认使用 release 优化构建并安装；通常安装到 `~/.cargo/bin/devctl`，无需先单独运行 `cargo build --release`。`--locked` 使用仓库已有 Cargo.lock；首次安装不加 `--offline`，允许下载依赖。若设置了 CARGO_HOME、CARGO_INSTALL_ROOT 或 Cargo 安装配置，安装目录按其设置变化，以 Cargo 输出为准。参考 [Cargo install 文档](https://doc.rust-lang.org/cargo/commands/cargo-install.html)。
+`--release` 生成优化构建，`--locked` 使用已有锁文件；首次在 WSL 构建不加 `--offline`，需要下载尚未缓存的依赖。输出默认位于 `target/release/devctl`；如有 Cargo target/target-dir 配置，以实际输出目录为准。参考 [Cargo build 文档](https://doc.rust-lang.org/cargo/commands/cargo-build.html)。在目标 WSL 内构建无需交叉编译 musl，也无需用 sudo 执行 Cargo。
 
-若 `devctl --version` 提示找不到命令，但绝对路径可以运行，在当前终端执行：
+确认构建和测试通过、方便停止项目后，退出旧 TUI，并使用当前已安装的旧版结束工作区：
 
 ```sh
-export PATH="$HOME/.cargo/bin:$PATH"
+devctl --config "$HOME/.config/devctl/devctl.toml" shutdown
+```
+
+此命令会停止该工作区全部项目；多个配置需要分别处理。已有后台时必须成功结束，清理失败先排查。若本就没有后台，可直接继续；1.0.0 的旧内存日志不能通过升级补存到磁盘。仅按 q 离开或 stop --all 均不等于结束后台。
+
+在同一源码目录安装到惯用的 `~/.local/bin/devctl`，沿用已有更新器保留上一安装备份：
+
+```sh
+devctl_build_sha=$(sha256sum target/release/devctl | awk '{print $1}')
+bash scripts/devctl-update ./target/release/devctl "$devctl_build_sha"
+export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
+rehash
+command -v devctl
 devctl --version
 ```
 
-需要长期保留时，按下节运行一次 PATH 设置脚本。安装完成后直接使用 devctl，不再需要 cargo run。只需要构建文件时，可用 `cargo +stable build --release --locked`，产物为 `target/release/devctl`。
+这里自动取得本机构建文件的 SHA-256，无需手抄占位符。预期实际执行路径为 `~/.local/bin/devctl`、版本为 `devctl 1.1.0`。安装只替换用户目录的程序，不修改已有工作区配置、不启动项目；首次安装无上一版备份，后续替换会保留 `devctl.previous`。目标 shell 为 Zsh，Bash 用户将 rehash 改为 hash -r。如路径仍不同，用 `whence -va devctl` 排查别名或旧 PATH。
+
+仍可用 `cargo +stable install --path . --locked --force` 安装到 Cargo 根目录（通常 `~/.cargo/bin`），但它不会更新优先级更高的 `~/.local/bin/devctl`；本指南统一使用上面的构建加更新器方式。PATH 持久化见下节，回退见 §5。
 
 ### 一次性持久化 PATH
 
@@ -181,9 +203,37 @@ devctl
 
 按 [交互方案](interaction.md) 验收：先只启动 web，再启动全部；检查日志、单项停止和重新启动；离开后重新连接；最后全部停止、结束工作区。客户端关闭后的保留行为也需在目标 WSL2 中实测。WSL 的 `wsl --shutdown` / `wsl --terminate` 会终止对应运行环境，后台运行不提供跨 WSL 关闭或 Windows 重启的恢复保证。
 
+### 4.1 1.1.0 日志功能的真实项目试用
+
+先核对版本并使用已有配置进入；不要重写 §3 的配置：
+
+```sh
+devctl --version
+devctl --config "$HOME/.config/devctl/devctl.toml" validate
+devctl --config "$HOME/.config/devctl/devctl.toml" tui
+```
+
+1. 先选 web 按 s 启动，确认实时日志和 `save=saving`；再逐个启动 weapp、中台，确认输出和控制范围各自独立。
+2. 日志焦点按 p 暂停，新增计数增长而正文位置不移动；上滚查看历史，切项目后再切回保留阅读位置；G 回尾部跟随。
+3. 按 / 输入实际出现的字面文本、Enter 搜索，n/N 查下一个/上一个，命中后 v/y 复制上下文，在 Windows 记事本核对；Esc 取消输入或搜索。搜索大小写敏感，开始时固定输出上界，重新 / 才包含之后的新记录。
+4. 在历史阅读位置按 q 离开，再进入同一个 TUI，默认跟随当前会话最新输出，不恢复退出前的旧位置。q 后服务应仍在运行。
+5. 在方便停止全部项目时，按下面的 CLI 操作验证正常结束后历史仍可查；记录会话 ID，重建后台后再用 --session 查询旧会话，确认没有混入当前日志。
+
+```sh
+devctl --config "$HOME/.config/devctl/devctl.toml" shutdown
+devctl --config "$HOME/.config/devctl/devctl.toml" log-sessions
+devctl --config "$HOME/.config/devctl/devctl.toml" logs web --limit 20
+```
+
+显式历史读取示例为 `devctl --config "$HOME/.config/devctl/devctl.toml" logs web --session <会话ID> --limit 20`；将占位符替换为列表中的实际 ID。无后台时日志查询不创建后台或启动项目。服务尚未产生输出时没有对应保存会话，不把它当作保存失败。
+
+日志默认保存到 `~/.local/state/devctl/logs` 下；若设置绝对 XDG_STATE_HOME，则使用 `$XDG_STATE_HOME/devctl/logs`，CLI 的 stderr 和 TUI 帮助显示实际会话目录。`.dlog` 是结构化分段，通过 logs 读取，不直接用 tail。默认无需新增配置；参数、配额与故障边界以 [存储设计](../DESIGN.md#持久身份格式与预算) 为准，完整操作以 [日志交互](interaction.md#28-日志保存会话与文本查找源码增强尚未发布) 为准。
+
+超过内存缓存的回看、容量/期限清理和故障退化先由受控自动测试覆盖；不建议为验收主动占满 WSL 磁盘或修改正在使用的历史文件。真实项目试用需关注输出频率、保存降级提示、查找体验和启停是否仍流畅，反馈实际命令及提示。
+
 ## 5. 更新与排查
 
-更新 devctl 二进制或变更配置/Node 环境前，先结束使用该配置的后台；新客户端不会替换仍在运行的旧后台或重新加载其配置和环境。如果管理多个配置，需要逐一结束对应后台。shutdown 会停止该工作区的服务并丢弃后台内存日志，安排在方便重启的时候进行；`q` 和 `stop --all` 都不会结束后台。
+更新 devctl 二进制或变更配置/Node 环境前，先结束使用该配置的后台；新客户端不会替换仍在运行的旧后台或重新加载其配置和环境。如果管理多个配置，需要逐一结束对应后台。shutdown 会停止该工作区的服务；1.0.0 的内存日志会丢失，1.1.0 已成功保存的历史仍按保留策略可查，安排在方便重启的时候进行；`q` 和 `stop --all` 都不会结束后台。
 
 ```sh
 devctl --config "$HOME/.config/devctl/devctl.toml" shutdown
@@ -257,7 +307,7 @@ git log -5 --oneline
 whence -va devctl
 ```
 
-Zsh 的 whence 会显示别名、函数及 PATH 中的各个安装位置。特别注意 ~/.local/bin/devctl 优先于 ~/.cargo/bin/devctl：cargo install 只更新 Cargo 安装位置，可能没有更新实际启动的文件。历史试用版本为 0.1.0、0.2.0，当前稳定版为 1.0.0；同一版本下的不同构建仍需结合源码或文件校验值核对。
+Zsh 的 whence 会显示别名、函数及 PATH 中的各个安装位置。特别注意 ~/.local/bin/devctl 优先于 ~/.cargo/bin/devctl：cargo install 只更新 Cargo 安装位置，可能没有更新实际启动的文件。历史试用版本为 0.1.0、0.2.0，发布附件仍为 1.0.0，当前源码为 1.1.0；同一版本下的不同构建仍需结合源码或文件校验值核对。
 
 确认源码包含上述提交后，可用显式源码运行隔离安装路径问题：`cargo +stable run --locked -- --config "$HOME/.config/devctl/devctl.toml" tui`。它会按需编译当前源码；若此时底部为两行，再更新实际安装位置。布局由客户端绘制，结束后台本身不会更新旧客户端；后台升级规则仍按本节前文执行。
 
