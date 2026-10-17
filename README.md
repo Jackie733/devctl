@@ -38,8 +38,8 @@ versions, tool bindings or dependency checks are required. See
 ## Platform support
 
 Release **1.5.0** provides native programs for **Linux x86_64** (including **WSL2**),
-**macOS 14+ Apple Silicon**, and **macOS 14+ Intel**. The Linux musl program needs
-neither Rust nor a particular glibc version. Native Windows is not supported.
+**macOS 14+ Apple Silicon**. The Linux musl program needs
+neither Rust nor a particular glibc version. Intel Mac and native Windows are not supported.
 See the [installation guide](docs/install.md) for the matching download.
 
 Commands must run without interactive input. Dependency validation and planning

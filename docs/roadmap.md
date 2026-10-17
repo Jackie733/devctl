@@ -17,7 +17,7 @@ owned by [requirements.md](requirements.md); current work and evidence live in
 | Logging follow-up | 1.1.0 delivered history, persistence, pause, literal search, context and page/selection export | L01–L04 |
 | Public distribution | Public Releases, static artifacts, checksums, source identity and tested publication workflow | X03 |
 | Self-update | 1.2.0 introduced independent update/rollback; 1.2.1 switched to Release manifests | X03 |
-| Native macOS | 1.5.0 adds native lifecycle, clipboard, installation/update/rollback and a three-platform release pipeline; publication checks and platform acceptance remain distinct in tasks.md | X01, X03 |
+| Native macOS | 1.5.0 adds native lifecycle, clipboard, installation/update/rollback and a Linux/Apple Silicon release pipeline; publication checks and platform acceptance remain distinct in tasks.md | X01, X03 |
 
 The initial MVP was accepted on 2026-10-15. Controlled tests establish coverage of
 subsequent work, not final acceptance of those changes in every target environment.
@@ -36,7 +36,7 @@ and planned M7.4 installer are superseded. Git retains the original design/histo
 | Implemented, acceptance pending | Simplify A01 onboarding and remove A02 core environment management | TUI path/script/command/save, explicit CLI alternatives, no environment management; append-only hot update and lifecycle checks |
 | Following | Verify lightweight onboarding with real daily projects | Directory/command to ordinary TUI start/log/stop/leave/reconnect; record separate Mac/WSL and user acceptance |
 | Outstanding | Real WSL log/UI and cross-version update/rollback | Preserve [log](wsl.md#verify-logs) and [update](wsl.md#verify-updates) checks |
-| Release in progress | v1.5.0 multi-platform distribution | Three-platform CI, public download/update checks; separate Mac/WSL user acceptance remains pending |
+| Release in progress | v1.5.0 multi-platform distribution | Linux/Apple Silicon CI, public download/update checks; separate Mac/WSL user acceptance remains pending |
 | Pending assessment | A03 database/Redis discovery/control | Reassess concrete need and core boundary before research/design; no longer an automatic next milestone |
 | Candidate | Agent-assisted diagnostics and solutions | Assess an actual failure workflow using existing status/log/control commands; no new Agent integration implemented |
 | As demonstrated | Reliability/usability fixes | Reproduce issues and tie the smallest fix to an existing requirement |

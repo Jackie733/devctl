@@ -1,7 +1,7 @@
 # Release maintenance
 
 Public distribution and self-update implement X03. The
-[release workflow](../.github/workflows/release.yml) builds Linux/WSL2 x86_64 and macOS Apple Silicon/Intel artifacts.
+[release workflow](../.github/workflows/release.yml) builds Linux/WSL2 x86_64 and macOS Apple Silicon artifacts. Intel Mac is excluded.
 The current public 1.4.0 release remains Linux-only until 1.5.0 is published. [tasks.md](tasks.md) records publication authorization, actual outcomes,
 and pending real-environment acceptance.
 
@@ -25,7 +25,7 @@ commit. Intermediate artifacts are isolated by run ID and consumed only by that 
 ## Checks and artifacts
 
 Build has `contents: read`, uses pinned official actions and Rust 1.98.1, and runs
-on Ubuntu 22.04, macos-14 (Apple Silicon) and macos-15-intel. Mac builds set
+on Ubuntu 22.04 and macos-14 (Apple Silicon). Mac builds set
 MACOSX_DEPLOYMENT_TARGET=14.0. Each job checks fmt, clippy, all applicable Rust tests,
 installer tests and bundle-merging tests, then builds its native release target.
 The actual program must pass native dependency checks (static ELF on Linux;
@@ -43,14 +43,13 @@ The new [MIT license](../LICENSE) and documentation are included in normal sourc
 | --- | --- |
 | `devctl-vVERSION-x86_64-unknown-linux-musl` | Static executable |
 | `devctl-vVERSION-aarch64-apple-darwin` | Apple Silicon executable, macOS 14+ |
-| `devctl-vVERSION-x86_64-apple-darwin` | Intel executable, macOS 14+ |
 | `devctl-update` | External bootstrap, migration, and recovery installer |
 | `devctl-vVERSION-source.tar.gz` | Exact source tree |
 | `update.json` | Version/platform/name/size/digest from the actual executable |
-| `SHA256SUMS` | SHA-256 for the six attachments above |
+| `SHA256SUMS` | SHA-256 for the five attachments above |
 
 Each job uploads its own versioned bundle. The [merger](../scripts/merge-release.py)
-requires all three distinct targets, validates their bytes and checksums, and rejects
+requires both distinct targets, validates their bytes and checksums, and rejects
 mismatching source archives, installers or build-commit notes before producing one
 manifest and checksum file. Missing or failed platform jobs prevent publication.
 
@@ -82,7 +81,7 @@ retry without claiming the release stayed private.
 ## Handoff checklist
 
 - Confirm build, publish, and verify success, tag/build identity, Latest status, and
-  all seven uploaded attachments.
+  all six uploaded attachments.
 - Download anonymously; verify digests, manifest, binary version/static linking,
   and the source archive against the build commit.
 - For a cross-version update claim, install the real prior public binary in a

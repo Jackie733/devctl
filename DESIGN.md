@@ -438,7 +438,7 @@ The per-version `update.json` attachment uses this schema:
 | `schema_version` | Integer 1; reject unknown schema versions |
 | `version` | Plain stable MAJOR.MINOR.PATCH, without v, prerelease, or build metadata; exactly match explicit requests |
 | `assets` | Platform array containing exactly one entry for the supported target |
-| `assets[].target` | Native target: `x86_64-unknown-linux-musl`, `aarch64-apple-darwin`, or `x86_64-apple-darwin` |
+| `assets[].target` | Native target: `x86_64-unknown-linux-musl` or `aarch64-apple-darwin` |
 | `assets[].name` | Exactly `devctl-v<VERSION>-<TARGET>` for the selected target; never a path or URL |
 | `assets[].size` | Actual byte length, greater than 0 and at most 128 MiB |
 | `assets[].sha256` | 64 hexadecimal SHA-256 digits |

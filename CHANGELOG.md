@@ -29,13 +29,13 @@ User-facing changes are grouped by released version. Download artifacts from
   bindings, dependency checks and acknowledgement options. Retired configuration
   fields fail explicitly with migration guidance; automatic installation is out of core scope.
 
-- Add native macOS 14+ operation on Apple Silicon and Intel, preserving process-group
+- Add native macOS 14+ operation on Apple Silicon, preserving process-group
   cleanup, background services, reconnect, retained logs and terminal restoration.
 - Use pbcopy for local Mac log copying, UTF-16LE clip.exe for local WSL and OSC 52
   over SSH/other terminals, with bounded native clipboard operations.
 - Support macOS installation, native-target manifest updates and offline rollback
   with the system Bash, Perl and shasum; preserve locking, checksums and backups.
-- Build and verify Linux musl plus both Mac artifacts in the release workflow;
+- Build and verify Linux musl plus Apple Silicon Mac artifacts in the release workflow;
   merge matching platform bundles into one manifest and verify public downloads
   on each platform. No macOS artifact exists in the historical 1.4.0 release.
 

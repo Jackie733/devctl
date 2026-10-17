@@ -7,13 +7,13 @@ from pathlib import Path
 import shutil
 import sys
 
-TARGETS = {'x86_64-unknown-linux-musl', 'aarch64-apple-darwin', 'x86_64-apple-darwin'}
+TARGETS = {'x86_64-unknown-linux-musl', 'aarch64-apple-darwin'}
 
 
 def merge(source, output):
     bundles = sorted(source.glob('*/update.json'))
     if len(bundles) != len(TARGETS):
-        raise ValueError('Exactly three platform bundles are required.')
+        raise ValueError('Exactly two platform bundles are required.')
     assets = []
     shared = {}
     version = None

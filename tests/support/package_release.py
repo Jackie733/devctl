@@ -14,7 +14,8 @@ import unittest
 
 BINARY = Path(sys.argv.pop(1)).resolve()
 kind = subprocess.check_output(['file', '-b', BINARY], text=True)
-TARGET = ('aarch64-apple-darwin' if 'arm64' in kind else 'x86_64-apple-darwin') if 'Mach-O' in kind else 'x86_64-unknown-linux-musl'
+assert 'Mach-O' not in kind or 'arm64' in kind, 'Mac releases support Apple Silicon only'
+TARGET = 'aarch64-apple-darwin' if 'Mach-O' in kind else 'x86_64-unknown-linux-musl'
 SCRIPTS = Path(__file__).resolve().parents[2] / 'scripts'
 
 

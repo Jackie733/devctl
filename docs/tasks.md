@@ -11,19 +11,24 @@ completion, lightweight CLI onboarding and native Mac distribution. Cargo packag
 and lock already use 1.5.0; previous public latest is v1.4.0.
 
 Completion criteria: dated changelog and matching EN/ZH/download docs; clean source
-commit pushed without overwriting remote changes; all three platform build/test/
+commit pushed without overwriting remote changes; both supported platform build/test/
 package checks pass; version tag matches that tested commit; publish complete
 binary/installer/source/manifest/checksum assets; verify public downloads, anonymous
 updates and rollback on every supported platform. Preserve local user workspaces.
 
+Release scope updated at the user's explicit request: do not build/support Intel
+Mac. Cancelled the initial three-platform preflight run `39040877432`; remove Intel
+from CI, packaging, native update targets and public platform documentation before
+rerunning. No version tag or release has been created.
+
 Preparation in progress. Latest implementation verification passed 310 local tests,
 format/clippy and Linux cross-clippy; installed client is from `9f75dfe`. This release
-must also pass hosted Linux, Apple Silicon and Intel checks. CI does not establish
-WSL terminal/user acceptance or acceptance on physical macOS 14/Intel hardware.
+must also pass hosted Linux and Apple Silicon checks. CI does not establish
+WSL terminal/user acceptance or acceptance on physical macOS 14 hardware.
 
 ## Next steps
 
-1. Push release preparation, run the existing three-platform workflow without
+1. Push release preparation, run the Linux/Apple Silicon workflow without
    publication, fix any failures, then tag/publish the tested commit and verify the
    public release. Record actual workflow/release links and source identity.
 2. Keep real daily-project/WSL and Mac platform acceptance gaps separate. A03/Agent

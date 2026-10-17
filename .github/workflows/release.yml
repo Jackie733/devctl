@@ -37,8 +37,6 @@ jobs:
             target: x86_64-unknown-linux-musl
           - runner: macos-14
             target: aarch64-apple-darwin
-          - runner: macos-15-intel
-            target: x86_64-apple-darwin
     runs-on: ${{ matrix.runner }}
     env:
       TMPDIR: /tmp
@@ -123,7 +121,7 @@ jobs:
           TAG: ${{ env.RELEASE_TAG }}
         run: |
           sha256sum --check SHA256SUMS
-          assets=("devctl-$TAG-x86_64-unknown-linux-musl" "devctl-$TAG-aarch64-apple-darwin" "devctl-$TAG-x86_64-apple-darwin" devctl-update "devctl-$TAG-source.tar.gz" update.json SHA256SUMS)
+          assets=("devctl-$TAG-x86_64-unknown-linux-musl" "devctl-$TAG-aarch64-apple-darwin" devctl-update "devctl-$TAG-source.tar.gz" update.json SHA256SUMS)
           if gh release view "$TAG" --json isDraft --jq .isDraft > "$RUNNER_TEMP/release-state"; then
             [[ $(cat "$RUNNER_TEMP/release-state") == true ]] || { echo 'Refusing to replace an already published release.' >&2; exit 1; }
             gh release upload "$TAG" "${assets[@]}" --clobber

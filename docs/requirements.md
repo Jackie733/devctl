@@ -24,8 +24,9 @@ The confirmed primary environment is WSL2, Ubuntu 22.04.5 LTS, x86_64, using Lin
 runtimes and project directories. The initial complete MVP workflow was accepted
 on 2026-10-15 and released as 1.0.0. On 2026-10-16 the user authorized native
 macOS implementation and supplied the local bogu project for real-project
-verification. The source target is macOS 14+ on Apple Silicon and Intel; record
-actual platform/build/publication evidence separately in [tasks.md](tasks.md).
+verification. The supported Mac target is macOS 14+ on Apple Silicon. On 2026-10-17 the
+user explicitly excluded Intel Mac builds/support. Record actual platform/build/
+publication evidence separately in [tasks.md](tasks.md).
 Native Windows acceptance is not implied.
 Vim-style navigation, compact terminal layout, complete-line copying, and Windows
 Terminal/WSL clipboard behavior refine U01/L01 without expanding platform guarantees.

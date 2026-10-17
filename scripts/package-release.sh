@@ -25,7 +25,6 @@ mkdir -- "$output"
 kind=$(file -b "$binary")
 case "$kind" in
     *'Mach-O 64-bit executable arm64'*) target=aarch64-apple-darwin ;;
-    *'Mach-O 64-bit executable x86_64'*) target=x86_64-apple-darwin ;;
     *'ELF 64-bit LSB'*'x86-64'*) target=x86_64-unknown-linux-musl ;;
     *) printf 'Unsupported release binary format/architecture.\n' >&2; exit 1 ;;
 esac

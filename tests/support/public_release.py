@@ -15,7 +15,8 @@ tag = sys.argv[1]
 assert re.fullmatch(r'v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)', tag), 'Stable tag required'
 version = tag[1:]
 base = f'https://github.com/Jackie733/devctl/releases/download/{tag}/'
-target_platform = ('aarch64-apple-darwin' if platform.machine() == 'arm64' else 'x86_64-apple-darwin') if sys.platform == 'darwin' else 'x86_64-unknown-linux-musl'
+assert sys.platform != 'darwin' or platform.machine() == 'arm64', 'Mac releases support Apple Silicon only'
+target_platform = 'aarch64-apple-darwin' if sys.platform == 'darwin' else 'x86_64-unknown-linux-musl'
 name = f'devctl-{tag}-{target_platform}'
 
 
@@ -39,7 +40,7 @@ with tempfile.TemporaryDirectory(prefix='devctl-public-release-') as tmp:
     assets = manifest['assets']
     targets = {asset['target'] for asset in assets}
     assert len(targets) == len(assets) and target_platform in targets
-    assert targets <= {'x86_64-unknown-linux-musl', 'aarch64-apple-darwin', 'x86_64-apple-darwin'}
+    assert targets <= {'x86_64-unknown-linux-musl', 'aarch64-apple-darwin'}
     for asset in assets:
         assert asset['name'] == f'devctl-{tag}-{asset["target"]}'
     expected = {asset['name'] for asset in assets} | {'devctl-update', f'devctl-{tag}-source.tar.gz', 'update.json'}

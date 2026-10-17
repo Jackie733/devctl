@@ -49,7 +49,7 @@ class MergeRelease(unittest.TestCase):
         merger.merge(self.source, self.output)
         manifest = json.loads((self.output / 'update.json').read_text())
         self.assertEqual({asset['target'] for asset in manifest['assets']}, merger.TARGETS)
-        self.assertEqual(len((self.output / 'SHA256SUMS').read_text().splitlines()), 6)
+        self.assertEqual(len((self.output / 'SHA256SUMS').read_text().splitlines()), 5)
         for line in (self.output / 'SHA256SUMS').read_text().splitlines():
             digest, name = line.split()
             self.assertEqual(hashlib.sha256((self.output / name).read_bytes()).hexdigest(), digest)
@@ -69,9 +69,21 @@ class MergeRelease(unittest.TestCase):
         self.assertFalse(self.output.exists())
 
     def test_duplicate_platform_is_rejected_without_output(self):
-        first, second, _ = sorted(self.source.iterdir())
+        first, second = sorted(self.source.iterdir())
         shutil.rmtree(second)
         shutil.copytree(first, second)
+        with self.assertRaises(ValueError):
+            merger.merge(self.source, self.output)
+        self.assertFalse(self.output.exists())
+
+    def test_unsupported_platform_is_rejected_without_output(self):
+        bundle = next(self.source.iterdir())
+        path = bundle / 'update.json'
+        manifest = json.loads(path.read_text())
+        manifest['assets'][0]['target'] = 'x86_64-apple-darwin'
+        manifest['assets'][0]['name'] = 'devctl-v1.5.0-x86_64-apple-darwin'
+        path.write_text(json.dumps(manifest))
+        self.checksums(bundle)
         with self.assertRaises(ValueError):
             merger.merge(self.source, self.output)
         self.assertFalse(self.output.exists())

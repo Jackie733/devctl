@@ -1,4 +1,7 @@
-#![cfg(any(all(target_os = "linux", target_arch = "x86_64"), target_os = "macos"))]
+#![cfg(any(
+    all(target_os = "linux", target_arch = "x86_64"),
+    all(target_os = "macos", target_arch = "aarch64")
+))]
 
 use std::{
     fs,
@@ -9,11 +12,7 @@ use std::{
 };
 
 const TARGET: &str = if cfg!(target_os = "macos") {
-    if cfg!(target_arch = "aarch64") {
-        "aarch64-apple-darwin"
-    } else {
-        "x86_64-apple-darwin"
-    }
+    "aarch64-apple-darwin"
 } else {
     "x86_64-unknown-linux-musl"
 };

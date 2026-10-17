@@ -19,14 +19,9 @@ const INSTALLER: &str = include_str!("../scripts/devctl-update");
 const TARGET: &str = "x86_64-unknown-linux-musl";
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 const TARGET: &str = "aarch64-apple-darwin";
-#[cfg(all(target_os = "macos", target_arch = "x86_64"))]
-const TARGET: &str = "x86_64-apple-darwin";
 #[cfg(not(any(
     all(target_os = "linux", target_arch = "x86_64"),
-    all(
-        target_os = "macos",
-        any(target_arch = "aarch64", target_arch = "x86_64")
-    )
+    all(target_os = "macos", target_arch = "aarch64")
 )))]
 const TARGET: &str = "unsupported";
 const REPOSITORY: &str = "Jackie733/devctl";
@@ -251,7 +246,9 @@ async fn run_with_progress(
     progress: &mut Progress,
 ) -> Result<(), String> {
     if TARGET == "unsupported" {
-        return Err("Self-update supports Linux / WSL2 x86_64 and macOS arm64/x86_64 only.".into());
+        return Err(
+            "Self-update supports Linux / WSL2 x86_64 and Apple Silicon macOS only.".into(),
+        );
     }
     if rollback {
         install_dir()?;

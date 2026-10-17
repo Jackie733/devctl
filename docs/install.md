@@ -1,7 +1,7 @@
 # Installation and updates
 
 Current public release: **1.5.0**, for Linux x86_64 including WSL2, macOS 14+
-Apple Silicon and macOS 14+ Intel. Use the [WSL guide](wsl.md) for Windows
+Apple Silicon. Intel Mac is not supported. Use the [WSL guide](wsl.md) for Windows
 integration. Releases are public and do not require GitHub authentication.
 Historical 1.4.0 attachments are Linux-only. Native Windows is not supported.
 
@@ -66,7 +66,7 @@ configuration; installation does not create or replace it.
 ## macOS
 
 Download the native 1.5.0 program, installer and checksums into a new directory.
-Choose `aarch64-apple-darwin` for Apple Silicon or `x86_64-apple-darwin` for Intel:
+Use `aarch64-apple-darwin` for Apple Silicon; no Intel Mac artifact is published:
 
 ```sh
 mkdir -p "$HOME/Downloads/devctl-v1.5.0"
@@ -97,7 +97,7 @@ For a source build, use a checkout of v1.5.0. Source builds require Rust
 and Apple's Command Line Tools (`xcode-select --install` if absent); development
 checks also require Python 3. The deployment baseline is macOS 14. Local acceptance
 was performed on Apple Silicon/macOS 26.5.1; see [current evidence](tasks.md) for
-Intel and publication verification status.
+platform and publication verification status.
 
 ```sh
 MACOSX_DEPLOYMENT_TARGET=14.0 cargo build --release --locked
@@ -125,7 +125,7 @@ fit the OS Unix-socket limit (104 bytes on macOS). A deeply nested checkout or t
 long default macOS temporary directory can exceed it; moving the configuration
 changes workspace/log identity, so shut down the old workspace first.
 
-The 1.5.0 manifest contains both Mac targets, so public `update --check` and `update`
+The 1.5.0 manifest contains the Apple Silicon Mac target, so public `update --check` and `update`
 select the native artifact. The historical 1.4.0 manifest has no Mac asset.
 
 ## Before switching versions
