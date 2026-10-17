@@ -17,7 +17,7 @@
 - **有界日志存储**：近期记录保存在内存，历史记录按容量与期限保留；查询旧会话不启动服务。
 - **校验与回退**：通过公开 Release 清单更新，验证 SHA-256 和候选程序版本，并保留离线回退副本。1.3.0 起显示终端阶段与下载进度，重定向时使用纯文本输出。
 
-1.5.0 源码现已提供 `devctl import 目录`，可只读查看 Node 项目、已有指令、共享依赖安装位置及 npm/pnpm 声明。识别过程不会执行项目命令、保存工作区配置或安装软件，详见[识别操作说明](docs/interaction.md#read-only-project-discovery-m71)。
+1.5.0 源码现已提供 `devctl import 目录`：识别 Node 项目，选择已有指令和明确版本，再通过 `--apply` 确认保存工作区配置。预览不会改文件；重复导入保留已有修改，只有明确指定替换才更新对应条目。导入不会安装软件或启动服务，详见[导入操作说明](docs/interaction.md#reviewed-configuration-import-m73)。
 
 为服务明确配置 Node 版本后，`doctor` 可以检查项目要求和本机工具；`setup --node /绝对路径/node` 可以预览现有工具的绑定，`setup --apply` 经确认后保存绑定。此后启动会使用选定版本。详见[环境操作说明](docs/interaction.md#local-node-environments-m72)。
 
@@ -27,9 +27,9 @@
 
 开发命令需要能够非交互运行。目前支持依赖校验与计划展示，尚未实现运行时依赖编排、就绪探针、自动重启或机器重启后的恢复。已交付和候选功能的区别见[路线图](docs/roadmap.md)。
 
-后续计划支持提供项目目录后自动识别启动指令、生成工作台配置、检查并辅助安装环境与依赖，以及发现、监测和控制数据库、Redis 等服务。目前已完成只读识别、环境检查和现有工具绑定；配置导入和下载安装仍待实现。本期不包含创建数据库、执行迁移或生成业务配置。
+后续计划支持提供项目目录后自动识别启动指令、生成工作台配置、检查并辅助安装环境与依赖，以及发现、监测和控制数据库、Redis 等服务。目前已完成项目识别、配置导入、环境检查和现有工具绑定；下载安装仍待实现。本期不包含创建数据库、执行迁移或生成业务配置。
 
-目前已完成第一期的[详细设计](DESIGN.md#planned-directory-onboarding-and-environment-preparation-m7)和[操作流程](docs/interaction.md#planned-directory-workflow-m7)：先只读识别，再确认导入，检查环境后单独确认安装。首批方案覆盖 Mac 和 Linux/WSL 上使用 npm、pnpm 的 Node 项目；重复导入保留已有修改，保存新配置前需先关闭该工作区后台。目前已实现只读识别、环境检查和现有工具绑定；自动保存项目配置、下载工具和安装依赖仍待实现。具体范围与验收见[自动化需求](docs/requirements.md#directory-onboarding-and-environment-automation-a01a03)。
+目前已完成第一期的[详细设计](DESIGN.md#planned-directory-onboarding-and-environment-preparation-m7)和[操作流程](docs/interaction.md#planned-directory-workflow-m7)：先只读识别，再确认导入，检查环境后单独确认安装。首批方案覆盖 Mac 和 Linux/WSL 上使用 npm、pnpm 的 Node 项目；重复导入保留已有修改，保存新配置前需先关闭该工作区后台。目前已实现项目识别、确认后保存配置、环境检查和现有工具绑定；下载工具和安装依赖仍待实现。具体范围与验收见[自动化需求](docs/requirements.md#directory-onboarding-and-environment-automation-a01a03)。
 
 ## 安装
 

@@ -536,8 +536,8 @@ reboot recovery while those features remain proposals.
 ## Planned directory onboarding and environment preparation (M7)
 
 Status: baseline requested on 2026-10-16 and implementation authorized afterward.
-M7.1 discovery and M7.2 environment checks/local bindings/managed startup are
-implemented. Config saving, tool/dependency installation and dependency inventory
+M7.1 discovery, M7.2 checks/local bindings/managed startup and M7.3 reviewed
+configuration import are implemented. Tool/dependency installation and inventory
 below remain **not implemented**. Future mechanisms are explicitly distinguished.
 [A01/A02 requirements](docs/requirements.md#directory-onboarding-and-environment-automation-a01a03)
 own scope and acceptance; the [planned interaction](docs/interaction.md#planned-directory-workflow-m7)
@@ -561,7 +561,7 @@ one does not create several services for that project. A monorepo can contribute
 several packages without enabling dependency orchestration. CLI onboarding precedes
 ordinary TUI operation; a new TUI setup wizard is not required for M7.
 
-Retain version-1 configurations and legacy commands unchanged. Proposed optional
+Retain version-1 configurations and legacy commands unchanged. Optional
 fields support only this confirmed Node workflow, not arbitrary environment overrides:
 
 ```toml
@@ -652,8 +652,11 @@ path, then script name; no scan result depends on directory enumeration order.
 Every candidate includes source path, field, raw declaration, effective working
 directory, dependency root and warnings. Render terminal control characters safely.
 Candidate identity is canonical package directory; package `name` is a display hint.
-Generate an ID from the relative path, with a short stable path-hash suffix on
-collision; identity never depends solely on package name.
+M7.3 generates an ASCII slug from the canonical relative path (the root basename
+for `.`), capped at 56 characters. On ID collision, append 8 SHA-256 path-hash
+characters, extending to 16/32/64 if necessary. Reuse canonical matches and existing
+IDs first; identity never depends solely on package name. Environment IDs reuse an
+existing equal version tuple or derive from the exact tuple without mutating others.
 
 ### Command and tool selection
 
@@ -913,18 +916,38 @@ project is a no-op. Removed packages are reported; never delete entries implicit
 Store generated machine-local bindings outside TOML; do not embed private registry
 configuration, credentials or general import tracking metadata in workspace files.
 
-Use an editing TOML parser to retain formatting (a narrowly scoped dependency is
-justified here). Keep the original byte fingerprint. For existing files, canonicalize
+M7.3 uses `toml_edit` 0.25 (MIT OR Apache-2.0) to retain comments and formatting.
+Refuse changed proposals if the untouched document cannot round-trip safely, rather
+than normalize unrelated dotted-key layouts. No-op imports retain original bytes
+even for such layouts. Bound existing/proposed config to 1 MiB; reject special files,
+invalid UTF-8 and non-UTF-8 import paths. Cache declaration checks per installation
+root/version tuple; check an 8-second static-planning budget between filesystem
+operations, with the same uninterruptible-call caveat as discovery. Keep original
+bytes and file metadata. For existing files, canonicalize
 the target using current config identity rules, acquire its existing run lock and
 a separate edit lock in fixed order (run, edit), reread and compare, validate the
 proposed entire config, write/fsync a same-directory temporary file, preserve mode,
-then atomically rename and sync the directory. Reject hard-linked destinations to
+then atomically rename and sync the directory. Retain/check parent-directory identity
+through publication and recheck the original alias spelling. Reject hard-linked
+destinations to
 avoid silently splitting identity. For a new config, lock the normalized parent/name
-before creation, create parent directories only on apply, and publish without
-overwriting a concurrently created file. All importers use the edit lock; run locks
+before file publication; create private parent directories only on apply. Use the
+same run/edit lock order at the normalized destination, then publish complete bytes
+with a same-directory hard link that cannot overwrite a concurrent creator. Remove
+the staging link and sync the parent. Existing files keep their mode; new files use
+0600. Stable sidecars are never removed as part of an import. All importers use the
+edit lock; run locks
 coordinate existing foreground/background runners. Do not wait for user input while
 holding locks. Revalidate after lock acquisition. External editors do not cooperate;
 pre-rename fingerprint checks reduce but cannot eliminate that final race.
+
+M7.3 rereads discovery, selected installation-root declaration fingerprints and the
+resolved complete proposed config after acquiring locks. An explicitly selected
+Node is re-probed; apply never upgrades an unresolved choice into consent. Both
+foreground and supervisor entry points perform side-effect-free initial validation,
+then discard it and reread the configuration under run ownership. This prevents a
+preloaded stale config from starting after an import, while initially malformed
+configurations still fail without creating lock sidecars.
 
 M7 does not implement supervisor hot reload. If the selected config is owned by a
 supervisor or foreground runner, preview remains available, but apply fails before
@@ -946,8 +969,8 @@ service declarations from resolved launch specifications at the existing start
 boundary. Reuse lifecycle cleanup and bounded presentation; do not add a plugin
 engine, scheduler, task dependency runtime or persistent installation daemon.
 
-Likely new dependencies are a comment-preserving TOML editor, a bounded YAML parser
-and workspace-pattern matching; npm range parsing needs its own explicit review.
+The scoped dependencies for TOML editing, bounded YAML parsing, workspace patterns
+and npm range parsing are recorded in the corresponding mechanisms above.
 M7.1 uses Unlicense/MIT globset for path patterns and MIT serde_yaml_ng
 for typed YAML declarations. Both are locked in Cargo.lock. Unknown YAML fields
 are skipped; tagged/anchored/aliased YAML is explicitly unsupported in this slice.

@@ -9,7 +9,8 @@ For installation and version switching, see [install.md](install.md).
 With no subcommand, `devctl` opens the TUI. `devctl tui` is the explicit equivalent.
 Other subcommands perform only their named operation; an unknown command is an error.
 Help and version exit without loading workspace configuration, as do the independent
-`update` and read-only `import` paths.
+`update` path. Import scans its supplied directory before validating a selected or
+proposed configuration destination.
 
 Workspace commands select the first existing configuration, without merging:
 
@@ -347,42 +348,87 @@ from 1.2.2 uses the older output; subsequent updates from 1.3.0 use this display
 
 ## Read-only project discovery (M7.1)
 
-`devctl import DIR` now previews Node projects and their declared scripts without
-loading a workspace config, launching tools/scripts or writing files. It works
-without an installed Node/npm/pnpm. It reports package paths, script source/content,
-working directories, shared dependency roots, package-manager/version declarations
-and raw Node version evidence. This is discovery, not an environment compatibility
-check, a config diff or an import that saves projects.
+`devctl import DIR` begins with bounded, read-only Node project discovery. This
+stage needs no Node/npm/pnpm installation and executes no project commands. It
+reports package paths, script source/content, working directories, shared dependency
+roots, manager declarations and raw version evidence. The full import then plans
+configuration changes as described below; an invalid selected config blocks planning
+without hiding the discovery evidence already printed.
 
-Startup suggestions prioritize development entries and leave other declared
-scripts visible for later explicit selection. Multiple suggestions are labeled as
-requiring selection. Root/member commands may overlap; the preview warns without
-executing or interpreting task graphs. Libraries without scripts are listed without
-inventing a startup command. Missing manager evidence stays unknown. Limits and
-pattern rules belong to [DESIGN.md](../DESIGN.md#discovery-and-evidence).
+Startup suggestions prioritize development entries and retain other declared scripts
+for explicit selection. Multiple suggestions require a choice. Root/member commands
+may overlap; discovery warns without interpreting task graphs. Libraries without
+scripts remain visible. Missing manager evidence stays unresolved. Limits and pattern
+rules belong to [DESIGN.md](../DESIGN.md#discovery-and-evidence). Terminal control
+characters are escaped, and `.env` contents are not read.
 
-Exit 0 means the discovery scan completed without malformed/unsupported/conflicting
-evidence. It does not mean script/tool selections are resolved or the project is
-ready. Problems or incomplete scans exit 1; invalid CLI arguments exit 2. Control
-characters from repository text are escaped. Repeated scans do not create files.
-
-Import currently accepts only DIR: `--apply` and selections are not available.
-Environment checks/setup operate on an existing config separately below.
-Explicit `--config` on import is rejected with an explanation rather
-than ignored. Unlike workspace operations, preview does not read local devctl.toml;
-an invalid existing workspace therefore does not prevent examining a directory.
-It also does not compare that workspace to discovery candidates yet.
+## Reviewed configuration import (M7.3)
 
 ```sh
 devctl import /absolute/repository
-devctl import /absolute/repository/apps/web
+devctl --config /path/to/workspace.toml import /absolute/repository \
+  --project apps/web --script apps/web=dev \
+  --node-version 24.18.0 --package-manager pnpm@10.3.0
+devctl --config /path/to/workspace.toml import /absolute/repository \
+  --project apps/web --script apps/web=dev \
+  --node-version 24.18.0 --package-manager pnpm@10.3.0 --apply
 ```
+
+Without `--apply`, import shows discovery, the full configuration destination,
+selected IDs, a field diff and four-state installation findings without writing
+config, creating parent directories or changing local bindings. Resolved previews
+exit 0 even when tools/dependencies need later setup. Incomplete scans, incompatible
+source declarations, invalid existing configs or unresolved selections exit 1;
+invalid CLI usage exits 2. A complete scan alone is no longer a successful resolved
+import. Missing installations do not authorize downloads or imply readiness.
+
+Import options and destination selection are defined in the
+[command contract](#command-contract). These import flags are implemented, including
+`--apply`/`--yes`, project/script selections and explicit `--replace PROJECT_ID`.
+One runnable package can be selected automatically; one plausible startup script can
+be selected within it. Other packages/scripts require explicit selection. In a TTY,
+arrows/j/k move, Space selects packages and Enter continues or chooses one script;
+Esc/Ctrl-C cancels. Libraries are visible but disabled. A clipped selection screen
+requires resizing before changes can be selected. Only missing version choices ask
+for exact Node or npm/pnpm versions; no release-index/LTS selection exists yet.
+Exact repository pins or compatible existing choices can resolve versions, and
+`--node` verifies an explicitly selected local executable. Saving never adopts tools.
+Known exact-manager metadata rejects an incompatible Node/manager tuple even when
+the requested Node is not installed. Unavailable tool metadata remains unverified
+until doctor/setup; it is never an application-readiness claim.
+
+Apply shows the concrete diff before one `y/N` confirmation. In a non-TTY it requires
+`--yes` and resolved choices; `--yes` never chooses an ambiguous entry. Source
+changes, destination changes, contention or cancellation require a fresh preview.
+An active foreground runner or supervisor (including an idle background workspace)
+blocks apply; import never stops it. Shut it down, apply, then reopen the TUI.
+
+Canonical project directories identify existing entries. Reimport preserves IDs,
+comments, ordering, commands, cwd, autostart, dependencies and unrelated config.
+Unchanged import does not rewrite the file. `--replace` updates only the selected
+project's discovered dependency root, script command, cwd and environment reference;
+its autostart and other fields stay unchanged. New entries join the default group.
+Multiple existing services for one project require manual resolution before a
+replacement; preserved aliases never create another duplicate. Missing discovered
+packages are reported and retained. Existing configs with missing project directories
+remain validation errors and are not repaired implicitly.
+
+Unsupported TOML layouts that the editor cannot round-trip safely are refused before
+writing. Import uses UTF-8 paths and rejects hard-linked destinations; existing config
+symlink aliases are resolved to their target and remain aliases. Transaction limits
+and publication guarantees belong to
+[DESIGN.md](../DESIGN.md#configuration-transaction-and-supervisor-boundary).
+
+Successful apply prints the saved path, project/service IDs and quoted doctor/setup/
+TUI commands. A provided `--node` path remains in the setup hint. Then use the normal
+[environment checks](#local-node-environments-m72) and TUI lifecycle. Tool/dependency
+installation remains pending; import does not change project files or start services.
 
 ## Local Node environments (M7.2)
 
 This source-tree increment supports npm 10/11 and pnpm 10 with explicitly selected
-exact Node/tool versions. Configuration is still authored manually; directory import
-does not save it yet. Optional fields are illustrated in the
+exact Node/tool versions. Configuration can be saved by directory import or authored
+manually. Optional fields are illustrated in the
 [configuration example](../DESIGN.md#design-baseline-and-compatibility).
 `dependency_root` resolves relative to the project and must contain it. A managed
 service must use exactly `[MANAGER, "run", SCRIPT]` with its project as cwd and a
@@ -433,14 +479,15 @@ Process `Running` still does not establish application readiness.
 
 ## Planned directory workflow (M7)
 
-**Planned full workflow.** Read-only import and the local-tool subset above exist.
-Import saving/selection flags, tool/dependency installation and inventory checks
-below remain pending. The M7.2 behavior above is authoritative for current setup.
+**Partially implemented full workflow.** Discovery, reviewed configuration import
+and local-tool binding above exist. Tool/dependency installation, inventory checks
+and complete platform acceptance remain pending. M7.2 usage above is authoritative
+for current setup; setup installation flags below are future work.
 [A01/A02](requirements.md#directory-onboarding-and-environment-automation-a01a03) owns
 scope; [planned mechanisms](../DESIGN.md#planned-directory-onboarding-and-environment-preparation-m7)
 own discovery rules, supported tools, limits, storage and transactions.
 
-### Planned commands
+### Command contract
 
 | Command | Observable behavior |
 | --- | --- |
@@ -480,7 +527,8 @@ mutation with the missing selections listed. A read-only preview may show unreso
 choices, but returns nonzero while the plan cannot be applied. Do not read passwords
 from stdin or hang waiting for choices in redirected use.
 
-Setup accepts `--node ABSOLUTE_PATH` for adopting an exact matching local Node.
+Current setup accepts `--node ABSOLUTE_PATH` for adopting an exact matching local Node.
+The following installation flags are planned for M7.4 and are not available yet.
 `--allow-lockfile-change` explicitly selects a non-frozen install action when a
 lockfile exists. `--allow-scripts` explicitly selects normal manager lifecycle
 execution (including explicitly displayed package-manager hooks) subject to the
@@ -540,7 +588,7 @@ usage exits 2. A saved import may exit 0 while reporting missing dependencies: i
 named operation is saving configuration. doctor/setup recheck exits 1 if requested
 checks remain missing, incompatible or unknown. Print the outcome distinction.
 
-### Example after implementation
+### Import and local-binding example
 
 For a repository with web/API workspace members (versions here are illustrative):
 

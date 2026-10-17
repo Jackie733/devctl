@@ -21,6 +21,11 @@ impl RunLock {
         let config_path = path.canonicalize().map_err(|error| {
             format!("Failed to resolve config path {}: {error}", path.display())
         })?;
+        Self::try_acquire_target(&config_path)
+    }
+
+    /// Caller supplies a canonical parent/name, possibly before first publication.
+    pub fn try_acquire_target(config_path: &Path) -> Result<Option<Self>, String> {
         let mut name = config_path.as_os_str().to_os_string();
         name.push(".devctl.lock");
         let lock_path = PathBuf::from(name);

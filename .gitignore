@@ -1,4 +1,7 @@
 /target
 /dist
 *.devctl.lock
+*.devctl.edit.lock
+.devctl-import-*.tmp
+__pycache__/
 *.devctl/

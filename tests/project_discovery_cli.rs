@@ -57,7 +57,7 @@ impl Drop for Fixture {
 }
 
 #[test]
-fn preview_needs_no_config_tools_or_shell_and_never_runs_project_scripts() {
+fn discovery_stays_read_only_but_invalid_existing_config_blocks_import_planning() {
     let fixture = Fixture::new();
     fixture.write(
         "package.json",
@@ -96,8 +96,8 @@ fn preview_needs_no_config_tools_or_shell_and_never_runs_project_scripts() {
         .env("PATH", &executable_dir)
         .output()
         .unwrap();
-    assert!(output.status.success(), "{output:?}");
-    assert!(output.stderr.is_empty());
+    assert_eq!(output.status.code(), Some(1), "{output:?}");
+    assert!(String::from_utf8_lossy(&output.stderr).contains("Existing configuration is invalid"));
     let text = String::from_utf8(output.stdout).unwrap();
     for expected in [
         "Read-only",
@@ -105,7 +105,7 @@ fn preview_needs_no_config_tools_or_shell_and_never_runs_project_scripts() {
         "npm@10.9.0",
         "scripts.dev",
         "Scan: complete",
-        "Preview only",
+        "Configuration destination",
     ] {
         assert!(text.contains(expected), "{text}");
     }
@@ -146,7 +146,7 @@ fn workspace_preview_separates_root_member_and_library_with_shared_install_locat
     );
     fixture.write("packages/domain/package.json", r#"{"name":"domain"}"#);
     let output = fixture.run(&["import", "."]);
-    assert!(output.status.success(), "{output:?}");
+    assert_eq!(output.status.code(), Some(1), "{output:?}");
     let text = String::from_utf8(output.stdout).unwrap();
     assert!(text.contains("4 project(s)"));
     assert!(text.contains("Root scripts"));
@@ -155,7 +155,7 @@ fn workspace_preview_separates_root_member_and_library_with_shared_install_locat
     assert!(text.contains("Script (explicit selection only): dev:stop"));
     assert_eq!(text.matches("Package manager: pnpm@10.3.0").count(), 4);
     let child = fixture.run(&["import", "apps/web"]);
-    assert!(child.status.success(), "{child:?}");
+    assert_eq!(child.status.code(), Some(1), "{child:?}");
     let text = String::from_utf8(child.stdout).unwrap();
     assert!(text.contains("1 project(s)"));
     assert!(text.contains("Package manager: pnpm@10.3.0"));
@@ -211,7 +211,7 @@ fn aliases_have_identical_results_and_child_symlinks_are_not_traversed() {
     symlink(&fixture.project, &alias).unwrap();
     let direct = fixture.run(&["import", "."]);
     let linked = fixture.run(&["import", alias.to_str().unwrap()]);
-    assert!(direct.status.success());
+    assert_eq!(direct.status.code(), Some(1));
     assert_eq!(direct.stdout, linked.stdout);
     assert_eq!(direct.stderr, linked.stderr);
 }
@@ -224,7 +224,7 @@ fn terminal_controls_in_untrusted_names_and_commands_are_not_emitted() {
         &json!({"name":"demo\u{1b}[2J","scripts":{"dev":"echo \u{1b}[2J\rmalicious"}}).to_string(),
     );
     let output = fixture.run(&["import", "."]);
-    assert!(output.status.success());
+    assert_eq!(output.status.code(), Some(1));
     assert!(!output.stdout.contains(&0x1b));
     assert!(!output.stdout.contains(&b'\r'));
     assert!(
@@ -235,22 +235,28 @@ fn terminal_controls_in_untrusted_names_and_commands_are_not_emitted() {
 }
 
 #[test]
-fn only_preview_is_exposed_and_config_option_is_never_silently_ignored() {
+fn apply_flags_are_exposed_and_explicit_config_selects_the_destination() {
     let fixture = Fixture::new();
     let help = fixture.run(&["import", "--help"]);
     assert!(help.status.success());
     let text = String::from_utf8(help.stdout).unwrap();
     assert!(text.contains("Preview project directories"));
-    assert!(!text.contains("--apply"));
-    for args in [&["import"][..], &["import", ".", "--apply"]] {
-        assert_eq!(fixture.run(args).status.code(), Some(2));
-    }
+    assert!(text.contains("--apply"));
+    fixture.write(
+        "package.json",
+        r#"{"packageManager":"npm@11.0.0","scripts":{"dev":"node server"}}"#,
+    );
+    assert_eq!(fixture.run(&["import"]).status.code(), Some(2));
+    assert_eq!(
+        fixture.run(&["import", ".", "--apply"]).status.code(),
+        Some(1)
+    );
     let output = fixture.run(&["--config", "new.toml", "import", "."]);
     assert_eq!(output.status.code(), Some(1));
     assert!(
         String::from_utf8(output.stderr)
             .unwrap()
-            .contains("omit --config")
+            .contains("Node selection required")
     );
     assert!(!fixture.project.join("new.toml").exists());
 }

@@ -37,10 +37,12 @@ pub enum Command {
         #[arg(long, requires = "apply")]
         yes: bool,
     },
-    /// Preview project directories and declared scripts without executing or writing.
+    /// Preview project directories and review configuration additions or replacements.
     Import {
         #[arg(value_name = "DIR")]
         directory: PathBuf,
+        #[command(flatten)]
+        options: ImportOptions,
     },
 
     /// Check, install, or roll back the devctl program (no workspace config needed).
@@ -134,4 +136,24 @@ pub enum Command {
         #[arg(long)]
         allow_unverified_dependencies: bool,
     },
+}
+
+#[derive(Debug, Clone, Default, clap::Args)]
+pub struct ImportOptions {
+    #[arg(long = "project", value_name = "RELATIVE_PATH")]
+    pub projects: Vec<PathBuf>,
+    #[arg(long = "script", value_name = "RELATIVE_PATH=SCRIPT")]
+    pub scripts: Vec<String>,
+    #[arg(long, value_name = "EXACT")]
+    pub node_version: Option<String>,
+    #[arg(long, value_name = "npm@EXACT|pnpm@EXACT")]
+    pub package_manager: Option<String>,
+    #[arg(long, value_name = "ABSOLUTE_PATH")]
+    pub node: Option<PathBuf>,
+    #[arg(long, value_name = "PROJECT_ID")]
+    pub replace: Vec<String>,
+    #[arg(long)]
+    pub apply: bool,
+    #[arg(long, requires = "apply")]
+    pub yes: bool,
 }

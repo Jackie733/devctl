@@ -132,6 +132,32 @@ fn config_file_exists(path: &Path) -> Result<bool, String> {
     Ok(true)
 }
 
+/// Import may propose a new destination, but never bypasses an existing candidate.
+pub fn resolve_import_path(explicit: Option<PathBuf>) -> Result<PathBuf, String> {
+    if let Some(path) = explicit {
+        return Ok(path);
+    }
+    let local = std::env::current_dir()
+        .map_err(|error| error.to_string())?
+        .join("devctl.toml");
+    if config_file_exists(&local)? {
+        return Ok(local);
+    }
+    let home = std::env::var_os("HOME")
+        .map(PathBuf::from)
+        .filter(|path| path.is_absolute())
+        .ok_or("New import destinations require an absolute HOME or explicit --config PATH.")?;
+    for path in [
+        home.join("devctl.toml"),
+        home.join(".config/devctl/devctl.toml"),
+    ] {
+        if config_file_exists(&path)? {
+            return Ok(path);
+        }
+    }
+    Ok(home.join(".config/devctl/devctl.toml"))
+}
+
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Dependency {
@@ -167,7 +193,15 @@ pub fn load(path: &Path) -> Result<Config, String> {
     let content = fs::read_to_string(path)
         .map_err(|error| format!("Failed to read {}: {error}", path.display()))?;
 
-    let mut config: Config = toml::from_str(&content)
+    let canonical = path
+        .canonicalize()
+        .map_err(|error| format!("Failed to resolve config path {}: {error}", path.display()))?;
+    parse(&content, &canonical)
+}
+
+/// Validate proposed bytes against their final path, without creating a file.
+pub fn parse(content: &str, path: &Path) -> Result<Config, String> {
+    let mut config: Config = toml::from_str(content)
         .map_err(|error| format!("Failed to parse {}: {error}", path.display()))?;
 
     config.logs.validate()?;
@@ -220,11 +254,7 @@ pub fn load(path: &Path) -> Result<Config, String> {
         environment.validate()?;
     }
 
-    let config_path = path
-        .canonicalize()
-        .map_err(|error| format!("Failed to resolve config path {}: {error}", path.display()))?;
-
-    let config_dir = config_path
+    let config_dir = path
         .parent()
         .ok_or_else(|| "Config path must have a parent directory.".to_string())?;
 

@@ -311,7 +311,7 @@ pub async fn setup(
     if !apply {
         return Ok(());
     }
-    if !yes && !confirm_binding().await? {
+    if !yes && !confirm("Apply these bindings? [y/N] ").await? {
         return Err("Binding cancelled; no bindings changed.".into());
     }
     // Recheck reviewed source/tool evidence after the user has made a selection.
@@ -342,17 +342,15 @@ pub async fn setup(
     Ok(())
 }
 
-async fn confirm_binding() -> Result<bool, String> {
+pub(crate) async fn confirm(prompt: &str) -> Result<bool, String> {
     use crossterm::event::{Event, EventStream, KeyCode, KeyEventKind};
     use futures_util::StreamExt;
     use std::io::{IsTerminal, Write};
     if !std::io::stdin().is_terminal() || !std::io::stdout().is_terminal() {
         return Err(
-            "Non-interactive binding requires --apply --yes after reviewing the preview.".into(),
+            "Non-interactive apply requires --apply --yes after reviewing the preview.".into(),
         );
     }
-    print!("Apply these bindings? [y/N] ");
-    std::io::stdout().flush().map_err(|e| e.to_string())?;
     struct Raw;
     impl Drop for Raw {
         fn drop(&mut self) {
@@ -361,6 +359,8 @@ async fn confirm_binding() -> Result<bool, String> {
     }
     crossterm::terminal::enable_raw_mode().map_err(|e| e.to_string())?;
     let _raw = Raw;
+    print!("{prompt}");
+    std::io::stdout().flush().map_err(|e| e.to_string())?;
     let mut events = EventStream::new();
     while let Some(event) = events.next().await {
         if let Event::Key(key) = event.map_err(|error| error.to_string())?
@@ -371,6 +371,31 @@ async fn confirm_binding() -> Result<bool, String> {
         }
     }
     Ok(false)
+}
+
+pub(crate) async fn import_node(path: &Path) -> Result<String, String> {
+    tools::node_version(path).await
+}
+
+pub(crate) fn import_manager(node: &Path, name: &str) -> Result<String, String> {
+    tools::local_manager(node, name)
+}
+
+/// Source compatibility blocks import; missing installations do not imply invalid choices.
+pub(crate) fn import_fingerprint(
+    managed: &Managed,
+    script: &str,
+    report: &crate::discovery::Report,
+    node: Option<&Path>,
+) -> Result<String, String> {
+    tools::import_compatibility(&managed.environment, node)?;
+    let facts = constraints::inspect_report(managed, script, report)?;
+    for check in &facts.checks {
+        if check.item != "dependencies" {
+            check.require()?;
+        }
+    }
+    Ok(facts.fingerprint)
 }
 
 /// Preflight the complete new-instance batch before Manager registers any child.

@@ -498,8 +498,7 @@ pub fn safe(value: impl std::fmt::Display) -> String {
         .collect()
 }
 
-pub fn preview(path: &Path) -> Result<(), String> {
-    let report = scan(path)?;
+pub(crate) fn print_report(report: &Report) {
     println!("Read-only project discovery (no commands executed, no files changed)");
     println!("Directory: {}", safe(report.root.display()));
     println!(
@@ -599,12 +598,4 @@ pub fn preview(path: &Path) -> Result<(), String> {
         },
         report.candidates.len()
     );
-    println!(
-        "Preview only: configuration selection/saving, environment checks and installation are not implemented yet."
-    );
-    if report.problems.is_empty() {
-        Ok(())
-    } else {
-        Err("Project discovery has unresolved problems. Review the evidence above; no commands were executed or files changed.".into())
-    }
 }

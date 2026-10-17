@@ -259,7 +259,8 @@ async fn run_inner(path: &Path, detached: bool) -> Result<(), String> {
     let path = path
         .canonicalize()
         .map_err(|error| format!("Failed to resolve config path {}: {error}", path.display()))?;
-    let config = config::load(&path)?;
+    // Keep initial validation side-effect free, then discard it and reread once owned.
+    config::load(&path)?;
     let workspace_id = workspace_identity()?;
     let mut interrupt = signal(SignalKind::interrupt())
         .map_err(|error| format!("Failed to register SIGINT handler: {error}"))?;
@@ -274,6 +275,9 @@ async fn run_inner(path: &Path, detached: bool) -> Result<(), String> {
             return Err(format!("Config '{}' is already managed.", path.display()));
         }
     };
+    // Read only after ownership: an importer may have replaced the file while
+    // this supervisor was acquiring the sidecar lock.
+    let config = config::load(&path)?;
     let socket = ControlSocket::bind(&path, &_run_lock)?;
     let (sinks, mut output, mut logs) = logs::channel(config.services.keys().cloned());
     let archive = Archive::start(&path, config.logs, workspace_id.clone(), _run_lock.clone())?;

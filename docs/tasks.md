@@ -3,61 +3,66 @@
 Keep current work and necessary handoff here; Git retains history. Collaboration
 rules are in [AGENTS.md](../AGENTS.md).
 
-## Current: M7.2 environment checks and local Node binding complete (A02)
+## Current: M7.3 reviewed configuration import implemented (A01, W05)
 
-Authorized by the user's 2026-10-17 instruction to execute the next M7 slice.
-Source remains **1.5.0, unreleased**; M7.1 is committed as `e3a4b73`.
-Scope/acceptance: [A02](requirements.md#directory-onboarding-and-environment-automation-a01a03);
-operations: [M7.2 usage](interaction.md#local-node-environments-m72).
+Authorized by the user's instruction to continue after M7.2 (`e84c3dd`). Source
+remains **1.5.0, unreleased**. Scope: [A01](requirements.md#directory-onboarding-and-environment-automation-a01a03);
+mechanisms: [configuration transaction](../DESIGN.md#configuration-transaction-and-supervisor-boundary);
+operations: [M7.3 usage](interaction.md#reviewed-configuration-import-m73).
 
-Completion criteria met: strict optional Node configuration; npm-compatible ranges
-including unselected workspace members; separate four-state declarations/tool/binding/
-dependency checks; bounded non-activating probes; explicit adoption without downloads;
-service-specific tools including nested script calls; complete-batch preflight;
-responsive stop/status; CLI and real-terminal confirmation; legacy compatibility;
-public English references and Chinese overview updated.
+Completion criteria met: explicit/guided project and script selections; exact
+version choices and source compatibility; stable canonical-directory identities;
+new/existing config plans; no-write previews; preserved comments/user edits and
+no-op bytes/inode; explicit replacements; source/target rechecks; atomic publication;
+active-workspace refusal; import/start race coverage; real-terminal and real-Node
+verification; public references and Chinese overview synchronized.
 
-Implemented `doctor`, local-only `setup` preview/apply, private exact-path/version
-receipts and launchers, binding/root lifetime locks and managed startup. Existing
-dependency directories remain unknown until inventory support; explicit per-start
-acknowledgement never bypasses missing dependencies or tool/config failures.
-Configuration import, tool/dependency installation and inventory remain pending.
-This implementation slice does not establish full M7 or user acceptance.
+Import saves only reviewed additions/replacements. It never installs, adopts tools,
+starts services or edits repository files. Existing legacy commands remain unchanged
+without explicit replacement. Tool/dependency installation and inventory remain M7.4;
+full M7/platform/user acceptance is not claimed.
 
-### Recorded M7.2 validation
+### Recorded M7.3 validation
 
-- `cargo test --locked`: **286 passed**, including legacy background, lifecycle,
-  logs, updates and terminal tests. `cargo test --locked --test environment_cli`:
-  **15 passed** again after final checks and repairs.
+- `cargo test --locked`: **307 passed** across 16 suites. Includes 16 configuration
+  import CLI tests, four transaction tests, the existing discovery/legacy lifecycle/
+  background/TUI/update suites and a new tool-pair compatibility regression.
 - `cargo fmt --check`; `cargo clippy --locked --all-targets -- -D warnings`;
   `cargo clippy --locked --all-targets --target x86_64-unknown-linux-gnu -- -D warnings`:
-  passed. No Linux/WSL runtime or new physical Intel acceptance is claimed.
-- Native fixtures cover incompatible/unknown declarations, shared-root dependencies,
-  independent versions, missing/corrupt/changed bindings, live refresh exclusion,
-  shim refusal, bounded stalled/flooding probes, interruption/descendant cleanup,
-  whole-batch refusal, responsive status/stop and launcher quoting/tool shadowing.
-  These cold-start fixtures serialize unrelated tests to avoid competing with
-  deadline assertions; multi-service operation is exercised within a fixture.
-- A real PTY verifies apply/cancel, declarations changed during review, terminal
-  restoration, normal start refusal for unknown dependencies, visible `S`/`y`
-  confirmation, clipped-dialog refusal and fresh acknowledgement after stop.
-- Disposable projects/private HOME using actual Node **24.18.0**, npm **11.16.0**
-  and pnpm **10.3.0** passed doctor, binding preview/apply, managed startup, nested
-  Node/npm/pnpm versions, status, stop, restart and shutdown. Project `.bin` spies
-  were not executed; manifests stayed unchanged. Corepack's exact cached pnpm CLI
-  was used without activation/download; no actual application/data service ran.
-- Read-only bogu doctor for web/API found declared pnpm 10.3.0, correctly reported
-  unknown dependency evidence and missing local bindings. Manifest/workspace/lockfile
-  hashes and Git status were unchanged. No bogu config, dependencies, database or
-  running services were changed. The installed devctl binary was not replaced.
-- `git diff --check`, 139 local Markdown links/anchors, managed TOML example,
-  generated launcher shell syntax and Python helper parsing passed.
+  passed. No Linux/WSL runtime, physical Intel or macOS 14 acceptance was added.
+- Coverage includes new/default destinations, missing versions, ambiguity, shared
+  installation roots, unselected member constraints, stable collision IDs, aliases,
+  preserved manual fields/inline comments, replacements, no-op inode preservation,
+  removed manifests, incompatible selected tools, malformed inputs, special/oversized
+  files, hardlinks, sidecar failures and concurrent creators/editors/parent changes.
+- Real PTY coverage: project/script selection, disabled libraries, exact-version
+  prompts, clipped-screen refusal, confirmation/cancel, signal cleanup, source and
+  target changes while reviewing, terminal restoration and no writes on refusal.
+- A deterministic gated-read test replaces config during foreground/supervisor
+  preflight: only the newly committed command executes. Final declarations are
+  reread under ownership; initial invalid configs still fail without sidecars.
+- Disposable projects/private HOME with actual Node **24.18.0**, npm **11.16.0** and
+  pnpm **10.3.0** passed import preview/apply without manual TOML, quoted doctor/setup
+  hints, explicit local binding, start/status/stop/restart, TUI leave/reconnect with
+  unchanged instance, shutdown and unchanged repeat import. Spaces/apostrophes in
+  project/config paths worked, nested tool versions stayed bound and project `.bin`
+  spies were not executed. No package downloads/dependency installation occurred.
+- Read-only bogu planning generated web/API additions sharing its declared pnpm
+  version/root in a disposable destination preview. A separate preview against the
+  user's existing config preserved its web/API IDs, custom commands and autostart.
+  Config bytes, manifest/workspace/lockfile hashes and bogu Git status were unchanged.
+  No bogu services, dependency files, database or installed devctl were modified.
+- Local Markdown links/anchors, balanced fences, managed TOML and Python helper
+  parsing, nine shell documentation blocks and `git diff --check` passed.
+  `toml_edit` 0.25.17 is MIT OR Apache-2.0; lockfile changes are scoped to this editor
+  and its already present dependencies' required features.
 
 ## Next steps
 
-1. M7.3: reviewed configuration import/save; then M7.4 tool/dependency installation
-   and inventory, and M7.5 complete acceptance. The baseline is authorized; routine
-   implementation needs no repeated approval. `import DIR` still only previews.
+1. M7.4: isolated tool/dependency installation, policy, progress/cancellation and
+   inventory; then M7.5 complete acceptance. The baseline is authorized; routine
+   implementation needs no repeated approval. Import saving/local binding exist;
+   downloads and dependency installation do not.
    Complete real directory-to-running-project and platform acceptance before calling
    M7 delivered. Do not install into bogu implicitly.
 2. Preserve public Mac release/platform gaps and real WSL U01/log and X03 update/

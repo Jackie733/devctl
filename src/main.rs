@@ -6,6 +6,7 @@ mod control;
 mod control_socket;
 mod discovery;
 mod environment;
+mod import;
 mod logs;
 mod manager;
 mod plan;
@@ -53,11 +54,8 @@ async fn run(cli: Cli) -> ExitCode {
 
 async fn execute(cli: Cli) -> Result<(), String> {
     let command = cli.command.unwrap_or(Command::Tui);
-    if let Command::Import { directory } = &command {
-        if cli.config.is_some() {
-            return Err("The read-only import preview does not select a workspace yet; omit --config. Configuration saving is not implemented.".into());
-        }
-        return discovery::preview(directory);
+    if let Command::Import { directory, options } = &command {
+        return environment::interruptible(import::run(directory, cli.config, options)).await;
     }
     if let Command::Update {
         check,
@@ -357,6 +355,19 @@ async fn run_services(
         .map_err(|error| format!("Failed to register SIGTERM handler: {error}"))?;
 
     let _run_lock = run_lock::RunLock::acquire(&path)?;
+    // Initial validation/no-op selection remains side-effect free. Discard its
+    // declarations: imports may have committed a different default group or command.
+    manager = Manager::new(config::load(&path)?.services);
+    let selected = if all {
+        manager.default_targets()
+    } else {
+        targets.to_vec()
+    };
+    manager.check_start(&selected)?;
+    if selected.is_empty() {
+        println!("No services selected.");
+        return Ok(());
+    }
     let sources = manager.start_sources(&selected)?;
     let prepared = if sources.values().any(|service| service.managed.is_some()) {
         tokio::select! {

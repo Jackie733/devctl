@@ -150,6 +150,74 @@ fn node_candidate(path: &Path) -> Result<PathBuf, String> {
     Ok(resolved)
 }
 
+pub(super) async fn node_version(path: &Path) -> Result<String, String> {
+    let node = node_candidate(path)?;
+    let text = probe::run(&node, &["--version".into()]).await?;
+    let raw = text.strip_prefix('v').unwrap_or(&text);
+    let version = semver::Version::parse(raw)
+        .map_err(|_| "Selected Node returned an invalid version.".to_owned())?;
+    if !version.pre.is_empty() || !version.build.is_empty() {
+        return Err("Select a stable Node version.".into());
+    }
+    Ok(raw.into())
+}
+
+pub(super) fn local_manager(node: &Path, name: &str) -> Result<String, String> {
+    find_tool(name, None, &node_candidate(node)?)
+        .map(|tool| tool.version)
+        .map_err(|check| check.detail)
+}
+
+/// A missing installation can be prepared later; a known incompatible tuple
+/// must not become an import choice merely because the selected Node is absent.
+pub(super) fn import_compatibility(
+    environment: &NodeEnvironment,
+    explicit: Option<&Path>,
+) -> Result<(), String> {
+    let node = if let Some(node) = explicit {
+        Some(node_candidate(node)?)
+    } else {
+        std::env::var_os("PATH")
+            .into_iter()
+            .flat_map(|path| std::env::split_paths(&path).collect::<Vec<_>>())
+            .filter(|path| path.is_absolute())
+            .take(64)
+            .find_map(|path| node_candidate(&path.join("node")).ok())
+    };
+    let Some(node) = node else {
+        return Ok(());
+    };
+    let Ok(tool) = find_tool(
+        &environment.package_manager,
+        Some(&environment.package_manager_version),
+        &node,
+    ) else {
+        return Ok(());
+    };
+    if tool.version != environment.package_manager_version {
+        return Ok(());
+    }
+    let version: node_semver::Version = environment
+        .version
+        .parse()
+        .map_err(|_| "Invalid selected Node version.".to_owned())?;
+    let range: node_semver::Range = tool
+        .engines
+        .parse()
+        .map_err(|_| "Unknown manager Node requirement.".to_owned())?;
+    if !version.satisfies(&range) {
+        return Err(format!(
+            "Selected {} {} requires Node {}, incompatible with selected {} (source {}).",
+            tool.name,
+            tool.version,
+            safe(&tool.engines),
+            environment.version,
+            safe(tool.root.join("package.json").display())
+        ));
+    }
+    Ok(())
+}
+
 fn tool(path: &Path, name: &str) -> Result<Tool, String> {
     let cli = path.canonicalize().map_err(|error| error.to_string())?;
     for root in cli

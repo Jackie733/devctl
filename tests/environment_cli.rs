@@ -698,3 +698,63 @@ fn real_terminal_reviews_bindings_and_requires_fresh_visible_start_confirmation(
         assert!(output.status.success(), "mode={mode}: {output:?}");
     }
 }
+
+#[test]
+fn import_rejects_a_known_incompatible_tool_tuple_but_allows_a_compatible_missing_node() {
+    let fixture = Fixture::new();
+    fixture.manifest(json!({"scripts":{"dev":"fixture"}}));
+    let metadata = fixture
+        .node
+        .parent()
+        .unwrap()
+        .parent()
+        .unwrap()
+        .join("lib/node_modules/npm/package.json");
+    let mut package: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(&metadata).unwrap()).unwrap();
+    package["engines"]["node"] = json!(">=20");
+    fs::write(metadata, package.to_string()).unwrap();
+    let path = std::env::join_paths([
+        fixture.node.parent().unwrap(),
+        Path::new("/usr/bin"),
+        Path::new("/bin"),
+    ])
+    .unwrap();
+    let before = fs::read(&fixture.config).unwrap();
+    let run = |version: &str| {
+        fixture
+            .command(&[
+                "import",
+                fixture.project.to_str().unwrap(),
+                "--replace",
+                "demo",
+                "--node-version",
+                version,
+                "--apply",
+                "--yes",
+            ])
+            .env("PATH", &path)
+            .output()
+            .unwrap()
+    };
+    let output = run("18.0.0");
+    assert_eq!(output.status.code(), Some(1), "{output:?}");
+    assert!(String::from_utf8_lossy(&output.stderr).contains("requires Node >=20"));
+    assert_eq!(fs::read(&fixture.config).unwrap(), before);
+    let output = run("22.0.0");
+    assert!(output.status.success(), "{output:?}");
+    let config: toml::Value =
+        toml::from_str(&fs::read_to_string(&fixture.config).unwrap()).unwrap();
+    let id = config["services"]["demo"]["node_environment"]
+        .as_str()
+        .unwrap();
+    assert_eq!(
+        config["node_environments"][id]["version"].as_str(),
+        Some("22.0.0")
+    );
+    assert_eq!(
+        config["node_environments"]["local"]["version"].as_str(),
+        Some("24.0.0")
+    );
+    assert!(!fixture.project.join("observed").exists());
+}
