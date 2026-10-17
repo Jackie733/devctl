@@ -140,6 +140,26 @@ impl Manager {
         Ok(())
     }
 
+    pub fn start_sources(&self, targets: &[String]) -> Result<BTreeMap<String, Service>, String> {
+        self.check_start(targets)?;
+        Ok(targets
+            .iter()
+            .filter(|id| !self.tasks.contains_key(*id))
+            .map(|id| (id.clone(), self.services[id].clone()))
+            .collect())
+    }
+
+    pub fn start_prepared(&mut self, services: BTreeMap<String, Service>) -> Result<(), String> {
+        let targets: Vec<_> = services.keys().cloned().collect();
+        self.check_start(&targets)?;
+        for (id, service) in services {
+            if !self.tasks.contains_key(&id) {
+                self.start(id, service)?;
+            }
+        }
+        Ok(())
+    }
+
     pub fn start_all(&mut self) -> Result<(), String> {
         self.start_selected(&self.default_targets())
     }

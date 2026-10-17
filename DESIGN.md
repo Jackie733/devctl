@@ -536,8 +536,9 @@ reboot recovery while those features remain proposals.
 ## Planned directory onboarding and environment preparation (M7)
 
 Status: baseline requested on 2026-10-16 and implementation authorized afterward.
-M7.1 read-only discovery is implemented; config saving, environment checks/binding,
-setup and managed startup below remain **not implemented**.
+M7.1 discovery and M7.2 environment checks/local bindings/managed startup are
+implemented. Config saving, tool/dependency installation and dependency inventory
+below remain **not implemented**. Future mechanisms are explicitly distinguished.
 [A01/A02 requirements](docs/requirements.md#directory-onboarding-and-environment-automation-a01a03)
 own scope and acceptance; the [planned interaction](docs/interaction.md#planned-directory-workflow-m7)
 owns commands, selections and feedback. This baseline guides the authorized
@@ -589,7 +590,7 @@ versions. Environment references contain exact stable versions, never moving tag
 manifest, and match discovered workspace membership when it differs from the project.
 `node_environment` defaults to absent; absence preserves inherited-environment execution.
 Environment entries contain exactly the shown required keys; references and versions
-are validated before spawn. Imported commands use the declared package manager as
+are validated before spawn. Managed commands use the declared package manager as
 argv[0]. For managed entries, reject incompatible commands instead of rewriting
 arbitrary user commands. Older devctl versions reject these new fields; explain
 this before writing and before switching back to an old binary. No silent migration
@@ -693,12 +694,12 @@ them into hard errors. Unresolved error policies prevent an automatic ready resu
 Read all participating workspace members' constraints before a shared-root install;
 an unselected member may still be installed by its package manager.
 
-Implement the documented npm range semantics for exact versions, comparator sets,
+M7.2 uses `node-semver` 2.2 (Apache-2.0) for npm range semantics: exact versions, comparator sets,
 whitespace intersection, `||`, caret, tilde, x/partial and hyphen ranges, with stable
 release/prerelease rules. Rust `semver::VersionReq` is not an npm range parser and
-must not be used as if equivalent. Use a focused npm-compatible parser only after
-reviewing its behavior, or a small explicit parser with table-driven conformance
-cases; unsupported syntax stays unknown and blocks automatic version selection.
+must not be used as if equivalent. Table-driven cases cover these semantics;
+unsupported syntax stays unknown and blocks managed startup. SHA-256
+declaration/CLI fingerprints use `sha2` 0.10 (MIT OR Apache-2.0).
 
 Selection preference is a compatible recorded environment, then compatible local
 installations, then an offered official active-LTS release satisfying every hard
@@ -729,6 +730,12 @@ process group. No probe may download/activate a manager; bypass Corepack shims.
 Pinned pnpm invocations must disable `managePackageManagerVersions` and other
 automatic tool activation through tested command/config overrides. Unsupported
 activation settings block the managed operation instead of triggering a fetch.
+M7.2 additionally recognizes the exact declared pnpm package in Corepack's standard
+`v1/pnpm/VERSION` cache layout (COREPACK_HOME, XDG cache or HOME cache); it reads
+metadata and calls the actual CLI with selected Node without activating Corepack.
+Executable candidate lists are capped at 64; tool discovery and a start batch have
+an 8-second deadline, with at most 200 selected services. Filesystem calls retain
+the discovery caveat above. Shared-root scans are reused within a start batch.
 
 A local environment receipt binds exact versions to absolute Node and manager CLI
 paths, source, OS/architecture and verified installation metadata. Adopt a compatible
@@ -743,6 +750,19 @@ write receipts. Doctor distinguishes a compatible detected executable from a
 missing verified local binding. Import prints a setup command retaining an explicitly
 selected `--node` path when adoption is still needed.
 
+M7.2 local-only setup rechecks declaration fingerprints and tool metadata after
+confirmation. Private binding storage is under HOME's
+`Library/Application Support/devctl/toolchains` on Mac or
+`.local/share/devctl/toolchains` on Linux. Receipts are
+owned regular files, at most 64 KiB; intermediate storage directories cannot be
+symlinks or group/world writable. Publication uses private staging, rename and
+fsync. A tuple lock excludes adoption/refresh while an instance uses that binding;
+an explicit same-path verified refresh atomically replaces only its receipt.
+Different-path replacement and damaged launchers require manual repair, never an
+implicit fallback. Shared canonical dependency-root locks remain held through
+instance cleanup, including unconfirmed cleanup; installation will use exclusive
+root locks in M7.4. Doctor/preview do not create lock files or storage directories.
+
 Before starting a managed service, resolve its receipt, run bounded version checks,
 and prepare an internal launch specification: absolute Node + absolute manager CLI
 + `run SCRIPT`, with the selected Node bin and manager launchers prepended to the
@@ -752,8 +772,20 @@ the supervisor's global environment or shell profiles. Legacy services retain
 their existing launch semantics. This is a narrow managed-tool binding, not public
 `env_files`/arbitrary per-service overrides.
 
+Since package managers prepend project `.bin` directories, M7.2 supplies a private
+`script-shell` adapter which restores bound tool precedence and then execs `/bin/sh`
+with the original shell arguments. Source script text is not rebuilt. Custom
+`script-shell`/`shellEmulator` settings are unknown and block this adapter, as do
+unsupported runtime-switching/hook keys in supported project/user/global settings.
+The manager-version autoactivation override is enforced per service. Private
+launchers bind npm/pnpm/npx to selected Node; unavailable tools and Corepack have
+explicit failing launchers. An intentional absolute executable in project code is
+outside this name-based binding contract.
+
 For dependencies, absence of `node_modules` for a manifest declaring dependencies
-is missing; directory presence alone is unknown. Inspect supported npm lock/module
+is missing; directory presence alone is unknown. M7.2 stops at these static states
+(a package without dependencies is satisfied); inventory and installation receipts
+in the remainder of this paragraph belong to M7.4. Inspect supported npm lock/module
 metadata and pnpm modules/importer metadata for actual installation evidence. Record
 a successful devctl setup receipt with hashes of participating manifests, lockfiles,
 workspace and package-manager configuration files, selected tools, platform and

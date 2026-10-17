@@ -19,6 +19,24 @@ pub struct Cli {
 
 #[derive(Debug, Subcommand)]
 pub enum Command {
+    /// Check declared Node environments without installing tools or changing bindings.
+    Doctor {
+        #[arg(value_name = "SERVICE")]
+        services: Vec<String>,
+        #[arg(long, value_name = "ABSOLUTE_PATH")]
+        node: Option<PathBuf>,
+    },
+    /// Preview or record bindings to existing Node tools (installation is not available yet).
+    Setup {
+        #[arg(value_name = "SERVICE")]
+        services: Vec<String>,
+        #[arg(long, value_name = "ABSOLUTE_PATH")]
+        node: Option<PathBuf>,
+        #[arg(long)]
+        apply: bool,
+        #[arg(long, requires = "apply")]
+        yes: bool,
+    },
     /// Preview project directories and declared scripts without executing or writing.
     Import {
         #[arg(value_name = "DIR")]
@@ -54,6 +72,9 @@ pub enum Command {
         services: Vec<String>,
         #[arg(long)]
         all: bool,
+        /// Acknowledge unknown dependency inventory for this request only.
+        #[arg(long)]
+        allow_unverified_dependencies: bool,
     },
     /// Stop selected services, keeping the workspace available.
     Stop {
@@ -109,5 +130,8 @@ pub enum Command {
         /// Run all autostart services.
         #[arg(long)]
         all: bool,
+        /// Acknowledge unknown dependency inventory for this run only.
+        #[arg(long)]
+        allow_unverified_dependencies: bool,
     },
 }

@@ -27,15 +27,15 @@ The 1.2.2 documentation/license release provides the next real version for testi
 ## Next steps
 
 The user requested M7 detailed design on 2026-10-16 after local Mac deployment.
-Its design baseline is recorded; M7.1 read-only discovery is implemented, and the
+Its design baseline is recorded; M7.1 discovery and M7.2 local tool binding are implemented, and the
 remaining M7 workflow is pending. Existing Mac publication and historical WSL
 acceptance work remain explicit follow-ups in
 [tasks.md](tasks.md), rather than prerequisites that silently block this design.
 
 | Order | Work | Acceptance basis |
 | --- | --- | --- |
-| Baseline | M7 design (A01/A02, W05 package.json import) | Detailed [mechanisms](../DESIGN.md#planned-directory-onboarding-and-environment-preparation-m7), [interaction](interaction.md#planned-directory-workflow-m7), acceptance cases and implementation slices recorded; implementation authorized; only discovery delivered |
-| Current | M7 implementation | M7.1 read-only discovery delivered; advance through remaining slices below; the milestone is complete only after the whole directory-to-running-project workflow |
+| Baseline | M7 design (A01/A02, W05 package.json import) | Detailed [mechanisms](../DESIGN.md#planned-directory-onboarding-and-environment-preparation-m7), [interaction](interaction.md#planned-directory-workflow-m7), acceptance cases and implementation slices recorded; implementation authorized; discovery and local binding delivered |
+| Current | M7 implementation | M7.1/M7.2 delivered; next is M7.3 configuration import; the milestone is complete only after the whole directory-to-running-project workflow |
 | Following | M8 (A03) | Research actual database/Redis sources, credentials, stopped instances and shared-service control before detailed implementation design |
 | Outstanding | Real WSL log/UI and cross-version update/rollback | Preserve the [log](wsl.md#verify-logs) and [update](wsl.md#verify-updates) checks with real projects |
 | Outstanding | Native Mac publication/platform evidence | Preserve the release and platform handoff in tasks.md; no automatic push/tag/publication |
@@ -51,7 +51,7 @@ checks; later slices must not be described as already implemented.
 | Slice | Deliverable | Required evidence before advancing |
 | --- | --- | --- |
 | M7.1: discovery (implemented) | Bounded manifest/workspace scan, candidates, source/conflict reporting and read-only import preview | Single package, bogu-shaped workspace, ambiguity, exclusion, symlink/limit and no-command-execution fixtures |
-| M7.2: environment binding | Optional Node config fields, version semantics, bounded doctor checks and service-specific launch binding | npm-range cases, stalled shims, compatible local tools, different per-project versions, nested script tools and unchanged legacy execution |
+| M7.2: environment binding (implemented) | Optional Node config fields, version semantics, bounded doctor checks, explicit local-only setup and service-specific launch binding | npm-range cases, stalled shims, compatible local tools, different per-project versions, nested script tools and unchanged legacy execution |
 | M7.3: configuration import | Selection/replacement flow, stable IDs, comment-preserving atomic writes and active-workspace refusal | New/existing config, repeat/no-op, edits preserved, path aliases, simultaneous import and supervisor-start races |
 | M7.4: setup | Isolated verified tool install, shared-root dependency actions, progress/cancellation/retry and post-checks | Temporary HOME and disposable projects; checksum/network/permission failures, script policy, lockfile policy, shared-root locks and cleanup |
 | M7.5: complete acceptance | Full CLI onboarding into ordinary TUI start/log/stop/leave/reconnect | All [M7 cases](requirements.md#m7-acceptance-cases), actual supplied bogu directory and separate Mac/WSL evidence; no business-data mutations |

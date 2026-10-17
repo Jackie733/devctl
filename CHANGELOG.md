@@ -8,7 +8,12 @@ User-facing changes are grouped by released version. Download artifacts from
 - Add config-independent, read-only `import DIR` discovery for Node manifests,
   npm/pnpm workspace members, declared scripts and package-manager evidence.
   Explain command overlap, conflicts and bounded/incomplete scans without running
-  tools/scripts or writing files. Saving projects and environment setup remain pending.
+  tools/scripts or writing files. Saving projects remains pending.
+- Add optional exact Node environments, read-only `doctor`, reviewed local-only
+  `setup` bindings and service-specific Node/npm/pnpm execution. Preflight entire
+  start batches, keep stop/status responsive, and require a per-start CLI/TUI
+  acknowledgement for unknown dependency evidence. Tool/dependency installation
+  and dependency inventory verification remain pending.
 
 - Add native macOS 14+ operation on Apple Silicon and Intel, preserving process-group
   cleanup, background services, reconnect, retained logs and terminal restoration.

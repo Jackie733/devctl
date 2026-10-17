@@ -24,6 +24,8 @@ pub enum Operation {
     Start(String),
     Stop(String),
     StartAll,
+    StartUnverified(String),
+    StartAllUnverified,
     StopAll,
     Shutdown,
 }
@@ -34,6 +36,7 @@ impl Operation {
             Self::Start(id) => Request::Start {
                 targets: vec![id.clone()],
                 all: false,
+                allow_unverified_dependencies: false,
             },
             Self::Stop(id) => Request::Stop {
                 targets: vec![id.clone()],
@@ -42,6 +45,17 @@ impl Operation {
             Self::StartAll => Request::Start {
                 targets: Vec::new(),
                 all: true,
+                allow_unverified_dependencies: false,
+            },
+            Self::StartUnverified(id) => Request::Start {
+                targets: vec![id.clone()],
+                all: false,
+                allow_unverified_dependencies: true,
+            },
+            Self::StartAllUnverified => Request::Start {
+                targets: Vec::new(),
+                all: true,
+                allow_unverified_dependencies: true,
             },
             Self::StopAll => Request::Stop {
                 targets: Vec::new(),
@@ -56,6 +70,10 @@ impl Operation {
             Self::Start(id) => format!("Start {id}"),
             Self::Stop(id) => format!("Stop {id}"),
             Self::StartAll => "Start default services".into(),
+            Self::StartUnverified(id) => format!("Start {id} with unverified dependencies"),
+            Self::StartAllUnverified => {
+                "Start default services with unverified dependencies".into()
+            }
             Self::StopAll => "Stop all services".into(),
             Self::Shutdown => "End workspace".into(),
         }
@@ -616,6 +634,7 @@ pub struct App {
     pub feedback: String,
     pub connection_error: Option<String>,
     pub confirm_shutdown: bool,
+    pub confirm_start: Option<Operation>,
     pub help: bool,
     pub search_input: Option<String>,
 }
@@ -647,6 +666,7 @@ impl App {
             feedback: "Connecting; services will not start automatically.".into(),
             connection_error: None,
             confirm_shutdown: false,
+            confirm_start: None,
             help: false,
             search_input: None,
         }
@@ -897,6 +917,7 @@ impl App {
             self.selection_epoch += 1;
             self.reset_logs();
             self.confirm_shutdown = false;
+            self.confirm_start = None;
             if self.workspace_id.is_none() {
                 self.feedback = "Connected. Services were not started automatically. s: start selected; a: start default.".into();
             }
@@ -927,6 +948,7 @@ impl App {
         self.selection_epoch += 1;
         self.reset_logs();
         self.confirm_shutdown = false;
+        self.confirm_start = None;
         self.connection_error = Some(message);
     }
 
@@ -986,7 +1008,10 @@ impl App {
             return false;
         }
         self.feedback = match operation {
-            Operation::Start(_) | Operation::StartAll => format!(
+            Operation::Start(_)
+            | Operation::StartAll
+            | Operation::StartUnverified(_)
+            | Operation::StartAllUnverified => format!(
                 "{}: Start request accepted; waiting for process state.",
                 operation.label()
             ),

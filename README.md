@@ -32,6 +32,10 @@ Source 1.5.0 also includes `devctl import DIR`: a read-only preview of Node proj
 paths, declared scripts, shared installation roots and npm/pnpm evidence. It does
 not execute project commands, save workspace configuration or install dependencies.
 See [discovery usage](docs/interaction.md#read-only-project-discovery-m71).
+For explicitly configured Node services, `doctor` checks declarations and local
+tools, and `setup --node /absolute/path/to/node` previews an existing-tool binding.
+`setup --apply` confirms that binding; managed starts then use those exact tools.
+See [environment usage](docs/interaction.md#local-node-environments-m72).
 
 ## Platform support
 
@@ -48,14 +52,16 @@ restarts, and recovery after a machine reboot are not implemented. See the
 
 Planned automation will accept a project directory, derive startup configuration,
 check and help install its environment/dependencies, and discover, monitor and
-control database/Redis services. Only read-only directory/script discovery is implemented so far. Database
+control database/Redis services. Read-only discovery, environment checks and local
+tool binding are implemented so far. Database
 creation, migrations and application configuration generation are outside this
 increment. M7 now has a [detailed design](DESIGN.md#planned-directory-onboarding-and-environment-preparation-m7)
 and [planned command flow](docs/interaction.md#planned-directory-workflow-m7):
 read-only discovery, reviewed import, environment checks and separately reviewed
 setup. The initial proposal covers Node with npm/pnpm on Mac and Linux/WSL, preserves
 existing configuration edits, and applies imports only while the workspace is
-stopped. Import saving, doctor/setup and their flags are not available yet. See [scope and acceptance](docs/requirements.md#directory-onboarding-and-environment-automation-a01a03).
+stopped. Import saving and tool/dependency installation remain pending; current
+setup only binds existing tools. See [scope and acceptance](docs/requirements.md#directory-onboarding-and-environment-automation-a01a03).
 
 ## Installation
 

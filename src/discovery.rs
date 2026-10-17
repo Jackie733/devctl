@@ -2,6 +2,7 @@
 
 mod files;
 mod manifest;
+pub(crate) use manifest::reject_advanced_yaml;
 
 #[cfg(test)]
 mod tests;
@@ -17,7 +18,7 @@ use files::{Limits, Reader};
 use manifest::{Directory, Evidence};
 
 #[derive(Debug)]
-struct Candidate {
+pub(crate) struct Candidate {
     pub path: PathBuf,
     pub dependency_root: PathBuf,
     pub name: Option<String>,
@@ -28,7 +29,7 @@ struct Candidate {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct Manager {
+pub(crate) struct Manager {
     pub name: String,
     pub version: Option<String>,
     pub source: PathBuf,
@@ -36,7 +37,7 @@ struct Manager {
 }
 
 #[derive(Debug)]
-struct Report {
+pub(crate) struct Report {
     pub root: PathBuf,
     pub boundary: PathBuf,
     pub declaration_root: PathBuf,
@@ -201,7 +202,7 @@ fn advance_recursive(segments: &[Segment], states: &mut [bool]) {
     }
 }
 
-fn scan(path: &Path) -> Result<Report, String> {
+pub(crate) fn scan(path: &Path) -> Result<Report, String> {
     scan_with_limits(path, Limits::default())
 }
 

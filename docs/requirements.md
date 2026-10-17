@@ -109,7 +109,7 @@ simplifying documentation must not silently cancel it.
 | X03 | Public distribution and self-update | Public releases and updater delivered; full target WSL acceptance pending |
 | P06 | Service PTYs, stdin forwarding, interactive commands | Candidate |
 | W05 | package.json/Procfile import and devctl-managed file-watch restart | package.json import is included in A01; Procfile import and file-watch restart remain candidates |
-| A01–A03 | Directory onboarding, environment checks and setup, infrastructure discovery/monitoring/control | M7.1 read-only discovery implemented; saving, setup and infrastructure control pending; see [automation](#directory-onboarding-and-environment-automation-a01a03) |
+| A01–A03 | Directory onboarding, environment checks and setup, infrastructure discovery/monitoring/control | M7.1 discovery and M7.2 checks/local binding implemented; saving, installation and infrastructure control pending; see [automation](#directory-onboarding-and-environment-automation-a01a03) |
 | Configuration extensions | Environment/tilde path expansion, env_files/env overrides | Candidate; existing literal path/environment behavior remains |
 
 An earlier 20-service performance budget is a proposal, not measured evidence.
@@ -120,8 +120,9 @@ log assistance remain candidates, with logging foundations preceding AI assessme
 
 ### Directory onboarding and environment automation (A01–A03)
 
-Confirmed on 2026-10-16; M7.1 now implements read-only Node project/script
-discovery. Configuration saving, environment setup and A03 remain unimplemented;
+Confirmed on 2026-10-16; M7.1 implements read-only Node project/script discovery,
+and M7.2 adds environment checks and explicit binding of installed tools.
+Configuration saving, tool/dependency installation and A03 remain unimplemented;
 this partial delivery does not establish complete-workflow or user acceptance.
 The priority scenario is: provide an existing project directory, inspect its environment, derive installation/start commands,
 and add it to the workspace without hand-writing `devctl.toml`.
@@ -137,7 +138,8 @@ First workflow:
 1. Accept a directory and identify its project, or present candidates when it contains
    multiple projects. Read manifests, lockfiles, version declarations and existing
    Compose configuration. Node/npm projects in WSL are the initial research baseline;
-   supported ecosystems and directory traversal limits remain to be decided.
+   the M7 design below defines the initial support matrix and traversal limits,
+   while other ecosystems remain pending assessment.
 2. Derive installation/start commands and working directories from explicit evidence.
    Present ambiguous entry points for selection; do not execute repository commands
    just to discover them. Existing declarations take precedence over guesses.
@@ -147,7 +149,7 @@ First workflow:
 4. Generate workspace configuration, reuse existing entries and preserve user edits.
    Offer setup actions with logs and failures, then recheck and allow normal project
    startup and log inspection. Selecting a directory alone does not authorize installs
-   or service changes. The exact CLI/TUI flow remains to be designed.
+   or service changes. The M7 interaction below defines the initial CLI/TUI flow.
 
 A03 remains part of the broader automation scope, not cancelled by prioritizing
 A01/A02. Research system services, Docker/Compose, devctl-managed processes,
@@ -174,8 +176,8 @@ A detailed M7 design baseline is now recorded in
 and the [planned interaction](interaction.md#planned-directory-workflow-m7). It
 proposes bounded Node/npm/pnpm discovery, explicit monorepo selections, exact local
 tool bindings, isolated setup and import only while the target workspace is stopped.
-The user authorized implementation of this baseline. Only M7.1 discovery has been
-implemented; the full matrix, setup/startup policies and real-environment acceptance
+The user authorized implementation of this baseline. M7.1/M7.2 are implemented;
+complete onboarding, installation and the full platform/real-environment acceptance
 remain future evidence. Routine implementation choices need no repeated approval.
 M8 still needs database-type, management-source, credential and cross-host/control
 research; the M7 design does not settle those separate decisions.

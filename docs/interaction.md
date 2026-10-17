@@ -29,10 +29,11 @@ multi-project example. Supported fields are:
 
 | Table | Fields and defaults |
 | --- | --- |
-| Root | `version = 1`; `workspace`; optional `projects`, `services`, `logs` |
+| Root | `version = 1`; `workspace`; optional `projects`, `services`, `logs`, `node_environments` |
 | `[workspace]` | Nonempty `name` |
-| `[projects.ID]` | Nonempty existing directory `path` |
-| `[services.ID]` | Known `project`; nonempty argument array `cmd`; optional `cwd`; `autostart = true`; optional `depends_on` for validation/planning |
+| `[projects.ID]` | Nonempty existing directory `path`; optional `dependency_root`, default project path |
+| `[services.ID]` | Known `project`; nonempty argument array `cmd`; optional `cwd`; `autostart = true`; optional `depends_on` for validation/planning; optional `node_environment` |
+| `[node_environments.ID]` | Exact stable `version`, `package_manager` (`npm` or `pnpm`), exact stable `package_manager_version`; see [Node environments](#local-node-environments-m72) |
 | `[logs]` | `enabled`, `max_mib`, `retain_days`; see [storage budgets](../DESIGN.md#storage-identity-format-and-budgets) |
 
 Unknown fields, invalid references, empty executable names, and invalid directories
@@ -40,7 +41,8 @@ fail validation. Project paths resolve from the selected configuration's directo
 relative service `cwd` resolves from its project. The default cwd is the project
 directory. TOML paths do not expand `~` or environment variables. Commands execute
 as argument arrays without an implicit shell, inheriting the supervisor's original
-environment. Manage runtime versions and dependencies outside devctl.
+environment for legacy services. Managed Node services use the selected local
+binding described below; installation remains external in M7.2.
 
 `autostart = true` means membership in the default start group. Opening or reattaching
 the TUI does not automatically start that group. The current runtime supports one
@@ -107,6 +109,7 @@ These keys describe the main view outside popups, search input, and line selecti
 | Either panel | `p` | Pause/resume following, outside line selection |
 | Either panel | `H/L`, `←/→` | Scroll long log lines horizontally by eight columns |
 | Service | `s/x` | Start/stop the selected service |
+| Service / workspace | `S` / `A` | Review starting the selected service / default group with unknown dependency evidence; `y` confirms for this request, `n`/`Esc` cancels |
 | Workspace | `a`, `X` | Start the default group / stop all and keep the supervisor |
 | Workspace | `Q` | Open shutdown confirmation |
 | Connection | `r` | Reconnect to an existing supervisor; do not create or reload it |
@@ -363,8 +366,9 @@ evidence. It does not mean script/tool selections are resolved or the project is
 ready. Problems or incomplete scans exit 1; invalid CLI arguments exit 2. Control
 characters from repository text are escaped. Repeated scans do not create files.
 
-This first slice accepts only DIR: `--apply`, selections, environment checks and
-setup are not available. Explicit `--config` is rejected with an explanation rather
+Import currently accepts only DIR: `--apply` and selections are not available.
+Environment checks/setup operate on an existing config separately below.
+Explicit `--config` on import is rejected with an explanation rather
 than ignored. Unlike workspace operations, preview does not read local devctl.toml;
 an invalid existing workspace therefore does not prevent examining a directory.
 It also does not compare that workspace to discovery candidates yet.
@@ -374,11 +378,64 @@ devctl import /absolute/repository
 devctl import /absolute/repository/apps/web
 ```
 
+## Local Node environments (M7.2)
+
+This source-tree increment supports npm 10/11 and pnpm 10 with explicitly selected
+exact Node/tool versions. Configuration is still authored manually; directory import
+does not save it yet. Optional fields are illustrated in the
+[configuration example](../DESIGN.md#design-baseline-and-compatibility).
+`dependency_root` resolves relative to the project and must contain it. A managed
+service must use exactly `[MANAGER, "run", SCRIPT]` with its project as cwd and a
+declared nonempty script. Other commands continue as legacy services when they have
+no `node_environment`. Older devctl versions reject these new config fields.
+
+```sh
+devctl --config /path/to/devctl.toml doctor web --node /absolute/path/to/node
+devctl --config /path/to/devctl.toml setup web --node /absolute/path/to/node
+devctl --config /path/to/devctl.toml setup web --node /absolute/path/to/node --apply
+devctl --config /path/to/devctl.toml doctor web
+devctl --config /path/to/devctl.toml start web
+```
+
+Doctor reports `satisfied`, `missing`, `incompatible` or `unknown` separately for
+declarations, tools, local bindings and dependencies, with observed versions/paths
+and a check timestamp. Omitted SERVICE selects all configured services. It exits 1
+if any item is not satisfied, including legacy entries without declared environments.
+It does not run project scripts, install, or change bindings. `validate` checks
+configuration structure; it does not replace doctor.
+
+Setup without `--apply` previews bindings without writing. Apply asks `y/N` in a
+terminal; other answers cancel. Redirected use requires `--apply --yes` after review.
+It rechecks reviewed declarations and tools before recording private local bindings.
+An absolute `--node` must identify the actual native executable; shims are not
+activated. Only existing matching tools are supported: no downloads, dependency
+installs, configuration edits or service starts. Changed source declarations require
+a fresh preview; a changed same-path tool can be reverified explicitly only when
+the binding is unused. Binding a different installation to an existing tuple is
+refused. Bindings belong to this machine/HOME and are not exported with config.
+If a multi-environment apply fails, already completed verified bindings are retained.
+
+Startup checks every new instance in the selection before starting any of them.
+Already running services remain running. Status/stop remain available while checks
+run; stop of an overlapping selection or shutdown cancels the pending start.
+Startup does not install prerequisites. Unsupported runtime switching, hooks or
+custom script shells block managed operation; see
+[binding mechanisms and limits](../DESIGN.md#environment-checks-and-runtime-binding).
+
+Checks cover all participating shared-root packages. No declared dependencies is
+satisfied; missing dependency directories is missing.
+Existing directories are unknown until installation/inventory support arrives in
+M7.4. To accept that uncertainty for one start, use
+`start/run --allow-unverified-dependencies` or TUI `S`/`A` followed by `y`.
+This never bypasses missing dependencies, invalid declarations, tool failures or
+unconfirmed process cleanup. Regular `s`/`a` and later starts require checks again.
+Process `Running` still does not establish application readiness.
+
 ## Planned directory workflow (M7)
 
-**Planned full workflow.** Only the read-only `import DIR` subset described above
-exists. Saving/selection flags, doctor, setup and managed startup changes below are
-not implemented. Current configuration/command behavior above remains authoritative.
+**Planned full workflow.** Read-only import and the local-tool subset above exist.
+Import saving/selection flags, tool/dependency installation and inventory checks
+below remain pending. The M7.2 behavior above is authoritative for current setup.
 [A01/A02](requirements.md#directory-onboarding-and-environment-automation-a01a03) owns
 scope; [planned mechanisms](../DESIGN.md#planned-directory-onboarding-and-environment-preparation-m7)
 own discovery rules, supported tools, limits, storage and transactions.

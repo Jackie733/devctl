@@ -3,78 +3,68 @@
 Keep current work and necessary handoff here; Git retains history. Collaboration
 rules are in [AGENTS.md](../AGENTS.md).
 
-## Current: M7.1 read-only project discovery implemented (A01, W05)
+## Current: M7.2 environment checks and local Node binding complete (A02)
 
-The user authorized implementation of the detailed M7 baseline on 2026-10-16.
-Source remains **1.5.0, unreleased**. This coherent slice implements discovery only;
-M7.2–M7.5 remain necessary for the complete A01/A02 workflow. Scope/acceptance are in
-[requirements](requirements.md#directory-onboarding-and-environment-automation-a01a03),
-mechanisms in [DESIGN.md](../DESIGN.md#discovery-and-evidence), operations in
-[interaction](interaction.md#read-only-project-discovery-m71), and slice order in
-[roadmap](roadmap.md#m7-implementation-slices).
+Authorized by the user's 2026-10-17 instruction to execute the next M7 slice.
+Source remains **1.5.0, unreleased**; M7.1 is committed as `e3a4b73`.
+Scope/acceptance: [A02](requirements.md#directory-onboarding-and-environment-automation-a01a03);
+operations: [M7.2 usage](interaction.md#local-node-environments-m72).
 
-Completion criteria: expose a config-independent read-only preview; identify single
-packages, independent directories and declared workspace members; report actual
-scripts/sources, cwd and shared dependency roots; preserve ambiguity/conflict and
-unsupported evidence; enforce filesystem/size/time bounds; execute no repository
-commands or tools and write no files; verify real bogu discovery and legacy behavior.
+Completion criteria met: strict optional Node configuration; npm-compatible ranges
+including unselected workspace members; separate four-state declarations/tool/binding/
+dependency checks; bounded non-activating probes; explicit adoption without downloads;
+service-specific tools including nested script calls; complete-batch preflight;
+responsive stop/status; CLI and real-terminal confirmation; legacy compatibility;
+public English references and Chinese overview updated.
 
-- Added `devctl import DIR` with bounded manifest/version/lockfile evidence, npm/pnpm
-  workspace membership, canonical paths and deterministic ordering. New dependencies
-  are globset and serde_yaml_ng, locked to the reviewed versions; no shell or runtime
-  is needed for discovery. Scripts are displayed but never executed.
-- Root/member command overlap is explicitly advisory; multiple startup candidates
-  require later selection. Stop/restart, migration, seed, build and similar action
-  components are excluded from startup suggestions, including bogu's `dev:stop`.
-  Missing manager/version information remains unknown/unresolved, not fabricated.
-- Declared patterns prune unrelated trees and stop below members where no recursive
-  member can exist. A first real bogu scan exposed irrelevant-directory exhaustion;
-  prefix traversal fixed it without raising limits, with representative regression
-  coverage. Symlink directories are not followed; contained declaration links are
-  supported, while escaping/broken/special declarations fail clearly.
-- Full import selection/saving, doctor/setup, managed runtime binding and startup
-  changes are not available. `--apply` is rejected; explicit `--config` is explained
-  rather than ignored. Discovery does not load or compare existing workspace config.
-- Real bogu root scan passed: root plus API, web, domain, extension and knowledge-agent
-  (six candidates); pnpm 10.3.0 inherited from root; shared install root and overlapping
-  root/member commands reported. Separate web/API scans passed. Manifest/workspace/
-  lockfile hashes and bogu Git state were identical before/after. No business-data,
-  dependency, installed-devctl or machine-config changes were made.
+Implemented `doctor`, local-only `setup` preview/apply, private exact-path/version
+receipts and launchers, binding/root lifetime locks and managed startup. Existing
+dependency directories remain unknown until inventory support; explicit per-start
+acknowledgement never bypasses missing dependencies or tool/config failures.
+Configuration import, tool/dependency installation and inventory remain pending.
+This implementation slice does not establish full M7 or user acceptance.
 
-## Validation
+### Recorded M7.2 validation
 
-- Focused discovery checks: 19 unit tests and seven real CLI tests passed, including
-  fake executables/scripts that must never run, no config requirement, no generated
-  files, declaration conflicts, malformed/unsupported evidence, YAML restrictions,
-  symlink/special files, terminal controls and every scan budget.
-- `cargo fmt --check`: passed. Native `cargo clippy --locked --all-targets -- -D warnings`:
-  passed. Full final `cargo test --locked`: **267 passed**, including 19 discovery
-  unit tests and seven discovery CLI tests (output retained at
-  `/tmp/devctl-m71-cargo-test.log`).
-- Real `target/debug/devctl import` on bogu root/web/API passed (approximately 8/5/5 ms
-  in the recorded run); the test inspected output and source hashes/Git status.
-- `cargo clippy --locked --all-targets --target x86_64-unknown-linux-gnu -- -D warnings`:
-  passed after the final no-Git declaration-boundary refinement.
-- New dependency licenses verified through `cargo metadata --locked --format-version 1`:
-  globset 0.4.20 is Unlicense OR MIT; serde_yaml_ng 0.10.0 is MIT.
-- `git diff --check` and the inline Python documentation checker passed: eight
-  Markdown files, 95 local links/anchors, 11 TOML/shell examples (parsed with
-  tomllib/bash -n, not executed), and closed fences. Reviewed the final code/diff
-  and current-versus-planned feature labels.
-- This is agent verification of read-only discovery, not user acceptance of complete
-  onboarding/setup. No Linux/WSL runtime acceptance or publication is claimed.
+- `cargo test --locked`: **286 passed**, including legacy background, lifecycle,
+  logs, updates and terminal tests. `cargo test --locked --test environment_cli`:
+  **15 passed** again after final checks and repairs.
+- `cargo fmt --check`; `cargo clippy --locked --all-targets -- -D warnings`;
+  `cargo clippy --locked --all-targets --target x86_64-unknown-linux-gnu -- -D warnings`:
+  passed. No Linux/WSL runtime or new physical Intel acceptance is claimed.
+- Native fixtures cover incompatible/unknown declarations, shared-root dependencies,
+  independent versions, missing/corrupt/changed bindings, live refresh exclusion,
+  shim refusal, bounded stalled/flooding probes, interruption/descendant cleanup,
+  whole-batch refusal, responsive status/stop and launcher quoting/tool shadowing.
+  These cold-start fixtures serialize unrelated tests to avoid competing with
+  deadline assertions; multi-service operation is exercised within a fixture.
+- A real PTY verifies apply/cancel, declarations changed during review, terminal
+  restoration, normal start refusal for unknown dependencies, visible `S`/`y`
+  confirmation, clipped-dialog refusal and fresh acknowledgement after stop.
+- Disposable projects/private HOME using actual Node **24.18.0**, npm **11.16.0**
+  and pnpm **10.3.0** passed doctor, binding preview/apply, managed startup, nested
+  Node/npm/pnpm versions, status, stop, restart and shutdown. Project `.bin` spies
+  were not executed; manifests stayed unchanged. Corepack's exact cached pnpm CLI
+  was used without activation/download; no actual application/data service ran.
+- Read-only bogu doctor for web/API found declared pnpm 10.3.0, correctly reported
+  unknown dependency evidence and missing local bindings. Manifest/workspace/lockfile
+  hashes and Git status were unchanged. No bogu config, dependencies, database or
+  running services were changed. The installed devctl binary was not replaced.
+- `git diff --check`, 139 local Markdown links/anchors, managed TOML example,
+  generated launcher shell syntax and Python helper parsing passed.
 
 ## Next steps
 
-1. Continue M7.2 (environment checks and exact tool binding), then M7.3 config
-   import, M7.4 setup and M7.5 complete acceptance. The baseline is authorized; do
-   not ask again for routine implementation. Only read-only `import DIR` exists.
-   Complete real supplied-project and platform acceptance before calling M7 delivered.
+1. M7.3: reviewed configuration import/save; then M7.4 tool/dependency installation
+   and inventory, and M7.5 complete acceptance. The baseline is authorized; routine
+   implementation needs no repeated approval. `import DIR` still only previews.
+   Complete real directory-to-running-project and platform acceptance before calling
+   M7 delivered. Do not install into bogu implicitly.
 2. Preserve public Mac release/platform gaps and real WSL U01/log and X03 update/
    rollback acceptance. Remote CI, macOS 14/physical Intel verification, and anonymous
    public Mac download/update verification remain outstanding. Public 1.4.0 remains
-   Linux-only according to the prior
-   handoff; this task did not re-fetch public release status. No push/tag/publication.
+   Linux-only according to the prior handoff; this task did not re-fetch public
+   release status. No push/tag/publication.
 3. Continue M8 discovery/control research after M7; native Windows and reboot
    recovery remain candidates.
 

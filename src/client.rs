@@ -85,7 +85,7 @@ async fn connect_inner(config: &Path) -> Result<UnixStream, ConnectError> {
 fn preflight(config_path: &Path, request: &Request) -> Result<(), String> {
     let config = config::load(config_path)?;
     let manager = Manager::new(config.services);
-    if let Request::Start { targets, all } = request {
+    if let Request::Start { targets, all, .. } = request {
         let selected = if *all {
             manager.default_targets()
         } else {

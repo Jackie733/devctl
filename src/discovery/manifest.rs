@@ -9,7 +9,7 @@ use serde_json::Value;
 use super::{Manager, files::Reader, safe};
 
 #[derive(Debug, Clone)]
-pub(super) struct Evidence {
+pub(crate) struct Evidence {
     pub path: PathBuf,
     pub field: String,
     pub value: String,
@@ -299,7 +299,7 @@ fn parse_manager(text: &str, source: &Path, field: &str) -> Result<Manager, Stri
 }
 
 /// Reject YAML aliases, anchors and tags outside quoted scalars/comments.
-fn reject_advanced_yaml(text: &str, source: &Path) -> Result<(), String> {
+pub(crate) fn reject_advanced_yaml(text: &str, source: &Path) -> Result<(), String> {
     for line in text.lines() {
         let mut single = false;
         let mut double = false;

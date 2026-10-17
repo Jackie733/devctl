@@ -25,6 +25,8 @@ pub enum Request {
     Start {
         targets: Vec<String>,
         all: bool,
+        #[serde(default, skip_serializing_if = "is_false")]
+        allow_unverified_dependencies: bool,
     },
     Stop {
         targets: Vec<String>,
@@ -38,6 +40,10 @@ pub enum Request {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         before: Option<u64>,
     },
+}
+
+fn is_false(value: &bool) -> bool {
+    !value
 }
 
 #[derive(Debug, Default, Serialize, Deserialize)]
@@ -227,10 +233,11 @@ mod tests {
         let value = Request::Start {
             targets: vec!["two words".into(), "web".into()],
             all: false,
+            allow_unverified_dependencies: false,
         };
         write_frame(&mut client, &value, MAX_REQUEST).await.unwrap();
         assert!(
-            matches!(read_frame::<Request>(&mut server, MAX_REQUEST).await.unwrap(), Request::Start { targets, all: false } if targets == ["two words", "web"])
+            matches!(read_frame::<Request>(&mut server, MAX_REQUEST).await.unwrap(), Request::Start { targets, all: false, .. } if targets == ["two words", "web"])
         );
         let payload = b"action = 'status'\nunknown = 1\n";
         client.write_u32(payload.len() as u32).await.unwrap();
