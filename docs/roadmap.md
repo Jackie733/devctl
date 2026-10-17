@@ -36,7 +36,7 @@ and planned M7.4 installer are superseded. Git retains the original design/histo
 | Implemented, acceptance pending | Simplify A01 onboarding and remove A02 core environment management | TUI path/script/command/save, explicit CLI alternatives, no environment management; append-only hot update and lifecycle checks |
 | Following | Verify lightweight onboarding with real daily projects | Directory/command to ordinary TUI start/log/stop/leave/reconnect; record separate Mac/WSL and user acceptance |
 | Outstanding | Real WSL log/UI and cross-version update/rollback | Preserve [log](wsl.md#verify-logs) and [update](wsl.md#verify-updates) checks |
-| Release in progress | v1.5.0 multi-platform distribution | Linux/Apple Silicon CI, public download/update checks; separate Mac/WSL user acceptance remains pending |
+| Published, user acceptance pending | v1.5.0 multi-platform distribution | Linux/Apple Silicon build and public download/update verification passed; separate Mac/WSL user acceptance remains pending |
 | Pending assessment | A03 database/Redis discovery/control | Reassess concrete need and core boundary before research/design; no longer an automatic next milestone |
 | Candidate | Agent-assisted diagnostics and solutions | Assess an actual failure workflow using existing status/log/control commands; no new Agent integration implemented |
 | As demonstrated | Reliability/usability fixes | Reproduce issues and tie the smallest fix to an existing requirement |
