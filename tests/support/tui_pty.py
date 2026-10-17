@@ -675,7 +675,9 @@ def history():
 
         # The backend evicts the old records, but a paused client snapshot stays put.
         (w.root / 'history-more').touch()
-        ui.wait('+4201 new')
+        # Shared CI runners can take over 8 seconds to produce all paced lines.
+        # Keep the exact count/eviction assertions; allow the producer to finish.
+        ui.wait('+4201 new', timeout=30)
         assert first_sequence(ui.screen.text()) == anchor, 'New output moved paused history'
         assert 'READ POSITION EVICTED' not in ui.screen.text(), 'Backend eviction invalidated a retained client snapshot'
         assert len(w.starts('web')) == 1
@@ -734,7 +736,9 @@ def disk_history():
 
         # The backend evicts the old records, but a paused client snapshot stays put.
         (w.root / 'history-more').touch()
-        ui.wait('+4201 new')
+        # Shared CI runners can take over 8 seconds to produce all paced lines.
+        # Keep the exact count/eviction assertions; allow the producer to finish.
+        ui.wait('+4201 new', timeout=30)
         assert first_sequence(ui.screen.text()) == anchor, 'New output moved paused history'
         assert 'READ POSITION EVICTED' not in ui.screen.text(), 'Backend eviction invalidated a retained client snapshot'
         assert len(w.starts('web')) == 1
