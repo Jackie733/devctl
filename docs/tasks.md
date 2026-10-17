@@ -28,6 +28,12 @@ same complete-record, paused-anchor, eviction and disk-restoration assertions.
 Throughput/drop behavior remains covered separately by high-output tests. Both
 supported platforms must reverify the final fixture/source before tagging.
 
+Cross-platform archive parity check confirmed identical Git tar bytes but different
+native gzip encodings. Compare decompressed source bytes in the merger while still
+verifying each bundle checksum and requiring exact installer/build-note equality;
+reject invalid gzip and differing source contents. Recheck real final bundles before
+tagging; no release has been published yet.
+
 Preparation in progress. Latest implementation verification passed 310 local tests,
 format/clippy and Linux cross-clippy; installed client is from `9f75dfe`. This release
 must also pass hosted Linux and Apple Silicon checks. CI does not establish

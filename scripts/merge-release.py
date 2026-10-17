@@ -1,6 +1,8 @@
 """Combine verified per-platform bundles without overwriting shared release files."""
 
 import hashlib
+import gzip
+import zlib
 import json
 import re
 from pathlib import Path
@@ -8,6 +10,13 @@ import shutil
 import sys
 
 TARGETS = {'x86_64-unknown-linux-musl', 'aarch64-apple-darwin'}
+
+
+def source_contents(data):
+    try:
+        return gzip.decompress(data)
+    except (OSError, EOFError, zlib.error) as error:
+        raise ValueError('Invalid source gzip archive.') from error
 
 
 def merge(source, output):
@@ -45,9 +54,15 @@ def merge(source, output):
                 raise ValueError('Platform bundle checksum mismatch.')
         for name in ['devctl-update', f'devctl-v{version}-source.tar.gz', 'release-notes.md']:
             data = (path.parent / name).read_bytes()
-            if name in shared and shared[name] != data:
-                raise ValueError('Platform bundles do not share the same source/installer/notes.')
-            shared[name] = data
+            # Native gzip implementations can encode identical git tar bytes differently.
+            is_source = name == f'devctl-v{version}-source.tar.gz'
+            contents = source_contents(data) if is_source else data
+            if name in shared:
+                expected = source_contents(shared[name]) if is_source else shared[name]
+                if expected != contents:
+                    raise ValueError('Platform bundles do not share the same source/installer/notes.')
+            else:
+                shared[name] = data
         assets.append(asset)
     output.mkdir()  # Refuse to reuse any output, even after a failed previous attempt.
     for path, asset in zip(bundles, assets):

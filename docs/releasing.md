@@ -50,8 +50,10 @@ The new [MIT license](../LICENSE) and documentation are included in normal sourc
 
 Each job uploads its own versioned bundle. The [merger](../scripts/merge-release.py)
 requires both distinct targets, validates their bytes and checksums, and rejects
-mismatching source archives, installers or build-commit notes before producing one
-manifest and checksum file. Missing or failed platform jobs prevent publication.
+mismatching source contents, installers or build-commit notes before producing one
+manifest and checksum file. Source comparison uses decompressed Git tar bytes because
+native gzip implementations can differ; each original bundle checksum is still
+verified and one verified archive is retained. Missing or failed platform jobs prevent publication.
 
 The manifest contract is owned by [DESIGN.md](../DESIGN.md#update-manifest-contract).
 Internal `release-notes.md` extracts the current changelog section and appends the

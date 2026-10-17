@@ -1,6 +1,7 @@
 """Verify multi-platform publication rejects mixed or damaged build bundles."""
 
 import hashlib
+import gzip
 import importlib.util
 import json
 from pathlib import Path
@@ -36,7 +37,7 @@ class MergeRelease(unittest.TestCase):
                 }],
             }))
             for shared in ['devctl-update', 'devctl-v1.5.0-source.tar.gz', 'release-notes.md']:
-                (bundle / shared).write_bytes(b'same build')
+                (bundle / shared).write_bytes(gzip.compress(b'same build', mtime=0) if shared.endswith('.tar.gz') else b'same build')
             self.checksums(bundle)
 
     def checksums(self, bundle):
@@ -55,6 +56,21 @@ class MergeRelease(unittest.TestCase):
             self.assertEqual(hashlib.sha256((self.output / name).read_bytes()).hexdigest(), digest)
         with self.assertRaises(FileExistsError):
             merger.merge(self.source, self.output)
+
+    def test_identical_source_with_different_gzip_encoding_is_accepted(self):
+        bundle = next(self.source.iterdir())
+        (bundle / 'devctl-v1.5.0-source.tar.gz').write_bytes(gzip.compress(b'same build', compresslevel=0, mtime=0))
+        self.checksums(bundle)
+        merger.merge(self.source, self.output)
+        self.assertEqual(gzip.decompress((self.output / 'devctl-v1.5.0-source.tar.gz').read_bytes()), b'same build')
+
+    def test_invalid_source_archive_is_rejected_without_output(self):
+        bundle = next(self.source.iterdir())
+        (bundle / 'devctl-v1.5.0-source.tar.gz').write_bytes(b'not gzip')
+        self.checksums(bundle)
+        with self.assertRaises(ValueError):
+            merger.merge(self.source, self.output)
+        self.assertFalse(self.output.exists())
 
     def test_missing_platform_is_rejected_without_output(self):
         next(self.source.glob('*/update.json')).unlink()
@@ -90,7 +106,7 @@ class MergeRelease(unittest.TestCase):
 
     def test_mixed_sources_are_rejected(self):
         bundle = next(self.source.iterdir())
-        (bundle / 'devctl-v1.5.0-source.tar.gz').write_bytes(b'other commit')
+        (bundle / 'devctl-v1.5.0-source.tar.gz').write_bytes(gzip.compress(b'other commit', mtime=0))
         self.checksums(bundle)
         with self.assertRaises(ValueError):
             merger.merge(self.source, self.output)
