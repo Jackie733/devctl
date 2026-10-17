@@ -76,8 +76,8 @@ limits, use the [external installer](docs/install.md#prebuilt-binary) first.
 
 ## Quick start
 
-Run `devctl`, press `a`, and enter your project directory. Choose a declared script
-or enter your normal command, then confirm saving. The new project appears immediately
+Run `devctl`, press `a`, and enter your project directory (Tab completes paths).
+Choose a declared script or enter your normal command, then confirm saving. The new project appears immediately
 and stays stopped; existing services keep running. Press `s` to start, `q` to leave
 services running, or `Q` to end the workspace. The manual configuration alternative follows.
 

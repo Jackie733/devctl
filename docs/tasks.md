@@ -3,62 +3,64 @@
 Keep current work and necessary handoff here; Git retains history. Collaboration
 rules are in [AGENTS.md](../AGENTS.md).
 
-## Current: TUI project addition (A01, W05)
+## Current: TUI directory completion (A01, W05)
 
-Authorized by the user's request to add projects inside the TUI instead of requiring
-CLI setup commands. Keep the 2026-10-17 simplified core boundary: environment checks,
-version management and installation remain removed; Agent support is a candidate.
+Authorized by the user's request for Tab path completion in the add-project dialog.
 Scope: [requirements](requirements.md#directory-onboarding-and-environment-automation-a01a03);
-mechanisms: [TUI design](../DESIGN.md#tui-project-addition);
-operations: [adding projects](interaction.md#adding-projects).
+operations: [adding projects](interaction.md#adding-projects);
+mechanisms: [TUI design](../DESIGN.md#tui-project-addition).
 
-Completion criteria: `a` path entry/paste; existing npm/pnpm project/script choices;
-manual command fallback with a type label; reviewed atomic save and hot addition; first-use
-empty workspace; duplicate/user-edit preservation; no command execution before start;
-no environment setup; no running-service interruption; visible/cancelable input and
-clipped-screen protection; `A` for default start; real PTY and full regression checks;
-reference docs/Chinese overview synchronized; local commit only.
+Completion criteria: Tab completes directories only; unique matches append `/`;
+multiple matches extend the common prefix and allow deterministic Tab/Shift-Tab
+cycling with visible candidates; support absolute/relative/`~/`, quoted, spaced and
+Unicode paths. Preserve input on failure, ignore stale completion results after
+editing, and keep typing/cancel responsive. Complete off the UI loop with bounded
+single-directory reads and no shell execution/config writes. Enter immediately
+after Tab must inspect the completed path. Existing save/hot-add/lifecycle behavior
+must pass regression checks. Synchronize docs/Chinese overview, verify installed
+Mac client without interrupting the current background, commit locally; no push.
 
-Implemented and agent-verified locally; real daily-project user acceptance remains
-pending. Confirmed TUI saves append through the existing supervisor, preserving
-running tasks, states, log streams and session. Source/target/live-declaration checks
-prevent conflicting saves or silent external changes. Scanning/planning/rechecking
-run outside the event loop. Existing CLI active-workspace refusal remains. First-use
-save creates an idle workspace. Hot update is limited to reviewed additions; editing
-existing declarations or external-file watching is not implemented.
+Implemented and agent-verified on 2026-10-17. Reuses the onboarding worker and
+dialog, with no new runtime dependency. Results only replace unchanged path input;
+typing cancels any queued inspection and clears cached alternatives. Enter during
+a completion queues inspection, including initially empty input. Actual discovery,
+reviewed save and hot addition retain their existing behavior. The PTY renderer now
+accounts for wide Unicode characters so Chinese paths can be inspected accurately.
 
-Verified on 2026-10-17:
+Validation:
 
-- `cargo test --locked`: 303 passed across 15 suites, including real PTY first-use,
-  paste/edit/cancel/clipped views, npm/pnpm member/script choices, duplicate no-op,
-  source/target conflicts, live additions, multiple-client visibility/conflicts,
-  unchanged old process/log/session identity and new stream archive/reconnect.
+- `cargo test --locked`: 310 tests passed across 15 suites. New checks cover unique
+  and shared Unicode prefixes, spaces, sorted forward/reverse cycling, `~/`, relative
+  and quoted paths, child completion, files/hidden entries/directory symlinks, missing
+  directories/HOME, excessive matches, stale input and queued Enter. Existing TUI,
+  hot-add, background, logging, import, update and ownership regressions passed.
 - `cargo fmt --check`; `cargo clippy --locked --all-targets -- -D warnings`;
   Linux cross-target clippy with `--target x86_64-unknown-linux-gnu`: passed.
-- A real Node 24/npm project exercised directory-only TUI creation, script review,
-  start/logs/leave/reconnect/stop/shutdown without installs or source-file changes.
-  Repeated this and the live-add/concurrent-window checks using the installed release.
-- Local Markdown links/anchors, shell-example syntax, Python AST, fences and
-  `git diff --check`: passed. Dialog output inspected in the PTY screen renderer.
-- `MACOSX_DEPLOYMENT_TARGET=14.0 cargo build --release --locked`: passed; installed
-  native ARM64 build at `~/.local/bin/devctl`, version 1.5.0, SHA-256
-  `a4f128e7c7d19893c38001778870009fca140e8c886a6252c1d0fe74088f6a3d`.
-  Strict signature, macOS 14 minimum and login Zsh resolution checks passed. Previous
-  source `68ab377` binary retained as `devctl.previous`; additional backups/receipts
-  are in `/tmp/devctl-hot-install-dwnrrjsa`.
-- Existing Mac workspace was idle before its old supervisor was replaced. Installed
-  TUI open/add/cancel preserved its configuration bytes; API/web remain stopped and
-  the new idle supervisor uses the normal environment. User config SHA-256 remains
-  `167c99bdac6678ab36fa3ece1e04cad76fee67c1c2767fd23e703c4e9ad028a4`.
-  This verifies preservation, not renewed Bogu business-flow acceptance.
+  Linux runtime/user acceptance was not performed on this Mac.
+- Real PTY completion-to-save workflow passed with debug and installed release:
+  blank Tab/Enter, home/relative/quoted paths, Chinese/spaces, candidate switching,
+  failed completion followed by editing, save with the added project stopped.
+  Installed candidate display/cancel was inspected; before confirmation no config
+  was created. Captured screen: `/tmp/devctl-tab-screen-kvp23406/completion-screen.txt`.
+- Markdown links/anchors, shell-example syntax, Python AST, fences and
+  `git diff --check`: passed.
+- `MACOSX_DEPLOYMENT_TARGET=14.0 cargo build --release --locked`: passed. Native
+  ARM64 release installed via `scripts/devctl-update` to `~/.local/bin/devctl`;
+  strict signature and macOS 14 minimum checks passed. Installed SHA-256:
+  `b8503e4edcd8956c825c78a4408f32957e8c897c4ecbc6c2330858829297cf55`.
+  Previous installed `a59be5f` code is retained as `devctl.previous`. Additional
+  installation receipt/backups: `/tmp/devctl-tab-install-m0tnixi2`.
+  Existing config bytes, service states and background workspace identity were
+  unchanged across installation; no workspace restart was needed for this client
+  change. Version remains 1.5.0, unreleased.
 
 ## Next steps
 
-1. User try the installed `devctl`: `a`, directory, select/edit command, review/save,
-   then `s`. Verify daily projects and hot addition while another service is running.
-2. Retain separate WSL runtime/user acceptance and Mac release/platform gaps below.
-   A03 infrastructure control/Agent diagnosis remain pending assessment, not automatic
-   next milestones. No public push/tag/release.
+1. User try the updated TUI: leave an old client with `q`, run `devctl`, then `a`,
+   type a partial directory and Tab; Tab/Shift-Tab cycles alternatives. Daily-project
+   user acceptance of the complete onboarding/hot-add workflow remains separate.
+2. Retain WSL runtime and Mac release/platform gaps below. A03/Agent diagnosis is
+   pending assessment; no public push/tag/release.
 
 ## Retained Mac deployment and release handoff (X01, X03)
 

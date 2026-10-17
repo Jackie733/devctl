@@ -174,6 +174,7 @@ commands and migration guidance live in [interaction](interaction.md#adding-proj
 | Concurrent saves, source/target changes and active/idle runner | No partial file, overwritten edits or stale commands; CLI refuses owned workspaces, TUI appends through the existing supervisor without restart; externally changed existing declarations require reopening |
 | Earlier unreleased managed fields/options | Clear rejection/migration guidance; never silently switch tool execution |
 | First-use/cancel/paste/clipped TUI | Add without existing config; no files before confirmation; typed shortcut letters stay input; cancellation/resize cannot save invisibly |
+| Tab directory completion | Complete unique/shared directory prefixes; cycle visible alternatives; preserve Unicode/spaces, `~/` and relative paths; no-match, stale results and cancellation never change files or block input |
 | Other client starts during review | Saving succeeds with its process/state/logs/workspace identity preserved; new project stays stopped |
 | Normal service lifecycle | Start, logs, stop, repeat start, leave/reconnect and complete cleanup stay correct |
 | macOS and WSL2 | Record evidence independently; build checks are not platform/user acceptance |

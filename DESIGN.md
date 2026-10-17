@@ -645,6 +645,19 @@ confirm and overflowing reviews require scrolling to the end. Cancel/leave befor
 save never writes. After confirmation, publication remains atomic; leaving during
 an in-flight save may leave its result unknown, so reopening rereads configuration.
 
+Path Tab completion uses the same single background worker, reading only the typed
+parent directory. Bound enumeration to 8192 entries, 256 matching directories and
+250 ms between reads; never publish partial candidates after reaching a limit.
+Skip files, non-UTF-8/control-character names and implicit hidden entries; follow
+only directory symlinks for candidate classification. Preserve input spelling,
+expand `~/` only for filesystem access, and share path parsing with inspection.
+A unique match appends `/`; alternatives extend the Unicode-safe common prefix,
+then cycle in sorted order with Tab/Shift-Tab. Typing clears cached alternatives;
+stale results never replace edited input. Input and Esc remain active while reading;
+Enter queues inspection of the eventual completed/current path. Completion performs
+no shell execution or writes. Actual filesystem calls may be slow; they stay outside
+the UI loop. Confirmation still validates the selected directory and saved evidence.
+
 A confirmed TUI save sends internal `add_project` with the expected workspace
 identity and compact reviewed intent: directory/argv, original file snapshot digest,
 proposed resolved configuration digest/ID and optional discovery evidence digest.

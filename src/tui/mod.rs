@@ -518,6 +518,13 @@ pub async fn run(path: &Path) -> Result<(), String> {
                 Some(completion) = additions.join_next(), if !additions.is_empty() => {
                     app.add_busy = false;
                     match completion {
+                        Ok(onboarding::Finished::Completed { input, result }) => {
+                            if let Some(dialog) = &mut app.add
+                                && let onboarding::Action::Work(work) = dialog.completed(input, result) {
+                                app.add_busy = true;
+                                additions.spawn(onboarding::execute(work, path.clone(), app.workspace_id.clone()));
+                            }
+                        }
                         Ok(onboarding::Finished::Scanned(result)) => {
                             if let Some(dialog) = &mut app.add
                                 && let onboarding::Action::Work(work) = dialog.scanned(result) {

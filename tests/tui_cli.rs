@@ -112,3 +112,8 @@ fn add_dialog_hot_adds_without_restarting_services_or_losing_logs() {
     add_scenario("running");
     add_scenario("concurrent");
 }
+
+#[test]
+fn add_dialog_completes_directory_paths_and_cycles_candidates_in_a_real_terminal() {
+    add_scenario("completion");
+}

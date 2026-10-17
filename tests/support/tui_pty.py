@@ -15,6 +15,7 @@ import sys
 import tempfile
 import termios
 import time
+import unicodedata
 
 BINARY = str(Path(sys.argv[1]).resolve())
 
@@ -73,9 +74,12 @@ class Screen:
             if character == '\r': self.x = 0
             elif character == '\n': self.y = min(self.height - 1, self.y + 1)
             elif character >= ' ':
+                width = 2 if unicodedata.east_asian_width(character) in ('W', 'F') else 1
                 if self.x < self.width and self.y < self.height:
                     self.rows[self.y][self.x] = character
-                self.x += 1
+                    if width == 2 and self.x + 1 < self.width:
+                        self.rows[self.y][self.x + 1] = ''
+                self.x += width
 
     def text(self):
         return '\n'.join(''.join(row) for row in self.rows)

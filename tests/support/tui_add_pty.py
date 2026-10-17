@@ -76,6 +76,29 @@ try:
    ui=Tui(w);enter_path(ui,project);command(ui,'false');ui.wait('Already configured')
    save(ui);ui.wait('existing command and edits preserved');assert source==w.config.read_bytes() and inode==w.config.stat().st_ino
    ui.send(b'Qy');ui.exit(key=None)
+ elif mode=='completion':
+  w.config=root/'.config/devctl/devctl.toml'
+  projects=root/'项目目录';projects.mkdir();(projects/'space project').mkdir();(projects/'项目甲').mkdir();(projects/'项目乙').mkdir()
+  (projects/'space-file').write_text('not a directory');(projects/'.hidden').mkdir()
+  current=root/'unrelated-directory';current.mkdir();(current/'single').mkdir()
+  ui=Tui(w,discover=True,wait_for='No workspace yet');ui.send(b'a');ui.wait('Tab: complete')
+  ui.send(b'\t\r');ui.wait('command you normally run');ui.send(b'\x1b');ui.wait('Project directory');ui.send(b'\x15')
+  paste(ui,'~/项目目');ui.send(b'\t');ui.wait('> ~/项目目录/_')
+  paste(ui,'space');ui.send(b'\t\r');ui.wait('command you normally run')
+  assert not w.config.exists(),'Completion/inspection wrote a configuration'
+  ui.send(b'\x1b');ui.wait('Project directory');ui.send(b'\x15');paste(ui,projects/'项');ui.send(b'\t');ui.wait('2 directories')
+  expected=sorted(['项目甲','项目乙'])
+  ui.send(b'\t');ui.wait('> '+str(projects/expected[0])+'/_')
+  ui.send(b'\t');ui.wait('> '+str(projects/expected[1])+'/_')
+  ui.send(b'\x1b[Z');ui.wait('> '+str(projects/expected[0])+'/_')
+  # Editing invalidates the candidate cache; failures keep the text editable.
+  ui.send(b'\x15');paste(ui,projects/'missing');ui.send(b'\t');ui.wait('No matching directories');ui.wait('missing_')
+  ui.send(b'\x15');paste(ui,'../项目目录/space');ui.send(b'\t');ui.wait('> ../项目目录/space project/_')
+  # Quoted pasted paths stay literal, including spaces and Unicode.
+  ui.send(b'\x15');paste(ui,'"'+str(projects/'space')+'"');ui.send(b'\t');ui.wait('space project/"_')
+  ui.send(b'\r');command(ui,'sleep 60');save(ui);ui.wait('Press s to start')
+  assert 'space project' in w.config.read_text() and 'Stopped' in cli('status')
+  ui.send(b'Qy');ui.exit(key=None)
  elif mode=='workspace':
   empty_config();project=root/'repo';(project/'apps/api').mkdir(parents=True);(project/'apps/web').mkdir()
   (project/'package.json').write_text(json.dumps({'packageManager':'pnpm@999.0.0','workspaces':['apps/*'],'scripts':{'dev':'DO_NOT_EXECUTE_ROOT'}}))

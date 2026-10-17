@@ -6,7 +6,10 @@ use crate::{
     import::Draft,
 };
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-use std::path::PathBuf;
+use std::{
+    path::{Path, PathBuf},
+    time::{Duration, Instant},
+};
 
 pub enum Step {
     Path,
@@ -33,9 +36,13 @@ pub struct Dialog {
     project: usize,
     manager: String,
     scripts: Vec<String>,
+    completion: Option<Completion>,
+    completing: bool,
+    inspect_after_completion: bool,
 }
 
 pub enum Work {
+    Complete(String),
     Scan(String),
     Preview {
         directory: PathBuf,
@@ -45,6 +52,10 @@ pub enum Work {
     Save(Box<Draft>),
 }
 pub enum Finished {
+    Completed {
+        input: String,
+        result: Result<Completion, String>,
+    },
     Scanned(Result<Scan, String>),
     Previewed(Result<Box<Draft>, String>),
     Saved {
@@ -66,6 +77,12 @@ pub enum Action {
     Work(Work),
 }
 
+pub struct Completion {
+    options: Vec<String>,
+    common: String,
+    index: Option<usize>,
+}
+
 impl Dialog {
     pub fn new() -> Self {
         Self {
@@ -81,6 +98,9 @@ impl Dialog {
             project: 0,
             manager: String::new(),
             scripts: Vec::new(),
+            completion: None,
+            completing: false,
+            inspect_after_completion: false,
         }
     }
     pub fn busy(&self) -> bool {
@@ -91,6 +111,7 @@ impl Dialog {
     }
     pub fn paste(&mut self, text: &str) {
         if self.text_input() {
+            self.edited();
             for c in text.chars().filter(|c| !c.is_control()) {
                 if self.input.len() + c.len_utf8() > 4096 {
                     break;
@@ -98,6 +119,56 @@ impl Dialog {
                 self.input.push(c);
             }
             self.error = None;
+        }
+    }
+    fn edited(&mut self) {
+        self.completion = None;
+        self.inspect_after_completion = false;
+        self.error = None;
+    }
+
+    fn complete_key(&mut self, reverse: bool) -> Action {
+        if self.completing {
+            return Action::None;
+        }
+        self.error = None;
+        if let Some(completion) = &mut self.completion {
+            let count = completion.options.len();
+            let index = match completion.index {
+                None if reverse => count - 1,
+                None => 0,
+                Some(index) if reverse => (index + count - 1) % count,
+                Some(index) => (index + 1) % count,
+            };
+            completion.index = Some(index);
+            self.input = completion.options[index].clone();
+            Action::None
+        } else {
+            self.completing = true;
+            Action::Work(Work::Complete(self.input.clone()))
+        }
+    }
+
+    pub fn completed(&mut self, input: String, result: Result<Completion, String>) -> Action {
+        self.completing = false;
+        if matches!(self.step, Step::Path) && self.input == input {
+            match result {
+                Ok(completion) => {
+                    self.input = completion.common.clone();
+                    self.completion = (completion.options.len() > 1).then_some(completion);
+                    self.error = None;
+                }
+                Err(error) => self.error = Some(error),
+            }
+        }
+        let inspect = std::mem::take(&mut self.inspect_after_completion);
+        if inspect && matches!(self.step, Step::Path) && !self.input.trim().is_empty() {
+            self.completion = None;
+            self.error = None;
+            self.step = Step::Scanning;
+            Action::Work(Work::Scan(self.input.clone()))
+        } else {
+            Action::None
         }
     }
     pub fn key(&mut self, key: KeyEvent) -> Action {
@@ -112,6 +183,7 @@ impl Dialog {
                 return Action::Close;
             }
             self.input = self.path.to_string_lossy().into_owned();
+            self.edited();
             self.step = Step::Path;
             self.error = None;
             self.scroll = 0;
@@ -125,6 +197,7 @@ impl Dialog {
             && self.text_input()
         {
             self.input.clear();
+            self.edited();
             return Action::None;
         }
         if key
@@ -137,12 +210,25 @@ impl Dialog {
             match key.code {
                 KeyCode::Backspace => {
                     self.input.pop();
-                    self.error = None;
+                    self.edited();
                 }
                 KeyCode::Char(c) => self.paste(&c.to_string()),
-                KeyCode::Enter if !self.input.trim().is_empty() => {
+                KeyCode::Tab | KeyCode::BackTab if matches!(self.step, Step::Path) => {
+                    return self.complete_key(
+                        key.code == KeyCode::BackTab || key.modifiers.contains(KeyModifiers::SHIFT),
+                    );
+                }
+                KeyCode::Enter
+                    if !self.input.trim().is_empty()
+                        || (matches!(self.step, Step::Path) && self.completing) =>
+                {
                     self.error = None;
                     if matches!(self.step, Step::Path) {
+                        if self.completing {
+                            self.inspect_after_completion = true;
+                            return Action::None;
+                        }
+                        self.completion = None;
                         self.step = Step::Scanning;
                         return Action::Work(Work::Scan(self.input.clone()));
                     }
@@ -320,8 +406,44 @@ impl Dialog {
         match &self.step {
             Step::Path => {
                 lines.push("Project directory (paste a path; ~/ is supported):".into());
+                if self.completing {
+                    lines.push("Completing directory... You can keep typing or cancel.".into());
+                }
+                if let Some(completion) = &self.completion {
+                    lines.push(format!(
+                        "{} directories | Tab/Shift-Tab: cycle",
+                        completion.options.len()
+                    ));
+                    let count = rows.saturating_sub(6).clamp(1, 6);
+                    let start = completion
+                        .index
+                        .unwrap_or(0)
+                        .saturating_sub(count / 2)
+                        .min(completion.options.len().saturating_sub(count));
+                    for (index, option) in completion
+                        .options
+                        .iter()
+                        .enumerate()
+                        .skip(start)
+                        .take(count)
+                    {
+                        let name = path_text(option)
+                            .trim_end_matches('/')
+                            .rsplit('/')
+                            .next()
+                            .unwrap_or(option);
+                        lines.push(format!(
+                            "{} {name}/",
+                            if completion.index == Some(index) {
+                                ">"
+                            } else {
+                                " "
+                            }
+                        ));
+                    }
+                }
                 lines.push(format!("> {}_", input_tail(&self.input)));
-                lines.push("Enter: inspect | Ctrl-U: clear | Esc: cancel".into());
+                lines.push("Tab: complete | Enter: inspect | Ctrl-U: clear | Esc: cancel".into());
             }
             Step::Scanning => {
                 lines.push("Reading project declarations... No commands are executed.".into())
@@ -435,21 +557,113 @@ fn choices(lines: &mut Vec<String>, options: &[String], index: usize, rows: usiz
         options.len()
     ));
 }
-fn scan(input: &str) -> Result<Scan, String> {
+fn path_text(input: &str) -> &str {
     let text = input.trim();
-    let text = text
-        .strip_prefix('"')
-        .and_then(|s| s.strip_suffix('"'))
-        .or_else(|| text.strip_prefix('\'').and_then(|s| s.strip_suffix('\'')))
-        .unwrap_or(text);
-    let path = if text == "~" || text.starts_with("~/") {
-        PathBuf::from(
-            std::env::var_os("HOME").ok_or("HOME is not set; enter an absolute directory.")?,
-        )
-        .join(text.strip_prefix("~/").unwrap_or(""))
+    if let Some(quote) = text.chars().next().filter(|c| matches!(c, '\'' | '"')) {
+        let rest = &text[1..];
+        rest.strip_suffix(quote).unwrap_or(rest)
     } else {
-        PathBuf::from(text)
+        text
+    }
+}
+
+fn expand_path(text: &str, home: Option<&Path>) -> Result<PathBuf, String> {
+    if text == "~" || text.starts_with("~/") {
+        Ok(home
+            .ok_or("HOME is not set; enter an absolute directory.")?
+            .join(text.strip_prefix("~/").unwrap_or("")))
+    } else {
+        Ok(PathBuf::from(text))
+    }
+}
+
+/// Inspect one directory only, off the event loop. Never run a shell for completion.
+fn complete(input: &str, home: Option<&Path>) -> Result<Completion, String> {
+    let text = path_text(input);
+    let quote = input
+        .trim()
+        .chars()
+        .next()
+        .filter(|c| matches!(c, '\'' | '"'));
+    let render = |path: String| match quote {
+        Some(quote) => format!("{quote}{path}{quote}"),
+        None => path,
     };
+    if matches!(text, "~" | "." | "..") {
+        let path = expand_path(text, home)?;
+        if !path.is_dir() {
+            return Err("Cannot complete path: directory is unavailable.".into());
+        }
+        let path = render(format!("{text}/"));
+        return Ok(Completion {
+            common: path.clone(),
+            options: vec![path],
+            index: None,
+        });
+    }
+    let (base, prefix) = text
+        .rfind('/')
+        .map_or(("", text), |slash| text.split_at(slash + 1));
+    let parent = expand_path(if base.is_empty() { "." } else { base }, home)?;
+    let entries =
+        std::fs::read_dir(parent).map_err(|error| format!("Cannot complete path: {error}"))?;
+    let deadline = Instant::now() + Duration::from_millis(250);
+    let mut options = Vec::new();
+    for (index, entry) in entries.enumerate() {
+        if index >= 8192 || Instant::now() >= deadline {
+            return Err(
+                "Directory is too large or slow to complete; type a more specific path.".into(),
+            );
+        }
+        let entry = entry.map_err(|error| format!("Cannot complete path: {error}"))?;
+        let name = entry.file_name();
+        let Some(name) = name.to_str() else {
+            continue;
+        };
+        if !name.starts_with(prefix)
+            || (name.starts_with('.') && !prefix.starts_with('.'))
+            || name.chars().any(char::is_control)
+        {
+            continue;
+        }
+        let kind = entry
+            .file_type()
+            .map_err(|error| format!("Cannot complete path: {error}"))?;
+        if !kind.is_dir() && !(kind.is_symlink() && entry.path().is_dir()) {
+            continue;
+        }
+        let option = format!("{base}{name}/");
+        if option.len() + quote.map_or(0, |_| 2) > 4096 {
+            return Err("Completed path exceeds the input limit; enter a shorter path.".into());
+        }
+        options.push(option);
+        if options.len() > 256 {
+            return Err("Too many matching directories; type more of the directory name.".into());
+        }
+    }
+    options.sort();
+    let Some(first) = options.first() else {
+        return Err("No matching directories. Edit the path and try Tab again.".into());
+    };
+    let mut common = first.clone();
+    for option in options.iter().skip(1) {
+        common = common
+            .chars()
+            .zip(option.chars())
+            .take_while(|(a, b)| a == b)
+            .map(|(c, _)| c)
+            .collect();
+    }
+    Ok(Completion {
+        common: render(common),
+        options: options.into_iter().map(render).collect(),
+        index: None,
+    })
+}
+
+fn scan(input: &str) -> Result<Scan, String> {
+    let home = std::env::var_os("HOME").map(PathBuf::from);
+    let path = expand_path(path_text(input), home.as_deref())?;
     let path = path
         .canonicalize()
         .map_err(|e| format!("Cannot open directory: {e}"))?;
@@ -508,6 +722,20 @@ fn scan(input: &str) -> Result<Scan, String> {
 
 pub async fn execute(work: Work, config: PathBuf, workspace: Option<String>) -> Finished {
     match work {
+        Work::Complete(input) => {
+            let requested = input.clone();
+            let result = tokio::task::spawn_blocking(move || {
+                let home = std::env::var_os("HOME").map(PathBuf::from);
+                complete(&input, home.as_deref())
+            })
+            .await
+            .map_err(|error| error.to_string())
+            .and_then(|r| r);
+            Finished::Completed {
+                input: requested,
+                result,
+            }
+        }
         Work::Scan(input) => Finished::Scanned(
             tokio::task::spawn_blocking(move || scan(&input))
                 .await
@@ -587,5 +815,223 @@ pub async fn execute(work: Work, config: PathBuf, workspace: Option<String>) -> 
                 committed,
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod completion_tests {
+    use super::*;
+    use std::{
+        fs,
+        os::unix::fs::symlink,
+        sync::atomic::{AtomicU64, Ordering},
+    };
+    static NEXT: AtomicU64 = AtomicU64::new(0);
+    struct Fixture(PathBuf);
+    impl Fixture {
+        fn new() -> Self {
+            let root = std::env::temp_dir().join(format!(
+                "devctl-tab-{}-{}",
+                std::process::id(),
+                NEXT.fetch_add(1, Ordering::Relaxed)
+            ));
+            fs::create_dir(&root).unwrap();
+            Self(root)
+        }
+        fn directory(&self, name: &str) {
+            fs::create_dir(self.0.join(name)).unwrap();
+        }
+        fn input(&self, suffix: &str) -> String {
+            format!("{}/{suffix}", self.0.display())
+        }
+    }
+    impl Drop for Fixture {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+    fn key(code: KeyCode) -> KeyEvent {
+        KeyEvent::new(code, KeyModifiers::NONE)
+    }
+
+    #[test]
+    fn unique_directory_completes_spaces_and_can_continue_into_children() {
+        let f = Fixture::new();
+        f.directory("space project");
+        fs::create_dir(f.0.join("space project/child")).unwrap();
+        fs::write(f.0.join("space-file"), "not a directory").unwrap();
+        let input = f.input("sp");
+        let mut dialog = Dialog::new();
+        dialog.paste(&input);
+        assert!(matches!(
+            dialog.key(key(KeyCode::Tab)),
+            Action::Work(Work::Complete(_))
+        ));
+        dialog.completed(input.clone(), complete(&input, None));
+        assert_eq!(dialog.input, f.input("space project/"));
+        assert!(dialog.completion.is_none());
+        let input = dialog.input.clone();
+        assert!(matches!(
+            dialog.key(key(KeyCode::Tab)),
+            Action::Work(Work::Complete(_))
+        ));
+        dialog.completed(input.clone(), complete(&input, None));
+        assert_eq!(dialog.input, f.input("space project/child/"));
+    }
+
+    #[test]
+    fn ambiguous_unicode_directories_extend_the_shared_prefix_and_cycle_in_name_order() {
+        let f = Fixture::new();
+        f.directory("项目甲");
+        f.directory("项目乙");
+        let input = f.input("项");
+        let completion = complete(&input, None).unwrap();
+        assert_eq!(completion.common, f.input("项目"));
+        let mut expected = [f.input("项目甲/"), f.input("项目乙/")];
+        expected.sort();
+        let mut dialog = Dialog::new();
+        dialog.paste(&input);
+        dialog.completed(input, Ok(completion));
+        assert!(
+            dialog
+                .lines(12)
+                .iter()
+                .any(|line| line.contains("2 directories"))
+        );
+        dialog.key(key(KeyCode::Tab));
+        assert_eq!(dialog.input, expected[0]);
+        dialog.key(key(KeyCode::Tab));
+        assert_eq!(dialog.input, expected[1]);
+        dialog.key(key(KeyCode::Tab));
+        assert_eq!(dialog.input, expected[0]);
+        dialog.key(key(KeyCode::BackTab));
+        assert_eq!(dialog.input, expected[1]);
+        dialog.paste("c");
+        assert!(dialog.completion.is_none());
+    }
+
+    #[test]
+    fn home_relative_and_quoted_paths_share_the_inspection_interpretation() {
+        let f = Fixture::new();
+        f.directory("space 项目");
+        let home = Some(f.0.as_path());
+        for (input, expected) in [
+            ("~/sp".to_string(), "~/space 项目/".to_string()),
+            (f.input("./sp"), f.input("./space 项目/")),
+            (
+                format!("\"{}\"", f.input("sp")),
+                format!("\"{}\"", f.input("space 项目/")),
+            ),
+            (
+                format!("'{}", f.input("sp")),
+                format!("'{}'", f.input("space 项目/")),
+            ),
+        ] {
+            let completed = complete(&input, home).unwrap().common;
+            assert_eq!(completed, expected);
+            assert_eq!(
+                expand_path(path_text(&completed), home)
+                    .unwrap()
+                    .canonicalize()
+                    .unwrap(),
+                f.0.join("space 项目").canonicalize().unwrap()
+            );
+        }
+        assert_eq!(complete("~", home).unwrap().common, "~/");
+        assert_eq!(complete(".", None).unwrap().common, "./");
+        assert_eq!(complete("..", None).unwrap().common, "../");
+        assert!(complete("~/sp", None).err().unwrap().contains("HOME"));
+    }
+
+    #[test]
+    fn completion_filters_files_hidden_invalid_names_and_broken_links() {
+        let f = Fixture::new();
+        f.directory("visible");
+        f.directory(".hidden");
+        f.directory("control\nname");
+        #[cfg(target_os = "linux")]
+        {
+            use std::os::unix::ffi::OsStringExt;
+            fs::create_dir(f.0.join(std::ffi::OsString::from_vec(vec![b'x', 0xff]))).unwrap();
+        }
+        fs::write(f.0.join("file"), "file").unwrap();
+        symlink(f.0.join("visible"), f.0.join("linked")).unwrap();
+        symlink(f.0.join("missing"), f.0.join("broken")).unwrap();
+        symlink(f.0.join("file"), f.0.join("linked-file")).unwrap();
+        assert_eq!(
+            complete(&f.input(""), None).unwrap().options,
+            [f.input("linked/"), f.input("visible/")]
+        );
+        assert_eq!(
+            complete(&f.input("."), None).unwrap().options,
+            [f.input(".hidden/")]
+        );
+        assert!(
+            complete(&f.input("file"), None)
+                .err()
+                .unwrap()
+                .contains("No matching")
+        );
+    }
+
+    #[test]
+    fn failed_or_stale_reads_preserve_input_and_enter_waits_for_completion() {
+        let f = Fixture::new();
+        f.directory("project");
+        let input = f.input("pro");
+        let mut dialog = Dialog::new();
+        dialog.paste(&input);
+        dialog.key(key(KeyCode::Tab));
+        assert!(matches!(dialog.key(key(KeyCode::Enter)), Action::None));
+        assert!(
+            matches!(dialog.completed(input.clone(), complete(&input, None)), Action::Work(Work::Scan(path)) if path == f.input("project/"))
+        );
+        let full = f.input("project/");
+        let mut empty = Dialog::new();
+        empty.paste(&full);
+        empty.key(key(KeyCode::Tab));
+        empty.key(key(KeyCode::Enter));
+        assert!(
+            matches!(empty.completed(full.clone(), complete(&full, None)), Action::Work(Work::Scan(path)) if path == full)
+        );
+        assert!(
+            empty.error.is_none(),
+            "A valid empty directory can still be inspected"
+        );
+        let mut dialog = Dialog::new();
+        dialog.paste(&input);
+        dialog.key(key(KeyCode::Tab));
+        dialog.paste("x");
+        dialog.key(key(KeyCode::Enter));
+        assert!(
+            matches!(dialog.completed(input.clone(), complete(&input, None)), Action::Work(Work::Scan(path)) if path == format!("{input}x"))
+        );
+        let mut dialog = Dialog::new();
+        dialog.paste(&f.input("missing/child"));
+        let input = dialog.input.clone();
+        dialog.key(key(KeyCode::Tab));
+        dialog.completed(input.clone(), complete(&input, None));
+        assert_eq!(dialog.input, input);
+        assert!(dialog.error.as_deref().unwrap().contains("Cannot complete"));
+        dialog.key(key(KeyCode::Tab));
+        assert!(matches!(dialog.key(key(KeyCode::Esc)), Action::Close));
+    }
+
+    #[test]
+    fn excessive_matches_fail_without_exposing_a_partial_candidate_list() {
+        let f = Fixture::new();
+        for i in 0..257 {
+            f.directory(&format!("dir-{i:03}"));
+        }
+        assert!(
+            complete(&f.input("dir-"), None)
+                .err()
+                .unwrap()
+                .contains("Too many matching")
+        );
+        assert_eq!(
+            complete(&f.input("dir-256"), None).unwrap().common,
+            f.input("dir-256/")
+        );
     }
 }

@@ -5,6 +5,10 @@ User-facing changes are grouped by released version. Download artifacts from
 
 ## 1.5.0 — Unreleased
 
+- Add Tab directory completion to the TUI project-path input, with shared-prefix
+  extension, sorted candidate cycling, Unicode/spaces and `~/` support. Keep reads
+  bounded and asynchronous; preserve input on failure or stale results.
+
 - Add a TUI project dialog on `a`: paste a directory, choose declared npm/pnpm
   projects/scripts or enter a custom command, review/save and return to the list.
   First use needs no config file. Move default-group start to `A`. Hot-add through

@@ -350,7 +350,13 @@ from 1.2.2 uses the older output; subsequent updates from 1.3.0 use this display
 Open `devctl` (or select a workspace with `--config PATH`) and press **a**:
 
 1. Paste or type a project directory, then Enter. `~/` and quoted pasted paths are
-   accepted; Ctrl-U clears input. No repository command runs during inspection.
+   accepted; Ctrl-U clears input. Tab completes directory paths: one match appends
+   `/`; multiple matches extend the common prefix and show candidates, then Tab /
+   Shift-Tab cycles them in name order. Hidden directories require a dot prefix.
+   Absolute, relative and `~/` paths work with spaces and Unicode. No matches or a read
+   failure leave the input unchanged. Completion reads one directory in the background, with
+   limits; narrow the path or enter it manually if a limit is reached. No repository
+   command runs during inspection.
 2. npm/pnpm declarations supply project and script choices. One runnable project
    and one startup suggestion can go directly to review. Otherwise choose with
    Up/Down and Enter; workspace root/member alternatives remain separate.
