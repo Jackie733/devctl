@@ -86,8 +86,8 @@ acceptance. Do not treat a release or consistent documentation as user acceptanc
 
 ## Post-MVP scope
 
-Logging, public release/self-update, and directory-based onboarding/environment
-automation are confirmed follow-up directions. Entries marked candidate
+Logging, public release/self-update, and lightweight project onboarding are
+confirmed follow-up directions. Entries marked candidate
 remain candidates for assessment; retaining a proposal is not scheduling it, and
 simplifying documentation must not silently cancel it.
 
@@ -109,7 +109,7 @@ simplifying documentation must not silently cancel it.
 | X03 | Public distribution and self-update | Public releases and updater delivered; full target WSL acceptance pending |
 | P06 | Service PTYs, stdin forwarding, interactive commands | Candidate |
 | W05 | package.json/Procfile import and devctl-managed file-watch restart | package.json import is included in A01; Procfile import and file-watch restart remain candidates |
-| A01–A03 | Directory onboarding, environment checks and setup, infrastructure discovery/monitoring/control | M7.1 discovery, M7.2 checks/local binding and M7.3 config import implemented; installation and infrastructure control pending; see [automation](#directory-onboarding-and-environment-automation-a01a03) |
+| A01–A03 | Lightweight onboarding and historical environment/infrastructure proposals | A01 retained and simplified; A02 removed from core; A03 pending reassessment; see [scope](#directory-onboarding-and-environment-automation-a01a03) |
 | Configuration extensions | Environment/tilde path expansion, env_files/env overrides | Candidate; existing literal path/environment behavior remains |
 
 An earlier 20-service performance budget is a proposal, not measured evidence.
@@ -120,103 +120,61 @@ log assistance remain candidates, with logging foundations preceding AI assessme
 
 ### Directory onboarding and environment automation (A01–A03)
 
-Confirmed on 2026-10-16; M7.1 implements read-only Node project/script discovery,
-M7.2 adds checks/local tool binding, and M7.3 adds reviewed configuration import.
-Tool/dependency installation and A03 remain unimplemented;
-this partial delivery does not establish complete-workflow or user acceptance.
-The priority scenario is: provide an existing project directory, inspect its environment, derive installation/start commands,
-and add it to the workspace without hand-writing `devctl.toml`.
+The user revised the 2026-10-16 baseline on 2026-10-17 to prioritize a small,
+responsive service/log manager. Lightweight onboarding remains; environment
+inspection, runtime/package-manager version management, tool bindings, dependency
+inventory, automatic installation and repair are removed from core scope. This
+supersedes the earlier A02/M7 setup plan. Agent-assisted problem assessment is a
+future candidate, not implementation authorization.
 
-| ID | Capability | Observable acceptance |
+| ID | Scope | Observable acceptance |
 | --- | --- | --- |
-| A01 | Directory discovery and workspace onboarding | Identify projects and startup candidates from repository declarations; save project path, working directory and selected command; repeat discovery without duplicates or overwriting user edits |
-| A02 | Environment checks and setup | Report missing/incompatible runtimes, package managers and project dependencies; offer installation with visible commands/results; recheck before starting the project |
-| A03 | Database and Redis discovery, monitoring and control | Identify relevant instances and their management source, show availability, and offer supported start/stop controls; relate instances to projects and preserve shared services when stopping a project |
+| A01 | Add directories and explicit commands; optional npm/pnpm script import | Add a working project without hand-written TOML or selecting environment versions; preserve edits and avoid duplicates; use ordinary start/log/stop/reconnect |
+| A02 | Removed from core | No doctor/setup, managed tool bindings, installation or dependency-readiness gate; unknown retired fields/options fail explicitly |
+| A03 | Infrastructure discovery/monitoring/control pending reassessment | Historical scope retained for a later concrete scenario; not an automatic next milestone |
 
-First workflow:
+The primary onboarding workflow is a directory plus the command the user normally
+runs. It works across languages without ecosystem-specific installers or mandatory
+scanning. Optional script discovery reads explicit repository declarations, offers
+ambiguous entry points for selection and saves the chosen directory/command.
+Discovery/save must not execute repository commands. Onboarding and service startup
+must not add devctl-managed version probes or environment preparation; an explicitly
+configured command retains its own behavior, including any environment preparation.
 
-1. Accept a directory and identify its project, or present candidates when it contains
-   multiple projects. Read manifests, lockfiles, version declarations and existing
-   Compose configuration. Node/npm projects in WSL are the initial research baseline;
-   the M7 design below defines the initial support matrix and traversal limits,
-   while other ecosystems remain pending assessment.
-2. Derive installation/start commands and working directories from explicit evidence.
-   Present ambiguous entry points for selection; do not execute repository commands
-   just to discover them. Existing declarations take precedence over guesses.
-3. Report environment checks as satisfied, missing, incompatible or unknown. Infer
-   infrastructure needs from explicit connection/service configuration; a client
-   library alone does not establish an instance, endpoint or required version.
-4. Generate workspace configuration, reuse existing entries and preserve user edits.
-   Offer setup actions with logs and failures, then recheck and allow normal project
-   startup and log inspection. Selecting a directory alone does not authorize installs
-   or service changes. The M7 interaction below defines the initial CLI/TUI flow.
+Basic execution checks remain: valid config, directories, command arguments,
+references and lifecycle ownership. Report missing executables, process failures,
+exit results and logs. Environment preparation belongs to the project or its chosen
+tools; no automatic diagnosis or readiness promise is required. Existing status,
+logs and control commands may support future Agent workflows, while ordinary
+operation remains fully usable offline without an Agent.
 
-A03 remains part of the broader automation scope, not cancelled by prioritizing
-A01/A02. Research system services, Docker/Compose, devctl-managed processes,
-externally started processes and configured remote endpoints. Discovery must also
-consider installed but stopped services. A listening port is a clue, not verified
-service identity. Display management source and available control capabilities;
-discovery or workspace inclusion alone does not imply ownership of a process.
-Distinguish installation, process state and application availability, including
-unknown/stale checks and authentication failures. A reachable database is not proof
-that the project's credentials work. Shared or pre-existing services must not be
-stopped implicitly with an individual project; explicit service controls should
-identify affected projects. Stopping a database must preserve its data.
+A03's historical proposal includes system services, Docker/Compose, managed/external
+processes and remote endpoints, including installed but stopped instances. Any later
+implementation must distinguish installation/process/availability/authentication,
+show control ownership and preserve data and shared services. Creating databases,
+migrations/seeds, installation methods and privilege handling were never settled.
+This simplification neither implements nor silently cancels A03; its priority and
+boundary need reassessment before design. Crash restart, cascading controls and
+reboot recovery remain separate candidates.
 
-Creating databases, executing migrations and generating application/business
-configuration are outside this increment. Runtime/dependency installation is in
-scope; installing new database/Redis instances, supported installation methods,
-privilege handling and infrastructure version isolation still need assessment. Editor setup is
-outside this scenario. Historical D01–D05, P03 and R01 proposals remain available;
-this discussion does not authorize automatic restart, cascading shutdown or reboot
-recovery. Existing configuration and runtime contracts remain until implemented.
-
-A detailed M7 design baseline is now recorded in
-[DESIGN.md](../DESIGN.md#planned-directory-onboarding-and-environment-preparation-m7)
-and the [planned interaction](interaction.md#planned-directory-workflow-m7). It
-proposes bounded Node/npm/pnpm discovery, explicit monorepo selections, exact local
-tool bindings, isolated setup and import only while the target workspace is stopped.
-The user authorized implementation of this baseline. M7.1–M7.3 are implemented;
-installation and the full platform/real-environment acceptance
-remain future evidence. Routine implementation choices need no repeated approval.
-M8 still needs database-type, management-source, credential and cross-host/control
-research; the M7 design does not settle those separate decisions.
-
-Acceptance must cover a real supplied directory without manual TOML authoring,
-missing/incompatible dependencies, ambiguous commands, repeated import preserving
-edits, installation failure/retry, and normal start/log/stop behavior. For A03,
-include stopped and unreachable instances, authentication failure, unavailable
-management permissions, and two projects sharing one service. Tests alone do not
-establish real-environment acceptance.
+Mechanisms live in [DESIGN](../DESIGN.md#lightweight-project-onboarding-m7);
+commands and migration guidance live in [interaction](interaction.md#adding-projects).
 
 #### M7 acceptance cases
 
-The following cases make A01/A02 observable; mechanisms and numeric budgets remain
-in DESIGN.md. Fixture checks must be paired with the real supplied-project workflow.
-
 | Case | Expected result |
 | --- | --- |
-| Single npm project with one dev script | Preview the actual command, save without hand-written TOML, set up, start/read logs/stop |
-| Bogu-style pnpm workspace | Offer root and member alternatives; independently control web/API with one shared install, avoiding duplicate starts |
-| Multiple scripts or independent projects | Require explicit selections; never guess an ambiguous executable entry |
-| Existing canonical/symlink project alias | Reimport without duplicates; preserve comments, IDs and user edits; replacement is explicit |
-| Root/member or manager declaration conflict | Explain conflicting evidence and block apply until resolved |
-| Version pin/range conflict, unsupported syntax or ecosystem | Report incompatible/unknown/unsupported; no silent version or manager substitution |
-| Missing or incompatible Node/manager | Offer a reviewed exact-version binding/install and recheck before startup |
-| Existing shim hangs or attempts activation | Bounded failure; no probe download, shell initialization or indefinite wait |
-| pnpm runtime switching/configuration hooks | Read-only checks cannot execute hooks or fetch tools; setup/start either use proven adapter controls or explain unsupported settings |
-| Terminal and supervisor have different PATH | Managed service uses the reviewed tools, including scripts' nested invocations |
-| Different projects need different versions | Their bindings coexist and do not change legacy services or shell defaults |
-| Existing dependencies, stale metadata or removed files | Do not infer correctness solely from directory presence; explain limits and stale evidence |
-| Lockfile absent, stale or frozen install fails | Show writes before apply; no silent lockfile-changing retry |
-| Installation scripts/native builds needed | Show suppression and incomplete build evidence; script-enabled action requires explicit selection |
-| Network/checksum/disk/permission failure | Existing verified tools remain usable; show partial dependency changes and allow a rechecked retry |
-| Cancellation/deadline and child processes | Clean up active setup descendants; do not report rollback or leak the install lock |
-| Concurrent imports or config changed after preview | One complete valid file or a conflict; no overwritten user edits or partial file |
-| Running supervisor/foreground runner | Preview works, apply refuses without stopping services; explicit shutdown/apply/reopen loads the new config |
-| Shared dependency root in two managed workspaces | Installation cannot mutate a root held by live managed services; unrelated roots remain usable |
-| Private registry configuration | Normal authentication can be used without saving credentials in config or receipts |
-| macOS and WSL2 real workflow | Verify each claimed platform independently; Mac-only tests do not establish WSL acceptance |
+| Directory with an explicit command, any language | Preview/save without reading manifests, checking versions or installing; preserve argv exactly |
+| Already runnable npm/pnpm project | Import with no runtime/version choices; normal service startup uses existing environment |
+| Bogu-style workspace | Offer independent web/API scripts and warn about root overlap; save paths/commands only |
+| Missing or ambiguous manager/scripts | Explicit choice or direct add; no guessed startup command |
+| Conflicting/unsupported/incomplete discovery | Explain and offer explicit add; scanner support never gates ordinary command use |
+| Environment constraints, absent dependencies or unavailable runtime | Import/save are allowed; actual command execution reports its own failures |
+| Repeat import/add, aliases, edits, explicit replacement | No duplicates; preserve comments/IDs/commands/cwd/autostart and no-op bytes/inode |
+| Concurrent saves, source/target changes and active/idle runner | No partial file, overwritten edits or stale commands; refuse apply to an owned workspace |
+| Earlier unreleased managed fields/options | Clear rejection/migration guidance; never silently switch tool execution |
+| Normal service lifecycle | Start, logs, stop, repeat start, leave/reconnect and complete cleanup stay correct |
+| macOS and WSL2 | Record evidence independently; build checks are not platform/user acceptance |
 
 Research starting points (not selected implementation mechanisms):
 
@@ -288,7 +246,8 @@ feedback by [interaction.md](interaction.md#logs-and-search).
 The accepted scenario uses Linux Node/npm commands inside WSL; exact versions,
 package managers, dependencies, editors, and mini-program tooling belong to each
 project. The current release does not install project dependencies or manage editor
-configuration. Planned environment setup is scoped separately under
+configuration. Project environment checks, version management and installation
+were explicitly removed from core scope; see
 [A01–A03](#directory-onboarding-and-environment-automation-a01a03).
 Background execution is not boot startup, machine-restart recovery, or adoption of
 processes created outside devctl. Target-environment verification remains a user

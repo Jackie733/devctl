@@ -1,4 +1,4 @@
-use std::{collections::BTreeMap, io::Read, path::Path, sync::Arc, time::Duration};
+use std::{io::Read, path::Path, sync::Arc, time::Duration};
 
 use tokio::{
     signal::unix::{SignalKind, signal},
@@ -12,7 +12,6 @@ use crate::{
     config,
     control::{self, Command, Request, Response},
     control_socket::ControlSocket,
-    environment,
     logs::{self, Store},
     manager::{Manager, ServiceState},
     run_lock::RunLock,
@@ -26,22 +25,6 @@ struct PendingStop {
     ids: Vec<String>,
     errors: Vec<String>,
     reply: oneshot::Sender<Response>,
-}
-
-struct PendingStart {
-    ids: Vec<String>,
-    task: tokio::task::JoinHandle<Result<BTreeMap<String, config::Service>, String>>,
-    reply: oneshot::Sender<Response>,
-    cancelled: bool,
-}
-
-fn cancel_start(pending: &mut Option<PendingStart>, ids: Option<&[String]>) {
-    if let Some(start) = pending
-        && ids.is_none_or(|ids| ids.iter().any(|id| start.ids.contains(id)))
-    {
-        start.cancelled = true;
-        start.task.abort();
-    }
 }
 
 fn snapshot(manager: &mut Manager, error: Option<String>) -> Response {
@@ -66,7 +49,6 @@ fn dispatch(
     shutting_down: &mut bool,
     logs: &Store,
     archive: &Archive,
-    pending_start: &mut Option<PendingStart>,
 ) {
     let Command { request, reply } = command;
     match request {
@@ -114,45 +96,7 @@ fn dispatch(
         Request::Status {} => {
             let _ = reply.send(snapshot(manager, None));
         }
-        Request::Start {
-            targets,
-            all,
-            allow_unverified_dependencies,
-        } => {
-            let selected = if all {
-                manager.default_targets()
-            } else {
-                targets.clone()
-            };
-            if !*shutting_down && validate_selection(&targets, all).is_ok() {
-                match manager.start_sources(&selected) {
-                    Ok(sources) if sources.values().any(|service| service.managed.is_some()) => {
-                        if pending_start.is_some() {
-                            let _ = reply.send(Response::failed("Environment checks are already in progress; retry after the current start finishes."));
-                        } else {
-                            *pending_start = Some(PendingStart {
-                                ids: selected,
-                                task: tokio::spawn(environment::prepare(
-                                    sources,
-                                    allow_unverified_dependencies,
-                                )),
-                                reply,
-                                cancelled: false,
-                            });
-                        }
-                        return;
-                    }
-                    Err(error) => {
-                        let _ = reply.send(snapshot(manager, Some(error)));
-                        return;
-                    }
-                    Ok(_) => {}
-                }
-            }
-            if pending_start.is_some() {
-                let _ = reply.send(Response::failed("Environment checks are already in progress; retry after the current start finishes."));
-                return;
-            }
+        Request::Start { targets, all } => {
             let result = if *shutting_down {
                 Err("Workspace is shutting down.".into())
             } else {
@@ -174,7 +118,6 @@ fn dispatch(
             let shutdown = matches!(request, Request::Shutdown {});
             let ids = match request {
                 Request::Shutdown {} => {
-                    cancel_start(pending_start, None);
                     *shutting_down = true;
                     manager.request_stop_all();
                     manager.all_ids()
@@ -185,11 +128,9 @@ fn dispatch(
                         return;
                     }
                     if all {
-                        cancel_start(pending_start, None);
                         manager.request_stop_all();
                         manager.all_ids()
                     } else {
-                        cancel_start(pending_start, Some(&targets));
                         if let Err(error) = manager.stop_selected(&targets) {
                             let _ = reply.send(snapshot(manager, Some(error)));
                             return;
@@ -259,7 +200,7 @@ async fn run_inner(path: &Path, detached: bool) -> Result<(), String> {
     let path = path
         .canonicalize()
         .map_err(|error| format!("Failed to resolve config path {}: {error}", path.display()))?;
-    // Keep initial validation side-effect free, then discard it and reread once owned.
+    // Validate without side effects, then reread under ownership after any import.
     config::load(&path)?;
     let workspace_id = workspace_identity()?;
     let mut interrupt = signal(SignalKind::interrupt())
@@ -275,8 +216,6 @@ async fn run_inner(path: &Path, detached: bool) -> Result<(), String> {
             return Err(format!("Config '{}' is already managed.", path.display()));
         }
     };
-    // Read only after ownership: an importer may have replaced the file while
-    // this supervisor was acquiring the sidecar lock.
     let config = config::load(&path)?;
     let socket = ControlSocket::bind(&path, &_run_lock)?;
     let (sinks, mut output, mut logs) = logs::channel(config.services.keys().cloned());
@@ -285,7 +224,6 @@ async fn run_inner(path: &Path, detached: bool) -> Result<(), String> {
     let (commands, mut incoming) = mpsc::channel(32);
     let mut clients = JoinSet::new();
     let mut pending = Vec::<PendingStop>::new();
-    let mut pending_start = None::<PendingStart>;
     let mut shutting_down = false;
     let mut reply_on_shutdown = false;
     if detached {
@@ -297,12 +235,10 @@ async fn run_inner(path: &Path, detached: bool) -> Result<(), String> {
         let accepting = Instant::now() >= accept_after;
         tokio::select! {
             _ = interrupt.recv(), if !shutting_down => {
-                cancel_start(&mut pending_start, None);
                 shutting_down = true;
                 manager.request_stop_all();
             }
             _ = terminate.recv(), if !shutting_down => {
-                cancel_start(&mut pending_start, None);
                 shutting_down = true;
                 manager.request_stop_all();
             }
@@ -323,7 +259,7 @@ async fn run_inner(path: &Path, detached: bool) -> Result<(), String> {
             _ = sleep_until(accept_after), if !accepting => {}
             Some(command) = incoming.recv() => {
                 let shutdown_request = matches!(&command.request, Request::Shutdown {});
-                dispatch(command, &mut manager, &mut pending, &mut shutting_down, &logs, &archive, &mut pending_start);
+                dispatch(command, &mut manager, &mut pending, &mut shutting_down, &logs, &archive);
                 reply_on_shutdown |= shutdown_request && shutting_down;
             }
             Some(event) = output.recv() => { if let Some((service, record)) = logs.push(event) {archive.push(service,record);} },
@@ -339,15 +275,9 @@ async fn run_inner(path: &Path, detached: bool) -> Result<(), String> {
                 }
             }
             Some(_result) = clients.join_next(), if !clients.is_empty() => {}
-            prepared = async { (&mut pending_start.as_mut().expect("guarded pending start").task).await }, if pending_start.is_some() => {
-                let pending = pending_start.take().expect("start was pending");
-                let result = if pending.cancelled || shutting_down { Err("Start cancelled by stop/shutdown; no new services were started.".into()) }
-                    else { prepared.map_err(|error| format!("Environment preflight failed: {error}")).and_then(|prepared| prepared).and_then(|services| manager.start_prepared(services)) };
-                let _ = pending.reply.send(snapshot(&mut manager, result.err()));
-            }
         }
         complete_stops(&mut manager, &mut pending, !shutting_down);
-        if shutting_down && !manager.has_pending_tasks() && pending_start.is_none() {
+        if shutting_down && !manager.has_pending_tasks() {
             if manager.has_unconfirmed_cleanup() {
                 // Keep the ownership lock and diagnostics when safe exit cannot be proved.
                 shutting_down = false;

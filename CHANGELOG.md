@@ -9,14 +9,15 @@ User-facing changes are grouped by released version. Download artifacts from
   npm/pnpm workspace members, declared scripts and package-manager evidence.
   Explain command overlap, conflicts and bounded/incomplete scans without running
   tools/scripts or writing files during discovery.
-- Add reviewed configuration import with project/script/version selections, terminal
+- Add reviewed configuration import with project/script selections, terminal
   guidance, preserved existing edits, explicit replacements and atomic saves. Refuse
   active workspaces and changed evidence; synchronize runner reads with import edits.
-- Add optional exact Node environments, read-only `doctor`, reviewed local-only
-  `setup` bindings and service-specific Node/npm/pnpm execution. Preflight entire
-  start batches, keep stop/status responsive, and require a per-start CLI/TUI
-  acknowledgement for unknown dependency evidence. Tool/dependency installation
-  and dependency inventory verification remain pending.
+- Add language-independent `add DIR -- COMMAND ARG...` using the same reviewed,
+  comment-preserving transaction. Import selects command names only, without runtime
+  versions or installed-tool checks. Commands use the existing environment.
+- Remove the unreleased environment-management experiment: doctor/setup, exact tool
+  bindings, dependency checks and acknowledgement options. Retired configuration
+  fields fail explicitly with migration guidance; automatic installation is out of core scope.
 
 - Add native macOS 14+ operation on Apple Silicon and Intel, preserving process-group
   cleanup, background services, reconnect, retained logs and terminal restoration.

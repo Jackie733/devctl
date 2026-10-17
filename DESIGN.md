@@ -533,477 +533,108 @@ Reuse meaningful coverage and record actual results in [tasks.md](docs/tasks.md)
 Real-project acceptance remains separate. Do not prebuild dependency scheduling or
 reboot recovery while those features remain proposals.
 
-## Planned directory onboarding and environment preparation (M7)
+## Lightweight project onboarding (M7)
 
-Status: baseline requested on 2026-10-16 and implementation authorized afterward.
-M7.1 discovery, M7.2 checks/local bindings/managed startup and M7.3 reviewed
-configuration import are implemented. Tool/dependency installation and inventory
-below remain **not implemented**. Future mechanisms are explicitly distinguished.
-[A01/A02 requirements](docs/requirements.md#directory-onboarding-and-environment-automation-a01a03)
-own scope and acceptance; the [planned interaction](docs/interaction.md#planned-directory-workflow-m7)
-owns commands, selections and feedback. This baseline guides the authorized
-implementation; progress does not establish real-environment acceptance or grant
-permission to execute setup in a user's project.
+The user revised A01/A02 on 2026-10-17: keep the process/log manager small,
+with language-independent command configuration and optional script discovery.
+Environment diagnosis, runtime/package-manager version management, local bindings,
+dependency inventory and installation are removed from the core. No language-specific
+checks run during service startup. The previous environment design is superseded;
+Git retains it. Scope belongs to [requirements](docs/requirements.md#directory-onboarding-and-environment-automation-a01a03),
+and operations to [interaction](docs/interaction.md#adding-projects).
 
-### Design baseline and compatibility
+### Command configuration and discovery
 
-The planned complete workflow targets Node.js projects using npm 10/11 or pnpm 10,
-on native macOS 14+ (arm64/x64) and Ubuntu 22.04+ x64, including WSL2. Automated
-Node installation uses official glibc Linux or Darwin archives for that platform;
-the devctl musl executable does not make Node work on musl. Use native architecture
-by default; do not silently cross architectures through Rosetta. Other package
-manager majors and ecosystems are detected as unsupported, not converted to npm.
-This is the proposed initial support matrix, not cancellation of later coverage.
+`add` accepts a directory and explicit argv for any language, without reading project
+manifests or looking for executable versions. Commands may invoke a project's own
+entry point or an external environment tool. Existing direct argv execution, cwd,
+inherited supervisor environment and one-service-per-project semantics apply.
+There is no implicit shell. Missing executables and failed processes use ordinary
+lifecycle errors and logs; devctl adds no repair, network requests or installation.
+Explicitly configured commands can have their own network/setup behavior; devctl
+does not inspect or promise to suppress that behavior.
 
-Use existing single-service-per-project semantics: each selected package becomes
-one project/service. Multiple scripts in one package are alternatives; selecting
-one does not create several services for that project. A monorepo can contribute
-several packages without enabling dependency orchestration. CLI onboarding precedes
-ordinary TUI operation; a new TUI setup wizard is not required for M7.
+`import` is an optional bounded npm/pnpm script convenience. Read package.json
+names/scripts/workspaces/packageManager, pnpm-workspace.yaml member patterns and
+lockfile evidence for the command name. Package-manager version text is displayed
+as source evidence only, never resolved, compared, installed or persisted. Ignore
+engines, devEngines, Volta settings and runtime version files. No executable probes,
+repository commands, shell initialization or `.env` reads occur during onboarding.
+The scanner is an aid, not a requirement for adding/running a project. Unsupported
+managers/layouts use explicit `add` or ordinary configuration instead of a growing
+language-adapter framework.
 
-Retain version-1 configurations and legacy commands unchanged. Optional
-fields support only this confirmed Node workflow, not arbitrary environment overrides:
+Discovery canonicalizes the supplied directory, stops ancestor inspection at the
+nearest Git marker (up to 16 ancestors), and does not recursively scan parents.
+Without Git, declarations remain contained in their own boundary. Do not traverse
+symlink directories or dependency/build directories. Declaration links must resolve
+to regular files within the source boundary; nonblocking no-follow opens reject
+special files and substitution races. Ordinary pnpm YAML patterns are supported;
+tags/anchors/aliases are rejected. Workspace globs support `*`, `?`, `**`, negative
+patterns and subtree pruning; unsupported constructs report incomplete discovery.
+Nested/conflicting workspace declarations and conflicting manager names require
+explicit resolution or `add`; different declared versions of the same manager do
+not conflict because devctl does not manage versions.
 
-```toml
-version = 1
-[workspace]
-name = "local-dev"
+Budgets: depth 6, 10,000 entries, 200 manifests, 200 patterns, 4096 bytes/32 components
+per pattern, 1 MiB per declaration, 16 MiB per lockfile, 64 MiB total reads, 5 seconds
+checked between filesystem calls. A single filesystem call can exceed that deadline.
+Incomplete scans cannot be applied. Hash bounded source bytes in memory so changes
+during user review are detected without retaining private document contents.
 
-[node_environments.node24-pnpm10]
-version = "24.18.0"
-package_manager = "pnpm"
-package_manager_version = "10.3.0"
-
-[projects.web]
-path = "/absolute/repository/apps/web"
-dependency_root = "/absolute/repository"
-
-[services.web]
-project = "web"
-cmd = ["pnpm", "run", "dev"]
-node_environment = "node24-pnpm10"
-```
-
-The example versions reproduce the existing local handoff, not recommended current
-versions. Environment references contain exact stable versions, never moving tags.
-`dependency_root` defaults to project path and must contain that project, have a
-manifest, and match discovered workspace membership when it differs from the project.
-`node_environment` defaults to absent; absence preserves inherited-environment execution.
-Environment entries contain exactly the shown required keys; references and versions
-are validated before spawn. Managed commands use the declared package manager as
-argv[0]. For managed entries, reject incompatible commands instead of rewriting
-arbitrary user commands. Older devctl versions reject these new fields; explain
-this before writing and before switching back to an old binary. No silent migration
-of existing services into managed environments.
-
-### Discovery and evidence
-
-Discovery is a bounded filesystem operation. Canonicalize the supplied directory
-and report symlink aliases using the same canonical identity. Do not follow child
-directory symlinks or cross the selected root during descendant scans. Bound parent
-inspection to the nearest Git root, or the filesystem root with at most 16 parents
-when no Git root exists. If the bound is reached, require an explicit enclosing
-root instead of claiming no parent workspace exists. Reject special files and
-broken manifest symlinks; an explicitly selected symlink directory is allowed after
-canonicalization. A linked declaration may be read only if its target stays inside
-the effective repository root. Without Git, declaration links are bounded to the
-supplied directory or its explicitly discovered enclosing workspace; inspecting
-parents up to the filesystem root does not grant declaration links that wider scope.
-
-Read `package.json`, `package-lock.json`/`npm-shrinkwrap.json`, `pnpm-lock.yaml`,
-`pnpm-workspace.yaml`, `.nvmrc`, `.node-version` and matching Node fields from
-`.tool-versions`. Read only relevant package-manager configuration keys under the
-same declaration limits, keeping authentication values out of evidence and output.
-Do not read `.env` contents, run scripts, source shell profiles, invoke version-manager
-shells or inspect business data. Lockfiles provide manager
-evidence and fingerprints; the package manager remains the dependency resolver.
-
-For a supplied package directory, inspect its ancestors for explicit npm/pnpm
-workspace membership before assigning its dependency root. For a workspace root,
-expand declared member patterns and show runnable members and the root as candidates.
-Read npm `workspaces` arrays and the `packages` array in pnpm YAML; support relative
-literal paths, `*`, `**`, `?` and leading `!` exclusions. Unknown pattern syntax,
-unsupported YAML tags/anchors/aliases or malformed declarations produce an incomplete/unknown result,
-not a partial successful import. Resolve exclusions before membership assignment.
-Nested workspace declarations define their own installation units; conflicting
-manager/root claims must be resolved before applying. Never let two selected install
-units overlap unless they are the same canonical root.
-
-For declared workspaces, match directory prefixes before descending and stop below
-matched members unless a declared recursive/nested workspace can contain more
-members. Unrelated and excluded trees do not consume descendant scan budgets.
-If there is no workspace declaration, search descendants for independent manifests.
-Exclude `.git`, `node_modules`, `.pnpm`, `.yarn`, `vendor`, `target`, `dist`, `build`,
-`coverage`, `.next` and `.turbo`. Do not automatically import every discovered manifest.
-Library packages without startup scripts remain visible as non-runnable members.
-Present root runner scripts alongside children, warning that their process scopes
-may overlap; do not select both by default or attempt to infer Turbo task graphs.
-
-Budgets: depth 6 below the supplied root; 10,000 visited entries; 200 manifests;
-1 MiB per manifest/version/workspace declaration; 16 MiB per lockfile; 64 MiB total
-input; at most 200 patterns per workspace, 4,096 bytes/32 components per pattern;
-5 seconds elapsed filesystem discovery, checked between operations. These
-are stopping budgets, not a hard timeout for an uninterruptible filesystem call.
-Budget exhaustion and unreadable relevant directories mark discovery incomplete
-and block apply for affected installation units. Offer selecting a narrower root;
-never report an incomplete scan as complete. Stable ordering is canonical relative
-path, then script name; no scan result depends on directory enumeration order.
-
-Every candidate includes source path, field, raw declaration, effective working
-directory, dependency root and warnings. Render terminal control characters safely.
-Candidate identity is canonical package directory; package `name` is a display hint.
-M7.3 generates an ASCII slug from the canonical relative path (the root basename
-for `.`), capped at 56 characters. On ID collision, append 8 SHA-256 path-hash
-characters, extending to 16/32/64 if necessary. Reuse canonical matches and existing
-IDs first; identity never depends solely on package name. Environment IDs reuse an
-existing equal version tuple or derive from the exact tuple without mutating others.
-
-### Command and tool selection
-
-Read script names/values without executing them. Suggest `dev`, `dev:*`, then
-`start`; retain all declared scripts for explicit selection. One plausible entry
-may be preselected for review; multiple development entries require a selection.
-Never invent commands for absent scripts or automatically select build, migration,
-seed, release or stop scripts. M7.1 suppresses suggestions whose colon/hyphen/underscore
-name components identify these actions (including `dev:stop`), case-insensitively;
-all declared scripts remain visible. Name filtering does not prove script safety. A selected script yields `[manager, "run", script]`
-in that package directory, including monorepo members; install runs at dependency
-root, not at each member. Preserve script text inside the manifest: the package
-manager owns its normal shell semantics.
-
-Resolve manager evidence in this order: explicit `packageManager` name/exact version;
-recognized `devEngines.packageManager`; one manager's lockfile; explicit user choice.
-A declaration does not erase contradictory lockfiles or child declarations: show
-the conflict and require resolution, without deleting or rewriting source files.
-A directory alone or `node_modules` shape cannot identify a manager. npm shrinkwrap
-precedes package-lock under npm's rules; multiple npm lockfiles are not two managers.
-Keep an optional Corepack integrity suffix intact in discovery evidence. M7.1–M7.5
-report digest-bearing and URL-valued packageManager declarations as unsupported
-for managed import/apply/setup; never strip a digest or reinterpret it as a normal
-SemVer build suffix. Supporting them later requires matching verification semantics
-and explicit persisted integrity metadata, rather than silently losing the constraint.
-
-Node selection combines the effective package's and installation root's `engines.node`,
-recognized `devEngines.runtime`, version files, and the selected manager's Node
-compatibility. Exact pins constrain candidates rather than overriding incompatible
-ranges. `volta` declarations are surfaced as additional evidence; unsupported
-version-manager expressions or devEngines alternatives are unknown, never ignored.
-Include pnpm `useNodeVersion` and member `executionEnv.nodeVersion` in evidence.
-M7 refuses automatic setup/start for these runtime-switching settings until its
-adapter can prove they cannot fetch or substitute a different Node. It does not
-rewrite those settings or claim PATH binding alone overrides them.
-Recognize devEngines warning/ignore policies in diagnostics; do not silently change
-them into hard errors. Unresolved error policies prevent an automatic ready result.
-Read all participating workspace members' constraints before a shared-root install;
-an unselected member may still be installed by its package manager.
-
-M7.2 uses `node-semver` 2.2 (Apache-2.0) for npm range semantics: exact versions, comparator sets,
-whitespace intersection, `||`, caret, tilde, x/partial and hyphen ranges, with stable
-release/prerelease rules. Rust `semver::VersionReq` is not an npm range parser and
-must not be used as if equivalent. Table-driven cases cover these semantics;
-unsupported syntax stays unknown and blocks managed startup. SHA-256
-declaration/CLI fingerprints use `sha2` 0.10 (MIT OR Apache-2.0).
-
-Selection preference is a compatible recorded environment, then compatible local
-installations, then an offered official active-LTS release satisfying every hard
-constraint. With no declared Node version, show the LTS choice as a recommendation
-and require selection; do not label compatibility verified. Resolve npm to Node's
-bundled version if compatible, or a specific supported npm version. Resolve an
-unpinned pnpm version only within the supported major and after review. Registry
-and release-index lookup occurs during explicit setup planning, not static scanning.
-Store the selected exact versions so later startup never resolves "latest" again.
-EOL or unsupported releases remain visible with manual-setup guidance.
-
-### Environment checks and runtime binding
-
-Each result has `satisfied`, `missing`, `incompatible` or `unknown`, evidence,
-observed path/version, timestamp and an available next action. Check Node, manager
-and dependency installation separately. A process running is not dependency
-verification, and dependency verification is not application readiness.
-
-Inspect devctl's completed environment receipts and executable candidates in the
-current PATH; allow an explicitly selected absolute Node path. Do not crawl the
-whole home directory or execute nvm/asdf/mise/Corepack initialization. Reject Windows
-`.exe` candidates in WSL for this workflow. Resolve real executables, launch Node
-version probes without project code, and launch only identified package-manager
-CLI files using the selected Node in a neutral working directory. Unrecognized
-shims are unknown, with an explicit executable-selection hint. Each probe has a
-3-second deadline and a 64 KiB combined-output cap; timeout kills/reaps the probe
-process group. No probe may download/activate a manager; bypass Corepack shims.
-Pinned pnpm invocations must disable `managePackageManagerVersions` and other
-automatic tool activation through tested command/config overrides. Unsupported
-activation settings block the managed operation instead of triggering a fetch.
-M7.2 additionally recognizes the exact declared pnpm package in Corepack's standard
-`v1/pnpm/VERSION` cache layout (COREPACK_HOME, XDG cache or HOME cache); it reads
-metadata and calls the actual CLI with selected Node without activating Corepack.
-Executable candidate lists are capped at 64; tool discovery and a start batch have
-an 8-second deadline, with at most 200 selected services. Filesystem calls retain
-the discovery caveat above. Shared-root scans are reused within a start batch.
-
-A local environment receipt binds exact versions to absolute Node and manager CLI
-paths, source, OS/architecture and verified installation metadata. Adopt a compatible
-existing pair only after probing both; it is externally owned and never modified
-or removed by devctl. Receipts are machine-local, keyed by the version tuple and
-platform; a moved config needs a fresh local binding. If a binding vanishes or its
-version changes, fail that managed service with a repair hint; do not fall back to
-another PATH executable. Multiple roots may share an immutable tool installation.
-Import only records version selections in TOML. Creating/adopting a machine-local
-binding is a setup action, even when no download is needed; preview/doctor do not
-write receipts. Doctor distinguishes a compatible detected executable from a
-missing verified local binding. Import prints a setup command retaining an explicitly
-selected `--node` path when adoption is still needed.
-
-M7.2 local-only setup rechecks declaration fingerprints and tool metadata after
-confirmation. Private binding storage is under HOME's
-`Library/Application Support/devctl/toolchains` on Mac or
-`.local/share/devctl/toolchains` on Linux. Receipts are
-owned regular files, at most 64 KiB; intermediate storage directories cannot be
-symlinks or group/world writable. Publication uses private staging, rename and
-fsync. A tuple lock excludes adoption/refresh while an instance uses that binding;
-an explicit same-path verified refresh atomically replaces only its receipt.
-Different-path replacement and damaged launchers require manual repair, never an
-implicit fallback. Shared canonical dependency-root locks remain held through
-instance cleanup, including unconfirmed cleanup; installation will use exclusive
-root locks in M7.4. Doctor/preview do not create lock files or storage directories.
-
-Before starting a managed service, resolve its receipt, run bounded version checks,
-and prepare an internal launch specification: absolute Node + absolute manager CLI
-+ `run SCRIPT`, with the selected Node bin and manager launchers prepended to the
-supervisor's original PATH for descendants. Manager launchers must also bind the
-selected Node so scripts calling `pnpm`/`npm` use the same environment. Do not alter
-the supervisor's global environment or shell profiles. Legacy services retain
-their existing launch semantics. This is a narrow managed-tool binding, not public
-`env_files`/arbitrary per-service overrides.
-
-Since package managers prepend project `.bin` directories, M7.2 supplies a private
-`script-shell` adapter which restores bound tool precedence and then execs `/bin/sh`
-with the original shell arguments. Source script text is not rebuilt. Custom
-`script-shell`/`shellEmulator` settings are unknown and block this adapter, as do
-unsupported runtime-switching/hook keys in supported project/user/global settings.
-The manager-version autoactivation override is enforced per service. Private
-launchers bind npm/pnpm/npx to selected Node; unavailable tools and Corepack have
-explicit failing launchers. An intentional absolute executable in project code is
-outside this name-based binding contract.
-
-For dependencies, absence of `node_modules` for a manifest declaring dependencies
-is missing; directory presence alone is unknown. M7.2 stops at these static states
-(a package without dependencies is satisfied); inventory and installation receipts
-in the remainder of this paragraph belong to M7.4. Inspect supported npm lock/module
-metadata and pnpm modules/importer metadata for actual installation evidence. Record
-a successful devctl setup receipt with hashes of participating manifests, lockfiles,
-workspace and package-manager configuration files, selected tools, platform and
-script policy. No lockfile or changed/missing evidence makes a prior receipt stale.
-Externally installed trees can become satisfied through a supported bounded, offline
-manager inventory check comparing declared direct dependencies to installed versions;
-use npm `ls --all --json` or pnpm `list --recursive --depth Infinity --json` only
-with the verified manager, a 15-second deadline and 4 MiB output cap. Include the
-root and every participating member explicitly, not merely the CLI's default set.
-The adapter must enforce offline operation, suppress pnpmfile/config hooks and
-automatic tool activation; if it cannot do so for the detected configuration,
-return unknown using static evidence instead of invoking the CLI. Unsupported
-output or inability to establish coverage is unknown, not successful. A satisfied
-receipt/inventory is bounded evidence, not proof every dependency file is intact.
-
-Startup never installs or networks. Missing/incompatible tools fail before spawning;
-missing dependency trees fail with setup guidance. Unknown/stale dependency evidence
-is reported and requires fresh doctor/setup or an explicit per-invocation user
-acknowledgement (`start/run --allow-unverified-dependencies`, TUI confirmation).
-Such acknowledgement cannot override a missing/incompatible runtime, invalid config
-or unconfirmed process cleanup. Preflight a selected batch completely before starting
-any new instance; already-running instances stay running.
-
-### Setup execution, storage and recovery
-
-A setup plan is an in-memory ordered set of actions with evidence fingerprints,
-argv, cwd, permitted write locations, source URLs, exact versions, expected checks
-and dependent actions. No arbitrary shell template or persisted executable plan
-format. Before execution, recheck inputs and the reviewed target; changed evidence
-requires a new plan. Applying an import does not grant setup authorization.
-
-Use `$HOME/.local/share/devctl/toolchains` on Linux and
-`$HOME/Library/Application Support/devctl/toolchains` on macOS; require absolute HOME.
-Create private staging directories on the destination filesystem. Node downloads
-use the official version index and `nodejs.org/dist/vVERSION/` archives and checksum
-manifest over HTTPS. Select `.tar.gz` to use existing system tar on both platforms.
-Validate SHA-256 before extraction and the candidate's version/platform before publish.
-TLS plus a same-origin checksum protects transfer consistency; it is not independent
-publisher-signature verification. A signature-verification policy can be added later
-without falsely claiming it here. Block missing curl/tar/checksum tools with a named
-prerequisite; do not bootstrap OS packages or invoke sudo/Homebrew/apt automatically.
-
-Validate archive members before extraction: reject absolute paths, traversal, device
-files and links escaping the staged root. Allow only contained links needed by
-the official layout. Verify ownership/type of storage directories and avoid following
-pre-existing symlinks. Downloads: 10-second connection deadline, 5-minute total,
-150 MiB archive cap; metadata 16 MiB; extracted data 1 GiB/100,000 entries. Reject
-oversize or malformed inputs, not merely truncate them. Do not reuse the devctl
-self-updater's release manifest for third-party tools. Reuse its bounded progress
-presentation where suitable, not its install authority or destination.
-
-Bootstrap npm from the verified Node archive. For separately pinned npm/pnpm, run
-that bundled npm CLI under the selected Node from a neutral staging cwd, install
-only the exact named package into the staged private prefix using `--ignore-scripts`,
-`--no-audit`, `--no-fund` and `--package-lock=false`. Bootstrap uses the official npm
-registry with isolated npm configuration; it must not load repository npmrc hooks
-or user prefix settings. Validate package version, Node compatibility and contained
-CLI/bin paths before execution. Never call `npm install -g`, `corepack enable` or
-`pnpm setup`. Verify selected manager behavior with fixtures before claiming support.
-Publish immutable tuple directories and receipts atomically only after verification;
-failed staging never replaces a working tuple. No automatic garbage collection.
-
-Dependency installation is separate and runs once per canonical dependency root:
-
-| Evidence | Default reviewed action |
-| --- | --- |
-| npm lockfile/shrinkwrap | `npm ci --ignore-scripts --no-audit --no-fund` |
-| pnpm lockfile | `pnpm install --frozen-lockfile --ignore-scripts --ignore-pnpmfile` |
-| No lockfile | Offer `npm install` or `pnpm install` with the same script restrictions; show that a lockfile will be created |
-| Outdated/incompatible lockfile | Fail frozen installation; offer a separately reviewed lockfile-changing retry, never automatic fallback |
-
-These actions include development dependencies and use the project's registry/proxy
-settings; respect normal private registry authentication without printing config
-contents or token-bearing URLs. npm ci can remove an existing dependency tree.
-The preview identifies this and all workspace members affected by a shared-root
-install. pnpm's `--ignore-scripts` alone does not disable `.pnpmfile.cjs`; the
-default also suppresses local/global pnpmfile hooks. Config dependencies and other
-code-bearing configuration must be detected before invoking a repository CLI;
-unsupported hook/activation mechanisms produce unknown/manual guidance. If hooks
-are required for resolution, the script-enabled plan must show them explicitly
-instead of silently changing the effective dependency graph. Manager-specific
-build policies remain in force. Do not enable all build scripts, rewrite pnpm
-approval settings, or run migration/seed scripts as a repair.
-Default script suppression can leave native packages unbuilt: report that limitation,
-and require a separately selected/reviewed script-enabled install if needed. Its
-preview explicitly explains that repository/dependency lifecycle code will execute;
-no such action is preselected. If the known lifecycle includes excluded business
-actions, do not offer automated execution. Hidden lifecycle effects cannot be
-proven absent; never promise a sandbox or automatic rollback of repository code.
-
-Hold an exclusive advisory lock per tool tuple for publishing, and per canonical
-dependency root across the complete dependency-changing action. Fail clearly on
-contention rather than queue indefinitely. These locks coordinate devctl, not
-external npm invocations; report the limit. Refuse dependency mutation while any
-selected root is used by a live devctl service, including another workspace: managed
-service instances hold shared root locks, setup needs exclusive ownership. All
-managed startups take these locks; legacy/external processes are not covered and
-are identified as an unverified boundary in the preview. Tool installation itself
-can proceed without shutting down unrelated workspaces.
-
-Setup runs in the invoking client, with a process group, bounded output and no
-detached persistence. Closing it cancels the action; Ctrl-C terminates descendants
-and reaps children using existing cleanup rules. Show elapsed time every second;
-no fabricated completion percentage for package installation. Download percentages
-require a validated total. Tool bootstrap and each dependency action have a
-15-minute deadline; errors retain the failing stage and a retry hint. Keep at most
-2 MiB sanitized recent output in memory; stream the rest to the invoking terminal.
-Do not persist raw package logs or credentials in receipts. Terminal sanitization
-is required; perfect secret removal from arbitrary child text is not promised.
-
-On failure, stop dependent actions and invalidate dependency receipts; retain already
-verified immutable tools. Dependency installation may have changed node_modules,
-manager cache or an explicitly authorized lockfile; do not claim rollback or delete
-user work. Re-plan/recheck before retry and skip only actions verified satisfied.
-A successful package-manager exit is necessary, not sufficient: recheck tools, input
-fingerprints, installed metadata and any script restrictions before reporting status.
+Offer existing `dev`, `dev:*` and `start` scripts; suppress lifecycle/business/cleanup
+names from suggestions. Other declared scripts require explicit selection. Multiple
+projects/scripts require selection; libraries remain visible but disabled. Warn when
+root scripts might also start members without interpreting script bodies as a graph.
+Manager names come from explicit declarations/locks; missing evidence requires a
+name selection. `--package-manager` selects npm or pnpm only, with no version.
+Generated config contains project paths and selected command arrays. Workspace-root
+information is display evidence and is not persisted as dependency ownership.
 
 ### Configuration transaction and supervisor boundary
 
-Apply only additions and explicit replacements selected in the reviewed diff. Match
-existing projects by canonical directory; preserve existing IDs, comments, ordering,
-commands, cwd, autostart and unrelated fields. Changed discovery produces a proposed
-replacement for review, never an automatic overwrite. Reimporting an unchanged
-project is a no-op. Removed packages are reported; never delete entries implicitly.
-Store generated machine-local bindings outside TOML; do not embed private registry
-configuration, credentials or general import tracking metadata in workspace files.
+Both `add` and `import` preview by default and share one save transaction. Existing
+canonical directories reuse IDs; preserve comments, commands, cwd, autostart and
+unrelated fields. Import can explicitly replace the selected command/cwd; add never
+overwrites an existing canonical project or colliding requested name. New generated
+IDs derive from path slugs with SHA-256 suffixes on collision. Removed manifests do
+not delete entries. Identical plans preserve bytes/inode. Proposed full configs
+are validated against the final destination before writing.
 
-M7.3 uses `toml_edit` 0.25 (MIT OR Apache-2.0) to retain comments and formatting.
-Refuse changed proposals if the untouched document cannot round-trip safely, rather
-than normalize unrelated dotted-key layouts. No-op imports retain original bytes
-even for such layouts. Bound existing/proposed config to 1 MiB; reject special files,
-invalid UTF-8 and non-UTF-8 import paths. Cache declaration checks per installation
-root/version tuple; check an 8-second static-planning budget between filesystem
-operations, with the same uninterruptible-call caveat as discovery. Keep original
-bytes and file metadata. For existing files, canonicalize
-the target using current config identity rules, acquire its existing run lock and
-a separate edit lock in fixed order (run, edit), reread and compare, validate the
-proposed entire config, write/fsync a same-directory temporary file, preserve mode,
-then atomically rename and sync the directory. Retain/check parent-directory identity
-through publication and recheck the original alias spelling. Reject hard-linked
-destinations to
-avoid silently splitting identity. For a new config, lock the normalized parent/name
-before file publication; create private parent directories only on apply. Use the
-same run/edit lock order at the normalized destination, then publish complete bytes
-with a same-directory hard link that cannot overwrite a concurrent creator. Remove
-the staging link and sync the parent. Existing files keep their mode; new files use
-0600. Stable sidecars are never removed as part of an import. All importers use the
-edit lock; run locks
-coordinate existing foreground/background runners. Do not wait for user input while
-holding locks. Revalidate after lock acquisition. External editors do not cooperate;
-pre-rename fingerprint checks reduce but cannot eliminate that final race.
+Use `toml_edit` 0.25 (MIT OR Apache-2.0) for comment-preserving edits; refuse changes
+when unrelated formatting cannot round-trip. Existing/proposed configs are bounded
+to 1 MiB, with UTF-8 paths and regular-file input. Reject hardlinked destinations.
+Resolve configuration aliases and normalize missing destination components. Acquire
+run then edit locks, recheck original bytes/metadata, alias and parent identity,
+then revalidate sources and proposed resolved configuration. No lock is held while
+waiting for user input. Source fingerprints are bounded in-memory SHA-256 values;
+explicit add rechecks directory identity and configuration, without a scan.
 
-M7.3 rereads discovery, selected installation-root declaration fingerprints and the
-resolved complete proposed config after acquiring locks. An explicitly selected
-Node is re-probed; apply never upgrades an unresolved choice into consent. Both
-foreground and supervisor entry points perform side-effect-free initial validation,
-then discard it and reread the configuration under run ownership. This prevents a
-preloaded stale config from starting after an import, while initially malformed
-configurations still fail without creating lock sidecars.
+Stage/fsync complete bytes in the destination directory. Preserve existing modes
+on atomic rename; publish new files at mode 0600 using a no-clobber hard link, remove
+the staging name, and sync the directory. Create private parents only on apply.
+Keep stable sidecars. Concurrent creators/editors or changed evidence fail without
+overwriting their work. External editors do not cooperate, so the final external
+edit race cannot be eliminated by advisory locks.
 
-M7 does not implement supervisor hot reload. If the selected config is owned by a
-supervisor or foreground runner, preview remains available, but apply fails before
-writing. The user explicitly shuts down that workspace and reapplies; reopening
-loads the committed config into an idle supervisor. No automatic shutdown or service
-restart. This closes the check/start race by holding the run lock throughout apply.
-For new files, an interprocess target edit lock serializes discovery/creation and the
-file is first made visible as complete bytes; acquire its run lock before any
-subsequent operation that requires exclusive ownership. Old v1 config execution
-without new managed fields keeps its current behavior.
+Refuse apply while a foreground runner or supervisor (including idle background)
+owns the workspace; preview remains available. No hot reload or automatic shutdown.
+Both runner entry points validate without side effects, discard that snapshot, and
+reread under run ownership before starting. This retains the import/start race fix.
 
-### Implementation boundaries and evidence
+### Removed environment compatibility and future extensions
 
-Keep one Cargo package and explicit internal modules: `discovery` for evidence and
-candidates, `environment` for checks/bindings, `setup` for actions/locks/install,
-and `import` for TOML edits. CLI coordinates these stages; they do not own service
-state. Extend config loading only for proposed optional fields and separate parsed
-service declarations from resolved launch specifications at the existing start
-boundary. Reuse lifecycle cleanup and bounded presentation; do not add a plugin
-engine, scheduler, task dependency runtime or persistent installation daemon.
+The unreleased managed fields `node_environments`, `node_environment` and
+`dependency_root` now fail with migration guidance. Never silently ignore them and
+switch a previously bound command to a different executable. Users deliberately
+choose their normal command/environment entry point, remove the fields, shut down
+any old supervisor and reopen. Do not rewrite existing configurations or remove
+private tool receipts automatically. Earlier released plain command configs keep
+their behavior. Removed CLI commands/options fail as invalid usage.
 
-The scoped dependencies for TOML editing, bounded YAML parsing, workspace patterns
-and npm range parsing are recorded in the corresponding mechanisms above.
-M7.1 uses Unlicense/MIT globset for path patterns and MIT serde_yaml_ng
-for typed YAML declarations. Both are locked in Cargo.lock. Unknown YAML fields
-are skipped; tagged/anchored/aliased YAML is explicitly unsupported in this slice.
-The other libraries remain to be selected during their implementation slices.
-
-Real evidence: read only the existing bogu root and web/API manifests plus workspace
-declaration on 2026-10-16. It declares pnpm 10.3.0, `apps/*`/`packages/*` members,
-root `dev` aggregating API/web, and separate web/API `dev` scripts. Those inspected
-manifests do not pin Node. Therefore the importer must show root/child overlap,
-propose two independently controlled members, share one root install, and request
-a Node choice. The earlier verified Node 24.18.0 is local evidence, not a manifest
-requirement. Existing business environment settings and PostgreSQL remain external;
-import cannot generate them. Real startup verification must use a disposable config
-and retain already established safe environment settings rather than assume bare
-import proves every business flow works. Native Rust components in bogu remain
-outside the supported Node automation, not silently treated as Node dependencies.
-
-### Upstream references
-
-Consulted for this design on 2026-10-16; specific supported versions must be checked
-again against fixtures before implementation claims:
-
-- [npm package declarations](https://docs.npmjs.com/cli/v10/configuring-npm/package-json/)
-  for engines, devEngines and workspace evidence.
-- [npm range semantics](https://github.com/npm/node-semver) for range conformance.
-- [npm ci](https://docs.npmjs.com/cli/v10/commands/npm-ci/) for frozen clean installs.
-- [pnpm 10 installation](https://pnpm.io/10.x/installation),
-  [installation flags](https://pnpm.io/10.x/cli/install) and
-  [workspace membership](https://pnpm.io/10.x/pnpm-workspace_yaml).
-- [pnpm settings](https://pnpm.io/10.x/settings),
-  [pnpmfile hooks](https://pnpm.io/10.x/pnpmfile) and
-  [installed inventory](https://pnpm.io/10.x/cli/list) for adapter boundaries.
-- [Node distribution index](https://github.com/nodejs/nodejs-dist-indexer) and
-  [binary verification](https://github.com/nodejs/node#verifying-binaries).
-- [Corepack packageManager declarations](https://github.com/nodejs/corepack#when-authoring-packages)
-  for integrity suffixes and declarations that cannot be treated as plain versions.
+Future Agent support is a candidate for assessing diagnostics and proposing fixes.
+Existing status, logs and control commands provide the current information and action
+boundary. No Agent runtime, provider SDK, automatic diagnosis, new protocol or plugin
+framework is introduced. Ordinary service management must remain fully usable offline.
+No performance improvement is claimed solely from removing code; verify runtime
+behavior and measure performance separately when required.

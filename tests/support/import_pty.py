@@ -29,8 +29,8 @@ def size(width, height):
 
 size(30, 6) if mode == 'small' else size(120, 30)
 args = [binary, '--config', str(config), 'import', str(repository), '--apply']
-if mode not in ['versions']:
-    args += ['--node-version', '24.0.0']
+if mode in ['add_apply', 'add_cancel']:
+    args = [binary, '--config', str(config), 'add', str(repository), '--name', 'custom', '--apply', '--', 'uninstalled-runtime', 'literal argument']
 if mode == 'member_changed':
     args += ['--project', 'apps/api', '--script', 'apps/api=dev']
 child = subprocess.Popen(
@@ -78,11 +78,9 @@ try:
             os.write(master, b'j \r')
             wait('Choose one script for apps/api')
             os.write(master, b'j\r')
-    if mode == 'versions':
-        wait('Select exact stable Node version')
-        os.write(master, b'24.0.0\r')
-        wait('Select exact package manager')
-        os.write(master, b'npm@11.0.0\r')
+    if mode == 'manager':
+        wait('Choose package manager command')
+        os.write(master, b'\r')
     if mode != 'choose_cancel':
         wait('Save this configuration diff? [y/N]')
         if mode in ['source_changed', 'member_changed']:
@@ -95,14 +93,14 @@ try:
         if mode == 'signal':
             child.send_signal(signal.SIGTERM)
         else:
-            os.write(master, b'n' if mode == 'cancel' else b'y')
+            os.write(master, b'n' if mode in ['cancel', 'add_cancel'] else b'y')
     deadline = time.monotonic() + 15
     while child.poll() is None:
         pump()
         assert time.monotonic() < deadline, text()
     while pump():
         pass
-    successful = mode in ['apply', 'choose', 'small', 'versions']
+    successful = mode in ['apply', 'choose', 'small', 'manager', 'add_apply']
     assert child.returncode == (0 if successful else 1), text()
     if successful:
         assert config.exists(), text()

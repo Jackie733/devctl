@@ -15,7 +15,6 @@ use crate::{
     cli::ImportOptions,
     config::{self, Config},
     discovery::{self, Candidate, Report, safe},
-    environment::{self, Managed, NodeEnvironment},
 };
 
 #[derive(Clone)]
@@ -23,8 +22,7 @@ struct Selection {
     path: PathBuf,
     project: String,
     service: String,
-    script: String,
-    environment: Option<NodeEnvironment>,
+    command: Option<Vec<String>>,
     replace: bool,
     existing: bool,
 }
@@ -32,7 +30,6 @@ struct Selection {
 struct Plan {
     text: String,
     changes: Vec<String>,
-    sources: BTreeMap<PathBuf, String>,
     config_fingerprint: String,
     service_ids: Vec<String>,
 }
@@ -122,48 +119,13 @@ fn unique(base: &str, identity: &[u8], used: &mut BTreeSet<String>) -> Result<St
             return Ok(id);
         }
     }
-    Err("Cannot assign an unambiguous project/environment ID.".into())
-}
-
-fn node_hint(candidate: &Candidate) -> Option<String> {
-    for evidence in &candidate.evidence {
-        let raw = if evidence.field.starts_with("Node version declaration") {
-            if evidence
-                .path
-                .file_name()
-                .is_some_and(|name| name == ".tool-versions")
-            {
-                evidence.value.split_whitespace().nth(1).map(str::to_owned)
-            } else {
-                Some(evidence.value.trim().into())
-            }
-        } else if matches!(evidence.field.as_str(), "engines" | "volta") {
-            serde_json::from_str::<serde_json::Value>(&evidence.value)
-                .ok()
-                .and_then(|value| {
-                    value
-                        .get("node")
-                        .and_then(serde_json::Value::as_str)
-                        .map(str::to_owned)
-                })
-        } else {
-            None
-        };
-        if let Some(raw) = raw {
-            let raw = raw.strip_prefix('v').unwrap_or(&raw);
-            if semver::Version::parse(raw).is_ok() {
-                return Some(raw.into());
-            }
-        }
-    }
-    None
+    Err("Cannot assign an unambiguous project ID.".into())
 }
 
 async fn selections(
     report: &Report,
     existing: Option<&Config>,
     options: &ImportOptions,
-    observed_node: Option<&str>,
 ) -> Result<Vec<Selection>, String> {
     let interactive = terminal::available() && !options.yes;
     let mut selected = BTreeSet::new();
@@ -243,35 +205,6 @@ async fn selections(
         .flat_map(|config| config.projects.keys().chain(config.services.keys()))
         .cloned()
         .collect();
-    let manager_override = options
-        .package_manager
-        .as_deref()
-        .map(|text| {
-            let (name, version) = text
-                .split_once('@')
-                .ok_or("Use --package-manager npm@EXACT or pnpm@EXACT.")?;
-            if !matches!(name, "npm" | "pnpm") {
-                return Err("Only npm/pnpm environments can be imported.".to_owned());
-            }
-            Ok((name.to_owned(), version.to_owned()))
-        })
-        .transpose()?;
-    if let Some(version) = &options.node_version {
-        NodeEnvironment {
-            version: version.clone(),
-            package_manager: "npm".into(),
-            package_manager_version: "10.0.0".into(),
-        }
-        .validate()?;
-    }
-    if let Some((name, version)) = &manager_override {
-        NodeEnvironment {
-            version: "24.0.0".into(),
-            package_manager: name.clone(),
-            package_manager_version: version.clone(),
-        }
-        .validate()?;
-    }
     let mut output = Vec::new();
     for candidate in report
         .candidates
@@ -349,8 +282,7 @@ async fn selections(
                 service: services
                     .first()
                     .map_or_else(String::new, |(id, _)| (*id).clone()),
-                script: String::new(),
-                environment: None,
+                command: None,
                 replace: false,
                 existing: true,
             });
@@ -421,82 +353,38 @@ async fn selections(
                 safe(&script)
             ));
         }
-        let prior_environment = services
-            .first()
-            .and_then(|(_, service)| service.managed.as_ref())
-            .map(|managed| &managed.environment);
-        let version = options
-            .node_version
-            .clone()
-            .or_else(|| observed_node.map(str::to_owned))
-            .or_else(|| node_hint(candidate))
-            .or_else(|| prior_environment.map(|environment| environment.version.clone()));
-        let version = match version { Some(version) => version, None if interactive => terminal::exact("Select exact stable Node version; automatic release selection is not available yet").await?, None => return Err("Node selection required: use --node-version EXACT or --node /absolute/path/to/node. No LTS version was guessed.".into()) };
-        let mut manager = manager_override
-            .clone()
-            .or_else(|| {
-                candidate.manager.as_ref().map(|manager| {
-                    (
-                        manager.name.clone(),
-                        manager.version.clone().unwrap_or_default(),
-                    )
-                })
-            })
-            .or_else(|| {
-                prior_environment.map(|environment| {
-                    (
-                        environment.package_manager.clone(),
-                        environment.package_manager_version.clone(),
-                    )
-                })
-            });
-        if let Some((name, version)) = &mut manager {
-            if !matches!(name.as_str(), "npm" | "pnpm") {
-                return Err("Only npm/pnpm environments can be imported.".into());
+        let manager = options.package_manager.as_deref().or_else(|| {
+            candidate
+                .manager
+                .as_ref()
+                .map(|manager| manager.name.as_str())
+        });
+        let manager = match manager {
+            Some(manager) => manager.to_owned(),
+            None if interactive => {
+                let names = vec!["npm".to_owned(), "pnpm".to_owned()];
+                let selected = terminal::choose("Choose package manager command (versions are not managed)", &names, &[true, true], false, &[]).await?;
+                names[selected[0]].clone()
             }
-            if version.is_empty() {
-                if let Some(prior) =
-                    prior_environment.filter(|prior| prior.package_manager == *name)
-                {
-                    *version = prior.package_manager_version.clone();
-                } else if let Some(node) = &options.node
-                    && let Ok(local) = environment::import_manager(node, name)
-                {
-                    *version = local;
-                }
-            }
-        }
-        if manager
-            .as_ref()
-            .is_none_or(|(_, version)| version.is_empty())
-            && interactive
-        {
-            let answer =
-                terminal::exact("Select exact package manager as npm@VERSION or pnpm@VERSION")
-                    .await?;
-            let (name, version) = answer
-                .split_once('@')
-                .ok_or("Select npm@EXACT or pnpm@EXACT.")?;
-            manager = Some((name.into(), version.into()));
-        }
-        let (name, manager_version) = manager.ok_or(
-            "Package manager selection required: use --package-manager npm@EXACT or pnpm@EXACT.",
-        )?;
-        if manager_version.is_empty() {
-            return Err("Package manager version is unresolved; use --package-manager npm@EXACT or pnpm@EXACT.".into());
-        }
-        let environment = NodeEnvironment {
-            version,
-            package_manager: name,
-            package_manager_version: manager_version,
+            None => return Err("Package manager command is unknown; select --package-manager npm or pnpm, or use devctl add with an explicit command.".into()),
         };
-        environment.validate()?;
+        if !matches!(manager.as_str(), "npm" | "pnpm") {
+            return Err(
+                "Script import supports npm/pnpm; use devctl add for any other command.".into(),
+            );
+        }
+        if candidate
+            .manager
+            .as_ref()
+            .is_some_and(|declared| declared.name != manager)
+        {
+            return Err("Selected command conflicts with the declared package manager; use devctl add for an explicit custom command.".into());
+        }
         output.push(Selection {
             path: candidate.path.clone(),
             project: project_id,
             service: service_id,
-            script,
-            environment: Some(environment),
+            command: Some(vec![manager, "run".into(), script]),
             replace,
             existing: !matches.is_empty(),
         });
@@ -527,9 +415,13 @@ fn field(table: &mut dyn TableLike, key: &str, mut item: Item) {
     table.insert(key, item);
 }
 
-fn command(manager: &str, script: &str) -> Item {
-    let array: toml_edit::Array = [manager, "run", script].into_iter().collect();
-    value(array)
+fn command(arguments: &[String]) -> Item {
+    value(
+        arguments
+            .iter()
+            .map(String::as_str)
+            .collect::<toml_edit::Array>(),
+    )
 }
 
 fn text_path(path: &Path) -> Result<&str, String> {
@@ -540,10 +432,9 @@ fn text_path(path: &Path) -> Result<&str, String> {
 fn make_plan(
     target: &Path,
     original: &Option<storage::Snapshot>,
-    report: &Report,
+    directory: &Path,
     existing: Option<&Config>,
     selections: &[Selection],
-    node: Option<&Path>,
 ) -> Result<Plan, String> {
     let mut document = match original {
         Some(original) => original.text.parse::<DocumentMut>().map_err(|_| {
@@ -556,8 +447,7 @@ fn make_plan(
         document["version"] = value(1);
         let mut workspace = Table::new();
         workspace["name"] = value(
-            report
-                .root
+            directory
                 .file_name()
                 .unwrap_or_default()
                 .to_str()
@@ -576,175 +466,41 @@ fn make_plan(
             )
         ));
     }
-    let mut sources = BTreeMap::new();
     let mut service_ids = Vec::new();
-    let mut roots = BTreeMap::new();
-    let mut checked_units = BTreeMap::new();
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(8);
-    let mut environment_ids =
-        existing.map_or_else(BTreeMap::new, |config| config.node_environments.clone());
-    let mut used_environments: BTreeSet<_> = environment_ids.keys().cloned().collect();
     for selection in selections {
-        if std::time::Instant::now() >= deadline {
-            return Err(
-                "Import planning exceeded its filesystem budget; select fewer projects.".into(),
-            );
-        }
-        let Some(environment) = &selection.environment else {
+        let Some(arguments) = &selection.command else {
             continue;
-        };
-        let candidate = report
-            .candidates
-            .iter()
-            .find(|candidate| candidate.path == selection.path)
-            .ok_or("A selected project disappeared; preview again.")?;
-        for previous in selections
-            .iter()
-            .filter(|previous| previous.path != selection.path && previous.environment.is_some())
-        {
-            let other = report
-                .candidates
-                .iter()
-                .find(|candidate| candidate.path == previous.path)
-                .ok_or("Selected project disappeared.")?;
-            if other.dependency_root != candidate.dependency_root
-                && (other
-                    .dependency_root
-                    .starts_with(&candidate.dependency_root)
-                    || candidate
-                        .dependency_root
-                        .starts_with(&other.dependency_root))
-            {
-                return Err("Selected installation roots overlap; select one non-overlapping installation unit.".into());
-            }
-        }
-        if !roots.contains_key(&candidate.dependency_root) {
-            roots.insert(
-                candidate.dependency_root.clone(),
-                discovery::scan(&candidate.dependency_root)?,
-            );
-        }
-        let managed = Managed {
-            environment: environment.clone(),
-            project: candidate.path.clone(),
-            dependency_root: candidate.dependency_root.clone(),
-        };
-        let root_report = &roots[&candidate.dependency_root];
-        let unit = (
-            candidate.dependency_root.clone(),
-            serde_json::to_string(environment).map_err(|error| error.to_string())?,
-        );
-        if !checked_units.contains_key(&unit) {
-            checked_units.insert(
-                unit.clone(),
-                environment::import_fingerprint(&managed, &selection.script, root_report, node)?,
-            );
-        } else if !root_report.candidates.iter().any(|member| {
-            member.path == selection.path
-                && member.dependency_root == candidate.dependency_root
-                && member
-                    .scripts
-                    .get(&selection.script)
-                    .is_some_and(|script| !script.trim().is_empty())
-        }) {
-            return Err(
-                "Selected project/script no longer belongs to its declared installation unit."
-                    .into(),
-            );
-        }
-        sources.insert(selection.path.clone(), checked_units[&unit].clone());
-        let environment_id = if let Some((id, _)) = environment_ids
-            .iter()
-            .find(|(_, known)| *known == environment)
-        {
-            id.clone()
-        } else {
-            let base = format!(
-                "node-{}-{}-{}",
-                environment.version,
-                environment.package_manager,
-                environment.package_manager_version
-            );
-            let id = unique(&base, base.as_bytes(), &mut used_environments)?;
-            let mut table = Table::new();
-            table["version"] = value(&environment.version);
-            table["package_manager"] = value(&environment.package_manager);
-            table["package_manager_version"] = value(&environment.package_manager_version);
-            group(&mut document, "node_environments")?.insert(&id, Item::Table(table));
-            environment_ids.insert(id.clone(), environment.clone());
-            changes.push(format!(
-                "+ node_environments.{} = Node {}, {} {}",
-                safe(&id),
-                environment.version,
-                environment.package_manager,
-                environment.package_manager_version
-            ));
-            id
         };
         if !selection.existing {
             let mut project = Table::new();
-            project["path"] = value(text_path(&candidate.path)?);
-            if candidate.dependency_root != candidate.path {
-                project["dependency_root"] = value(text_path(&candidate.dependency_root)?);
-            }
+            project["path"] = value(text_path(&selection.path)?);
             group(&mut document, "projects")?.insert(&selection.project, Item::Table(project));
             changes.push(format!(
-                "+ projects.{}: path={} dependency_root={}",
+                "+ projects.{}: path={}",
                 safe(&selection.project),
-                safe(candidate.path.display()),
-                safe(candidate.dependency_root.display())
+                safe(selection.path.display())
             ));
-        } else if selection.replace {
-            let project = &existing.expect("existing project").projects[&selection.project];
-            let prior_root = project.dependency_root.as_ref().unwrap_or(&project.path);
-            if prior_root != &candidate.dependency_root {
-                let table = group(&mut document, "projects")?
-                    .get_mut(&selection.project)
-                    .and_then(Item::as_table_like_mut)
-                    .ok_or("Cannot edit project table.")?;
-                field(
-                    table,
-                    "dependency_root",
-                    value(text_path(&candidate.dependency_root)?),
-                );
-                changes.push(format!(
-                    "~ projects.{}.dependency_root: {} -> {}",
-                    safe(&selection.project),
-                    safe(prior_root.display()),
-                    safe(candidate.dependency_root.display())
-                ));
-            }
         }
         let prior = existing.and_then(|config| config.services.get(&selection.service));
         if prior.is_none() {
             let mut service = Table::new();
             service["project"] = value(&selection.project);
-            service["cmd"] = command(&environment.package_manager, &selection.script);
-            service["node_environment"] = value(&environment_id);
+            service["cmd"] = command(arguments);
             group(&mut document, "services")?.insert(&selection.service, Item::Table(service));
             changes.push(format!(
-                "+ services.{}: project={} cmd={:?} node_environment={} autostart=true",
+                "+ services.{}: project={} cmd={} autostart=true",
                 safe(&selection.service),
                 safe(&selection.project),
-                [&environment.package_manager, "run", &selection.script],
-                safe(&environment_id)
+                safe(format!("{arguments:?}"))
             ));
         } else if let Some(prior) = prior.filter(|_| selection.replace) {
             let table = group(&mut document, "services")?
                 .get_mut(&selection.service)
                 .and_then(Item::as_table_like_mut)
                 .ok_or("Cannot edit service table.")?;
-            let expected = vec![
-                environment.package_manager.clone(),
-                "run".into(),
-                selection.script.clone(),
-            ];
-            if prior.cmd != expected {
-                field(
-                    table,
-                    "cmd",
-                    command(&environment.package_manager, &selection.script),
-                );
+            let expected = arguments;
+            if &prior.cmd != expected {
+                field(table, "cmd", command(arguments));
                 changes.push(format!(
                     "~ services.{}.cmd: {} -> {}",
                     safe(&selection.service),
@@ -752,22 +508,13 @@ fn make_plan(
                     safe(format!("{expected:?}"))
                 ));
             }
-            if prior.cwd.as_ref() != Some(&candidate.path) {
-                field(table, "cwd", value(text_path(&candidate.path)?));
+            if prior.cwd.as_ref() != Some(&selection.path) {
+                field(table, "cwd", value(text_path(&selection.path)?));
                 changes.push(format!(
                     "~ services.{}.cwd: {} -> {}",
                     safe(&selection.service),
-                    safe(prior.cwd.as_deref().unwrap_or(&candidate.path).display()),
-                    safe(candidate.path.display())
-                ));
-            }
-            if prior.node_environment.as_ref() != Some(&environment_id) {
-                field(table, "node_environment", value(&environment_id));
-                changes.push(format!(
-                    "~ services.{}.node_environment: {} -> {}",
-                    safe(&selection.service),
-                    safe(prior.node_environment.as_deref().unwrap_or("legacy")),
-                    safe(&environment_id)
+                    safe(prior.cwd.as_deref().unwrap_or(&selection.path).display()),
+                    safe(selection.path.display())
                 ));
             }
         }
@@ -785,19 +532,113 @@ fn make_plan(
         }
         document.to_string()
     };
-    let proposed = config::parse(&text, target).map_err(|_| "The complete proposed configuration is invalid. Original bytes are unchanged; run validate separately for private diagnostics.".to_owned())?;
-    if std::time::Instant::now() >= deadline {
-        return Err(
-            "Import planning exceeded its filesystem budget; select fewer projects.".into(),
-        );
+    if text.len() > 1024 * 1024 {
+        return Err("Proposed configuration exceeds 1 MiB.".into());
     }
+    let proposed = config::parse(&text, target).map_err(|_| "The complete proposed configuration is invalid. Original bytes are unchanged; run validate separately for private diagnostics.".to_owned())?;
     Ok(Plan {
         text,
         changes,
-        sources,
         config_fingerprint: config_fingerprint(&proposed),
         service_ids,
     })
+}
+
+struct Destination {
+    requested: PathBuf,
+    target: PathBuf,
+    original: Option<storage::Snapshot>,
+    existing: Option<Config>,
+}
+
+impl Destination {
+    fn open(path: Option<PathBuf>) -> Result<Self, String> {
+        let requested = config::resolve_import_path(path)?;
+        let target = storage::identity(&requested)?;
+        text_path(&target)?;
+        println!("Configuration destination: {}", safe(target.display()));
+        let original = storage::read(&target)?;
+        let existing = original.as_ref().map(|original| config::parse(&original.text, &target).map_err(|_| "Existing configuration is invalid; it will not be replaced. Run validate separately for private diagnostics.".to_owned())).transpose()?;
+        Ok(Self {
+            requested,
+            target,
+            original,
+            existing,
+        })
+    }
+
+    fn plan(&self, directory: &Path, selections: &[Selection]) -> Result<Plan, String> {
+        make_plan(
+            &self.target,
+            &self.original,
+            directory,
+            self.existing.as_ref(),
+            selections,
+        )
+    }
+}
+
+async fn save(
+    destination: &Destination,
+    plan: &Plan,
+    apply: bool,
+    yes: bool,
+    recheck: impl FnOnce() -> Result<Plan, String>,
+) -> Result<(), String> {
+    println!("\nConfiguration diff (only additions/explicit replacements):");
+    for change in &plan.changes {
+        println!("  {change}");
+    }
+    if plan.changes.is_empty() {
+        println!("  No changes; existing configuration and edits are preserved.");
+    }
+    println!(
+        "Commands use the existing environment. No tools are checked or installed; no services will start."
+    );
+    if !apply {
+        return Ok(());
+    }
+    if !yes && !terminal::available() {
+        return Err(
+            "Non-interactive import apply requires --yes after reviewing the explicit selections."
+                .into(),
+        );
+    }
+    if !plan.changes.is_empty()
+        && !yes
+        && !terminal::confirm("Save this configuration diff? [y/N] ").await?
+    {
+        return Err("Import cancelled; no configuration changed.".into());
+    }
+    let transaction = storage::Transaction::begin(
+        &destination.requested,
+        &destination.target,
+        &destination.original,
+    )?;
+    let fresh = recheck()?;
+    if fresh.text != plan.text || fresh.config_fingerprint != plan.config_fingerprint {
+        return Err("Reviewed source/configuration evidence changed; preview again. No configuration was written.".into());
+    }
+    if plan.changes.is_empty() {
+        println!("No changes; configuration was not rewritten.");
+        return Ok(());
+    }
+    transaction.publish(&plan.text)?;
+    drop(transaction);
+    println!(
+        "Saved configuration: {}",
+        safe(destination.target.display())
+    );
+    let config_argument = shell_word(text_path(&destination.target)?);
+    let ids = plan
+        .service_ids
+        .iter()
+        .map(|id| shell_word(id))
+        .collect::<Vec<_>>()
+        .join(" ");
+    println!("Next: devctl --config {config_argument} tui");
+    println!("Or start: devctl --config {config_argument} start {ids}");
+    Ok(())
 }
 
 pub async fn run(
@@ -808,46 +649,12 @@ pub async fn run(
     let report = discovery::scan(directory)?;
     discovery::print_report(&report);
     if !report.problems.is_empty() {
-        return Err("Project discovery has unresolved problems; no commands were executed or files changed.".into());
+        return Err("Project discovery has unresolved problems; use devctl add with an explicit directory and command. No files changed.".into());
     }
-    let requested = config::resolve_import_path(config_path)?;
-    let target = storage::identity(&requested)?;
-    text_path(&target)?;
-    if let Some(node) = &options.node {
-        text_path(node)?;
-    }
-    println!("Configuration destination: {}", safe(target.display()));
-    let original = storage::read(&target)?;
-    let existing = original.as_ref().map(|original| config::parse(&original.text, &target).map_err(|_| "Existing configuration is invalid; it will not be replaced. Run validate separately for private diagnostics.".to_owned())).transpose()?;
-    let observed_node = match &options.node {
-        Some(path) => Some(environment::import_node(path).await?),
-        None => None,
-    };
-    if let (Some(expected), Some(actual)) = (&options.node_version, &observed_node)
-        && expected != actual
-    {
-        return Err(format!(
-            "Explicit Node selection disagrees: requested {}; observed {}. No configuration changed.",
-            safe(expected),
-            safe(actual)
-        ));
-    }
-    let selections = selections(
-        &report,
-        existing.as_ref(),
-        options,
-        observed_node.as_deref(),
-    )
-    .await?;
-    let plan = make_plan(
-        &target,
-        &original,
-        &report,
-        existing.as_ref(),
-        &selections,
-        options.node.as_deref(),
-    )?;
-    if let Some(existing) = &existing {
+    let destination = Destination::open(config_path)?;
+    let selections = selections(&report, destination.existing.as_ref(), options).await?;
+    let plan = destination.plan(&report.root, &selections)?;
+    if let Some(existing) = &destination.existing {
         for (id, project) in &existing.projects {
             if project.path.starts_with(&report.root)
                 && !report
@@ -862,102 +669,110 @@ pub async fn run(
             }
         }
     }
-    println!("\nConfiguration diff (only additions/explicit replacements):");
-    for change in &plan.changes {
-        println!("  {change}");
+    save(&destination, &plan, options.apply, options.yes, || {
+        let fresh = discovery::scan(directory)?;
+        if report_fingerprint(&fresh) != report_fingerprint(&report) {
+            return Err("Reviewed source evidence changed after review; preview again. No configuration was written.".into());
+        }
+        destination.plan(&fresh.root, &selections)
+    }).await
+}
+
+/// Language-independent addition: directory and argv are supplied by the user.
+pub async fn add(
+    directory: &Path,
+    config_path: Option<PathBuf>,
+    name: Option<&str>,
+    arguments: &[String],
+    apply: bool,
+    yes: bool,
+) -> Result<(), String> {
+    let path = directory.canonicalize().map_err(|error| {
+        format!(
+            "Cannot resolve project directory {}: {error}",
+            safe(directory.display())
+        )
+    })?;
+    if !path.is_dir() {
+        return Err("Project path must be a directory.".into());
     }
-    if plan.changes.is_empty() {
-        println!("  No changes; existing configuration and edits are preserved.");
-    }
-    println!(
-        "No tools/dependencies will be installed and no services will start. Older devctl versions reject managed Node fields; shut down this workspace before changing binaries."
-    );
-    if !plan.service_ids.is_empty() {
-        let proposed = config::parse(&plan.text, &target)?;
-        let _findings =
-            environment::doctor(&proposed, &plan.service_ids, options.node.as_deref()).await;
-        println!(
-            "Environment findings describe current installations. Saving version choices does not establish application readiness."
-        );
-    }
-    if !options.apply {
-        return Ok(());
-    }
-    if !options.yes && !terminal::available() {
-        return Err(
-            "Non-interactive import apply requires --yes after reviewing the explicit selections."
-                .into(),
-        );
-    }
-    if !plan.changes.is_empty()
-        && !options.yes
-        && !environment::confirm("Save this configuration diff? [y/N] ").await?
+    if arguments
+        .first()
+        .is_none_or(|argument| argument.trim().is_empty())
     {
-        return Err("Import cancelled; no configuration changed.".into());
+        return Err("Provide a non-empty command after --.".into());
     }
-    let transaction = storage::Transaction::begin(&requested, &target, &original)?;
-    let fresh = discovery::scan(directory)?;
-    if report_fingerprint(&fresh) != report_fingerprint(&report) {
-        return Err(
-            "Project discovery changed after review; preview again. No configuration was written."
-                .into(),
-        );
-    }
-    let fresh_plan = make_plan(
-        &target,
-        &original,
-        &fresh,
-        existing.as_ref(),
-        &selections,
-        options.node.as_deref(),
-    )?;
-    if fresh_plan.sources != plan.sources
-        || fresh_plan.text != plan.text
-        || fresh_plan.config_fingerprint != plan.config_fingerprint
-    {
-        return Err("Reviewed source/configuration evidence changed; preview again. No configuration was written.".into());
-    }
-    if let Some(node) = &options.node
-        && Some(environment::import_node(node).await?) != observed_node
-    {
-        return Err("Selected Node changed after review; preview again.".into());
-    }
-    if plan.changes.is_empty() {
-        println!("No changes; configuration was not rewritten.");
-        return Ok(());
-    }
-    transaction.publish(&plan.text)?;
-    drop(transaction);
-    println!("Saved configuration: {}", safe(target.display()));
-    for selection in selections
+    let destination = Destination::open(config_path)?;
+    let existing_project = destination.existing.as_ref().and_then(|config| {
+        config
+            .projects
+            .iter()
+            .find(|(_, project)| project.path == path)
+    });
+    let mut used: BTreeSet<_> = destination
+        .existing
         .iter()
-        .filter(|selection| selection.environment.is_some())
-    {
+        .flat_map(|config| config.projects.keys().chain(config.services.keys()))
+        .cloned()
+        .collect();
+    let (id, existing) = if let Some((id, _)) = existing_project {
         println!(
-            "  Project {} / service {}",
-            safe(&selection.project),
-            safe(&selection.service)
+            "Preserve project {}: already configured; existing commands and edits are retained. Edit the configuration to change an explicit command.",
+            safe(id)
         );
+        (id.clone(), true)
+    } else if let Some(name) = name {
+        if name.trim().is_empty() {
+            return Err("Project name must not be empty.".into());
+        }
+        if !used.insert(name.into()) {
+            return Err("Project/service name already exists; choose another --name. No entries were overwritten.".into());
+        }
+        (name.to_owned(), false)
+    } else {
+        (
+            unique(
+                &slug(
+                    path.file_name()
+                        .unwrap_or_default()
+                        .to_string_lossy()
+                        .as_ref(),
+                ),
+                path.as_os_str().as_bytes(),
+                &mut used,
+            )?,
+            false,
+        )
+    };
+    let selections = vec![Selection {
+        path: path.clone(),
+        project: id.clone(),
+        service: id,
+        command: (!existing).then(|| arguments.to_vec()),
+        replace: false,
+        existing,
+    }];
+    let plan = destination.plan(&path, &selections)?;
+    save(&destination, &plan, apply, yes, || {
+        if directory.canonicalize().ok().as_ref() != Some(&path) || !path.is_dir() {
+            return Err("Project directory changed after review; preview again.".into());
+        }
+        destination.plan(&path, &selections)
+    })
+    .await
+}
+
+pub async fn interruptible(
+    future: impl std::future::Future<Output = Result<(), String>>,
+) -> Result<(), String> {
+    use tokio::signal::unix::{SignalKind, signal};
+    let mut interrupt = signal(SignalKind::interrupt()).map_err(|error| error.to_string())?;
+    let mut terminate = signal(SignalKind::terminate()).map_err(|error| error.to_string())?;
+    tokio::select! {
+        result = future => result,
+        _ = interrupt.recv() => Err("Configuration operation cancelled.".into()),
+        _ = terminate.recv() => Err("Configuration operation cancelled.".into()),
     }
-    let ids = plan
-        .service_ids
-        .iter()
-        .map(|id| shell_word(id))
-        .collect::<Vec<_>>()
-        .join(" ");
-    let config_argument = shell_word(text_path(&target)?);
-    println!("Next: devctl --config {config_argument} doctor {ids}");
-    let node_argument = options
-        .node
-        .as_ref()
-        .map(|node| text_path(node).map(|node| format!(" --node {}", shell_word(node))))
-        .transpose()?
-        .unwrap_or_default();
-    println!(
-        "Then preview local binding: devctl --config {config_argument} setup {ids}{node_argument}"
-    );
-    println!("After environment checks: devctl --config {config_argument} tui");
-    Ok(())
 }
 
 fn shell_word(text: &str) -> String {

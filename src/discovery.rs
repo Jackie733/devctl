@@ -2,7 +2,6 @@
 
 mod files;
 mod manifest;
-pub(crate) use manifest::reject_advanced_yaml;
 
 #[cfg(test)]
 mod tests;
@@ -20,7 +19,7 @@ use manifest::{Directory, Evidence};
 #[derive(Debug)]
 pub(crate) struct Candidate {
     pub path: PathBuf,
-    pub dependency_root: PathBuf,
+    pub workspace_root: PathBuf,
     pub name: Option<String>,
     pub scripts: BTreeMap<String, String>,
     pub suggestions: Vec<String>,
@@ -41,6 +40,7 @@ pub(crate) struct Report {
     pub root: PathBuf,
     pub boundary: PathBuf,
     pub declaration_root: PathBuf,
+    pub sources: BTreeMap<PathBuf, String>,
     pub candidates: Vec<Candidate>,
     pub warnings: Vec<String>,
     pub problems: Vec<String>,
@@ -235,6 +235,7 @@ fn scan_with_limits(path: &Path, limits: Limits) -> Result<Report, String> {
             root.clone()
         },
         candidates: Vec::new(),
+        sources: BTreeMap::new(),
         warnings: Vec::new(),
         problems: Vec::new(),
     };
@@ -285,18 +286,18 @@ fn scan_with_limits(path: &Path, limits: Limits) -> Result<Report, String> {
             .iter()
             .filter(|workspace| workspace.contains(path))
             .max_by_key(|workspace| workspace.path.components().count());
-        let dependency_root = own_workspace
+        let workspace_root = own_workspace
             .or(parent_workspace)
             .map_or(path, |workspace| &workspace.path);
-        let owner = &directories[dependency_root];
+        let owner = &directories[workspace_root];
         let manager = resolve_manager(directory, owner, &mut report.problems);
         let mut evidence = owner.evidence.clone();
-        if path != dependency_root {
+        if path != workspace_root {
             evidence.extend(directory.evidence.clone());
         }
         if own_workspace.is_some() && parent_workspace.is_some() {
             report.problems.push(format!(
-                "Nested workspace {} overlaps its parent installation root; select a non-overlapping workspace layout before importing.",
+                "Nested workspace {} overlaps its parent workspace; use devctl add with explicit commands.",
                 safe(path.display())
             ));
         }
@@ -320,13 +321,13 @@ fn scan_with_limits(path: &Path, limits: Limits) -> Result<Report, String> {
         });
         if directory.package.is_some() && owner.package.is_none() {
             report.problems.push(format!(
-                "Installation root {} has no package.json.",
-                safe(dependency_root.display())
+                "Workspace root {} has no package.json.",
+                safe(workspace_root.display())
             ));
         }
         report.candidates.push(Candidate {
             path: path.clone(),
-            dependency_root: dependency_root.clone(),
+            workspace_root: workspace_root.clone(),
             name: package.name.clone(),
             scripts: package.scripts.clone(),
             suggestions,
@@ -336,13 +337,13 @@ fn scan_with_limits(path: &Path, limits: Limits) -> Result<Report, String> {
     }
     let mut roots_with_commands = BTreeSet::new();
     for candidate in &report.candidates {
-        if candidate.path == candidate.dependency_root && !candidate.suggestions.is_empty() {
+        if candidate.path == candidate.workspace_root && !candidate.suggestions.is_empty() {
             roots_with_commands.insert(candidate.path.clone());
         }
     }
     for root in roots_with_commands {
         if report.candidates.iter().any(|candidate| {
-            candidate.dependency_root == root
+            candidate.workspace_root == root
                 && candidate.path != root
                 && !candidate.suggestions.is_empty()
         }) {
@@ -353,10 +354,11 @@ fn scan_with_limits(path: &Path, limits: Limits) -> Result<Report, String> {
         }
     }
     if report.candidates.is_empty() && report.problems.is_empty() {
-        report.problems.push("No supported package.json project found. Select a Node project or its declared workspace root.".into());
+        report.problems.push("No supported package.json project found. Use devctl add with an explicit directory and command.".into());
     }
     report.problems.sort();
     report.problems.dedup();
+    report.sources = reader.sources;
     Ok(report)
 }
 
@@ -442,11 +444,7 @@ fn resolve_manager(
     declarations.sort_by_key(|manager| manager.version.is_none());
     let selected = declarations.first()?.clone();
     for declaration in &declarations {
-        if declaration.name != selected.name
-            || (declaration.version.is_some()
-                && selected.version.is_some()
-                && declaration.version != selected.version)
-        {
+        if declaration.name != selected.name {
             problems.push(format!(
                 "Conflicting package managers for {}: {} ({}) versus {} ({}). Keep declarations and lockfiles consistent; no files were changed.",
                 safe(directory.path.display()), safe(&selected.name), safe(selected.source.display()), safe(&declaration.name), safe(declaration.source.display())
@@ -525,8 +523,8 @@ pub(crate) fn print_report(report: &Report) {
         }
         println!("  Working directory: {}", safe(candidate.path.display()));
         println!(
-            "  Dependency root: {}",
-            safe(candidate.dependency_root.display())
+            "  Workspace root: {}",
+            safe(candidate.workspace_root.display())
         );
         if let Some(manager) = &candidate.manager {
             println!(

@@ -158,39 +158,23 @@ pub(super) async fn choose(
     }
 }
 
-pub(super) async fn exact(prompt: &str) -> Result<String, String> {
+pub(super) async fn confirm(prompt: &str) -> Result<bool, String> {
     let _raw = Raw::enter(false)?;
-    print!("{prompt} (Esc cancels): ");
+    print!("{prompt}");
     std::io::stdout()
         .flush()
         .map_err(|error| error.to_string())?;
     let mut events = EventStream::new();
-    let mut text = String::new();
     while let Some(event) = events.next().await {
         if let Event::Key(key) = event.map_err(|error| error.to_string())?
             && key.kind == KeyEventKind::Press
         {
-            match key.code {
-                KeyCode::Esc => break,
-                KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => break,
-                KeyCode::Enter if !text.is_empty() => {
-                    print!("\r\n");
-                    return Ok(text);
-                }
-                KeyCode::Backspace if !text.is_empty() => {
-                    text.pop();
-                    print!("\x08 \x08");
-                }
-                KeyCode::Char(character) if character.is_ascii_graphic() && text.len() < 128 => {
-                    text.push(character);
-                    print!("{character}");
-                }
-                _ => {}
-            }
+            print!("\r\n");
             std::io::stdout()
                 .flush()
                 .map_err(|error| error.to_string())?;
+            return Ok(matches!(key.code, KeyCode::Char('y' | 'Y')));
         }
     }
-    Err("Import selection cancelled; no files changed.".into())
+    Ok(false)
 }

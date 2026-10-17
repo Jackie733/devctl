@@ -19,23 +19,19 @@ pub struct Cli {
 
 #[derive(Debug, Subcommand)]
 pub enum Command {
-    /// Check declared Node environments without installing tools or changing bindings.
-    Doctor {
-        #[arg(value_name = "SERVICE")]
-        services: Vec<String>,
-        #[arg(long, value_name = "ABSOLUTE_PATH")]
-        node: Option<PathBuf>,
-    },
-    /// Preview or record bindings to existing Node tools (installation is not available yet).
-    Setup {
-        #[arg(value_name = "SERVICE")]
-        services: Vec<String>,
-        #[arg(long, value_name = "ABSOLUTE_PATH")]
-        node: Option<PathBuf>,
+    /// Add a directory and explicit command, for any language (preview by default).
+    Add {
+        #[arg(value_name = "DIR")]
+        directory: PathBuf,
+        #[arg(long, value_name = "ID")]
+        name: Option<String>,
         #[arg(long)]
         apply: bool,
         #[arg(long, requires = "apply")]
         yes: bool,
+        /// Command and arguments after --; no implicit shell is used.
+        #[arg(last = true, required = true, value_name = "COMMAND", num_args = 1..)]
+        command: Vec<String>,
     },
     /// Preview project directories and review configuration additions or replacements.
     Import {
@@ -74,9 +70,6 @@ pub enum Command {
         services: Vec<String>,
         #[arg(long)]
         all: bool,
-        /// Acknowledge unknown dependency inventory for this request only.
-        #[arg(long)]
-        allow_unverified_dependencies: bool,
     },
     /// Stop selected services, keeping the workspace available.
     Stop {
@@ -132,9 +125,6 @@ pub enum Command {
         /// Run all autostart services.
         #[arg(long)]
         all: bool,
-        /// Acknowledge unknown dependency inventory for this run only.
-        #[arg(long)]
-        allow_unverified_dependencies: bool,
     },
 }
 
@@ -144,12 +134,9 @@ pub struct ImportOptions {
     pub projects: Vec<PathBuf>,
     #[arg(long = "script", value_name = "RELATIVE_PATH=SCRIPT")]
     pub scripts: Vec<String>,
-    #[arg(long, value_name = "EXACT")]
-    pub node_version: Option<String>,
-    #[arg(long, value_name = "npm@EXACT|pnpm@EXACT")]
+    /// Select only the command name when discovery has no package-manager evidence.
+    #[arg(long, value_parser = ["npm", "pnpm"])]
     pub package_manager: Option<String>,
-    #[arg(long, value_name = "ABSOLUTE_PATH")]
-    pub node: Option<PathBuf>,
     #[arg(long, value_name = "PROJECT_ID")]
     pub replace: Vec<String>,
     #[arg(long)]

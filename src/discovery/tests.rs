@@ -68,7 +68,7 @@ fn prioritizes_declared_startup_scripts_without_suggesting_business_or_stop_acti
 }
 
 #[test]
-fn workspace_members_inherit_manager_and_one_installation_root() {
+fn workspace_members_inherit_manager_and_workspace_root() {
     let fixture = Fixture::new();
     fixture.package(
         "package.json",
@@ -94,13 +94,13 @@ fn workspace_members_inherit_manager_and_one_installation_root() {
     assert_eq!(report.candidates.len(), 4);
     assert_eq!(report.warnings.len(), 1);
     for candidate in &report.candidates {
-        assert_eq!(candidate.dependency_root, fixture.0);
+        assert_eq!(candidate.workspace_root, fixture.0);
         assert_eq!(candidate.manager.as_ref().unwrap().name, "pnpm");
     }
     assert!(report.candidates[3].scripts.is_empty());
     let child = scan(&fixture.0.join("apps/web")).unwrap();
     assert_eq!(child.candidates.len(), 1);
-    assert_eq!(child.candidates[0].dependency_root, fixture.0);
+    assert_eq!(child.candidates[0].workspace_root, fixture.0);
     assert_eq!(
         child.candidates[0]
             .manager
@@ -121,7 +121,7 @@ fn independent_projects_do_not_inherit_unrelated_parent_manager() {
     let report = fixture.report();
     assert!(report.problems.is_empty());
     let web = &report.candidates[1];
-    assert_eq!(web.dependency_root, fixture.0.join("web"));
+    assert_eq!(web.workspace_root, fixture.0.join("web"));
     assert_eq!(web.manager.as_ref().unwrap().name, "npm");
     assert!(report.warnings.is_empty());
 }
@@ -181,7 +181,7 @@ fn shrinkwrap_and_package_lock_are_one_manager_and_source_order_is_stable() {
 }
 
 #[test]
-fn source_versions_are_evidence_not_a_claim_of_environment_compatibility() {
+fn environment_declarations_and_version_files_are_not_interpreted() {
     let fixture = Fixture::new();
     fixture.package(
         "package.json",
@@ -191,7 +191,7 @@ fn source_versions_are_evidence_not_a_claim_of_environment_compatibility() {
     fixture.write(".tool-versions", "python 3.12\nnodejs 24.18.0\n");
     let report = fixture.report();
     assert!(report.problems.is_empty());
-    assert_eq!(report.candidates[0].evidence.len(), 4);
+    assert!(report.candidates[0].evidence.is_empty());
     assert!(
         !report.candidates[0]
             .evidence
@@ -276,7 +276,7 @@ fn rejects_malformed_and_unsupported_declarations_without_guessing() {
         ),
         (
             "package.json",
-            r#"{"packageManager":"pnpm@10.3.0+sha224.abc"}"#,
+            r#"{"packageManager":"unknown@10.3.0"}"#,
             "Unsupported package manager",
         ),
         (
@@ -431,12 +431,7 @@ fn advisory_development_tools_do_not_override_explicit_package_manager() {
         let report = fixture.report();
         assert!(report.problems.is_empty(), "{:?}", report.problems);
         assert_eq!(report.candidates[0].manager.as_ref().unwrap().name, "pnpm");
-        assert!(
-            report
-                .warnings
-                .iter()
-                .any(|warning| warning.contains("Advisory"))
-        );
+        assert!(report.warnings.is_empty());
     }
     fixture.package(
         "package.json",
@@ -444,7 +439,7 @@ fn advisory_development_tools_do_not_override_explicit_package_manager() {
     );
     let report = fixture.report();
     assert!(report.problems.is_empty());
-    assert_eq!(report.candidates[0].manager.as_ref().unwrap().name, "npm");
+    assert!(report.candidates[0].manager.is_none());
 }
 
 #[test]
@@ -463,10 +458,7 @@ fn unrelated_parent_declarations_do_not_make_a_child_project_unsupported() {
     fixture.package("child/package.json", json!({"packageManager":"npm@10.9.0"}));
     let report = scan(&fixture.0.join("child")).unwrap();
     assert!(report.problems.is_empty(), "{:?}", report.problems);
-    assert_eq!(
-        report.candidates[0].dependency_root,
-        fixture.0.join("child")
-    );
+    assert_eq!(report.candidates[0].workspace_root, fixture.0.join("child"));
 }
 
 #[test]
@@ -546,4 +538,23 @@ fn workspace_pattern_count_size_and_component_limits_are_enforced() {
         assert!(!report.problems.is_empty());
         assert_eq!(report.candidates.len(), 1);
     }
+}
+
+#[test]
+fn manager_versions_do_not_gate_command_discovery_or_create_version_conflicts() {
+    let fixture = Fixture::new();
+    fixture.package(
+        "package.json",
+        json!({"workspaces":["apps/*"], "packageManager":"pnpm@10.3.0+sha224.abc"}),
+    );
+    fixture.package("apps/api/package.json", json!({"packageManager":"pnpm@99.0.0", "scripts":{"dev":"node server"}, "devEngines":{"runtime":{"name":"unknown"}}}));
+    let report = fixture.report();
+    assert!(report.problems.is_empty(), "{:?}", report.problems);
+    assert_eq!(report.candidates[1].manager.as_ref().unwrap().name, "pnpm");
+    assert!(
+        report.candidates[0]
+            .evidence
+            .iter()
+            .any(|evidence| evidence.value == "pnpm@10.3.0+sha224.abc")
+    );
 }

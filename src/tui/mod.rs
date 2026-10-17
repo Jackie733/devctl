@@ -144,22 +144,20 @@ fn handle_key(app: &mut App, key: KeyEvent, area: ratatui::layout::Rect) -> Acti
     if !view::usable(area) {
         if key.code == KeyCode::Esc || key.code == KeyCode::Char('n') {
             app.confirm_shutdown = false;
-            app.confirm_start = None;
             app.goto_top = false;
         }
         return Action::Redraw;
     }
-    if app.confirm_shutdown || app.confirm_start.is_some() {
+    if app.confirm_shutdown {
         return match key.code {
             KeyCode::Char('y')
                 if app.connected && app.pending.is_none() && view::can_confirm(area, app) =>
             {
                 app.confirm_shutdown = false;
-                Action::Control(app.confirm_start.take().unwrap_or(Operation::Shutdown))
+                Action::Control(Operation::Shutdown)
             }
             KeyCode::Char('n') | KeyCode::Esc => {
                 app.confirm_shutdown = false;
-                app.confirm_start = None;
                 Action::Redraw
             }
             _ => Action::None,
@@ -337,14 +335,6 @@ fn handle_key(app: &mut App, key: KeyEvent, area: ratatui::layout::Rect) -> Acti
                     "Reconnect and wait for any pending operation before ending the workspace."
                         .into();
             }
-        }
-        KeyCode::Char('S' | 'A') if app.connected && app.pending.is_none() => {
-            app.confirm_start = if key.code == KeyCode::Char('A') {
-                Some(Operation::StartAllUnverified)
-            } else {
-                app.selected.clone().map(Operation::StartUnverified)
-            };
-            return Action::Redraw;
         }
         KeyCode::Char('a') => return Action::Control(Operation::StartAll),
         KeyCode::Char('X') => return Action::Control(Operation::StopAll),
@@ -1093,61 +1083,5 @@ mod tests {
         assert!(app.logs.search.is_none() && app.focus == Focus::Logs);
         handle_key(&mut app, key(KeyCode::Esc), area());
         assert_eq!(app.focus, Focus::Projects);
-    }
-    #[test]
-    fn unverified_start_is_modal_scoped_and_never_confirmed_when_clipped_or_disconnected() {
-        let mut app = connected();
-        let selected = app.selected.clone().unwrap();
-        handle_key(&mut app, key(KeyCode::Char('S')), area());
-        assert_eq!(
-            app.confirm_start,
-            Some(Operation::StartUnverified(selected.clone()))
-        );
-        assert!(!app.confirm_shutdown);
-        assert!(matches!(
-            handle_key(&mut app, key(KeyCode::Char('s')), area()),
-            Action::None
-        ));
-        assert!(matches!(
-            handle_key(
-                &mut app,
-                key(KeyCode::Char('y')),
-                ratatui::layout::Rect::new(0, 0, 20, 6)
-            ),
-            Action::None | Action::Redraw
-        ));
-        assert!(app.confirm_start.is_some());
-        let action = handle_key(&mut app, key(KeyCode::Char('y')), area());
-        assert!(
-            matches!(action, Action::Control(Operation::StartUnverified(ref id)) if id==&selected)
-        );
-        assert!(app.confirm_start.is_none());
-        handle_key(&mut app, key(KeyCode::Char('A')), area());
-        assert_eq!(app.confirm_start, Some(Operation::StartAllUnverified));
-        handle_key(&mut app, key(KeyCode::Esc), area());
-        assert!(app.confirm_start.is_none());
-        handle_key(&mut app, key(KeyCode::Char('S')), area());
-        app.disconnect("test disconnect".into());
-        assert!(app.confirm_start.is_none());
-        assert!(!matches!(
-            handle_key(&mut app, key(KeyCode::Char('y')), area()),
-            Action::Control(_)
-        ));
-        assert!(matches!(
-            Operation::StartUnverified(selected).request(),
-            Request::Start {
-                allow_unverified_dependencies: true,
-                all: false,
-                ..
-            }
-        ));
-        assert!(matches!(
-            Operation::StartAllUnverified.request(),
-            Request::Start {
-                allow_unverified_dependencies: true,
-                all: true,
-                ..
-            }
-        ));
     }
 }

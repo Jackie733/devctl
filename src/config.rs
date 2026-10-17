@@ -20,9 +20,6 @@ pub struct Config {
 
     #[serde(default)]
     pub services: BTreeMap<String, Service>,
-
-    #[serde(default)]
-    pub node_environments: BTreeMap<String, crate::environment::NodeEnvironment>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -35,7 +32,6 @@ pub struct Workspace {
 #[serde(deny_unknown_fields)]
 pub struct Project {
     pub path: PathBuf,
-    pub dependency_root: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -51,12 +47,6 @@ pub struct Service {
 
     #[serde(default)]
     pub depends_on: Vec<Dependency>,
-
-    pub node_environment: Option<String>,
-    #[serde(skip)]
-    pub managed: Option<crate::environment::Managed>,
-    #[serde(skip)]
-    pub launch: Option<std::sync::Arc<crate::environment::Launch>>,
 }
 
 fn default_autostart() -> bool {
@@ -201,8 +191,16 @@ pub fn load(path: &Path) -> Result<Config, String> {
 
 /// Validate proposed bytes against their final path, without creating a file.
 pub fn parse(content: &str, path: &Path) -> Result<Config, String> {
-    let mut config: Config = toml::from_str(content)
-        .map_err(|error| format!("Failed to parse {}: {error}", path.display()))?;
+    let mut config: Config = toml::from_str(content).map_err(|error: toml::de::Error| {
+        let retired = ["node_environments", "node_environment", "dependency_root"];
+        if retired.iter().any(|field| {
+            error.message().starts_with(&format!("unknown field `{field}`"))
+        }) {
+            "Managed environment configuration was removed. Remove node_environments, node_environment and dependency_root; set cmd to the command you normally run (including an explicit environment-tool entry point if needed). No configuration was changed.".to_owned()
+        } else {
+            format!("Failed to parse {}: {error}", path.display())
+        }
+    })?;
 
     config.logs.validate()?;
 
@@ -247,13 +245,6 @@ pub fn parse(content: &str, path: &Path) -> Result<Config, String> {
     }
 
     validate_dependencies(&config)?;
-    for (id, environment) in &config.node_environments {
-        if id.trim().is_empty() {
-            return Err("Node environment ID must not be empty.".into());
-        }
-        environment.validate()?;
-    }
-
     let config_dir = path
         .parent()
         .ok_or_else(|| "Config path must have a parent directory.".to_string())?;
@@ -281,22 +272,6 @@ pub fn parse(content: &str, path: &Path) -> Result<Config, String> {
         }
 
         project.path = resolved;
-        if let Some(root) = &project.dependency_root {
-            let root = if root.is_absolute() {
-                root.clone()
-            } else {
-                project.path.join(root)
-            };
-            let root = root.canonicalize().map_err(|error| {
-                format!("Cannot resolve dependency root for project '{id}': {error}")
-            })?;
-            if !root.is_dir() || !project.path.starts_with(&root) {
-                return Err(format!(
-                    "Dependency root must be a containing directory for project '{id}'."
-                ));
-            }
-            project.dependency_root = Some(root);
-        }
     }
 
     for (id, service) in &mut config.services {
@@ -337,30 +312,6 @@ pub fn parse(content: &str, path: &Path) -> Result<Config, String> {
             ));
         }
 
-        if let Some(name) = &service.node_environment {
-            let environment = config.node_environments.get(name).ok_or_else(|| {
-                format!("Service '{id}' references unknown Node environment '{name}'.")
-            })?;
-            if resolved != project.path
-                || service.cmd.len() != 3
-                || service.cmd[0] != environment.package_manager
-                || service.cmd[1] != "run"
-                || service.cmd[2].is_empty()
-                || service.cmd[2].starts_with('-')
-            {
-                return Err(format!(
-                    "Managed service '{id}' must run [package_manager, run, SCRIPT] in its project directory."
-                ));
-            }
-            service.managed = Some(crate::environment::Managed {
-                environment: environment.clone(),
-                project: project.path.clone(),
-                dependency_root: project
-                    .dependency_root
-                    .clone()
-                    .unwrap_or_else(|| project.path.clone()),
-            });
-        }
         service.cwd = Some(resolved);
     }
 
@@ -459,9 +410,6 @@ mod tests {
                     cwd: None,
                     autostart: true,
                     depends_on,
-                    node_environment: None,
-                    managed: None,
-                    launch: None,
                 },
             );
         }
@@ -473,7 +421,6 @@ mod tests {
                 name: "test".to_string(),
             },
             projects: BTreeMap::new(),
-            node_environments: BTreeMap::new(),
             services,
         }
     }

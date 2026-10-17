@@ -61,14 +61,8 @@ pub async fn run(
         RunError::SafeToRetry(format!("Service '{id}' has no resolved working directory."))
     })?;
 
-    let mut command = if let Some(launch) = &service.launch {
-        launch.command(&service.cmd[2])
-    } else {
-        let mut command = Command::new(program);
-        command.args(args);
-        command
-    };
-    let mut child = command
+    let mut child = Command::new(program)
+        .args(args)
         .current_dir(cwd)
         .stdin(Stdio::null())
         .stdout(if logs.is_some() {
@@ -149,11 +143,7 @@ async fn stop(id: &str, child: &mut Child, pgid: Pid) -> Result<RunOutcome, RunE
     Ok(RunOutcome::Stopped)
 }
 
-pub(crate) async fn kill_and_reap(
-    id: &str,
-    child: &mut Child,
-    pgid: Pid,
-) -> Result<ExitStatus, String> {
+async fn kill_and_reap(id: &str, child: &mut Child, pgid: Pid) -> Result<ExitStatus, String> {
     // Keep the leader's PID until the group has no live members.
     signal_group(id, pgid, Signal::SIGKILL)?;
 
@@ -341,7 +331,7 @@ fn group_has_live_members(pgid: Pid) -> Result<bool, String> {
     Ok(false)
 }
 
-pub(crate) async fn wait_for_exit_without_reaping(id: &str, pid: Pid) -> Result<(), String> {
+async fn wait_for_exit_without_reaping(id: &str, pid: Pid) -> Result<(), String> {
     loop {
         match exited_without_reaping(pid) {
             Ok(false) | Err(Errno::EINTR) => sleep(Duration::from_millis(20)).await,
@@ -448,9 +438,6 @@ mod tests {
                 cwd: Some(fixture.dir.clone()),
                 autostart: false,
                 depends_on: Vec::new(),
-                node_environment: None,
-                managed: None,
-                launch: None,
             };
 
             let (sender, receiver) = oneshot::channel();

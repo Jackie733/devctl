@@ -123,19 +123,16 @@ fn preview_is_read_only_and_new_configuration_requires_explicit_noninteractive_a
     fixture.config = fixture.root.join("new parent/workspace.toml");
     fixture.write(".env", "PRIVATE_ENV_TOKEN=DO_NOT_READ");
     let manifest = fs::read(fixture.repository.join("package.json")).unwrap();
-    let text = succeeds(fixture.run(&["--node-version", "24.0.0"]));
+    let text = succeeds(fixture.run(&[]));
     assert!(text.contains("Configuration diff"));
     assert!(!text.contains("DO_NOT_READ"));
     assert!(!fixture.config.parent().unwrap().exists());
     assert!(fs::read_dir(&fixture.home).unwrap().next().is_none());
-    fails(
-        fixture.run(&["--node-version", "24.0.0", "--apply"]),
-        "requires --yes",
-    );
+    fails(fixture.run(&["--apply"]), "requires --yes");
     assert!(!fixture.config.parent().unwrap().exists());
-    let text = succeeds(fixture.apply(&["--node-version", "24.0.0"]));
+    let text = succeeds(fixture.apply(&[]));
     assert!(text.contains("Saved configuration"));
-    assert!(text.contains("Older devctl versions reject"));
+    assert!(text.contains("Commands use the existing environment"));
     let config = fixture.config_value();
     assert_eq!(config["projects"].as_table().unwrap().len(), 1);
     assert_eq!(
@@ -162,7 +159,7 @@ fn repeat_import_preserves_custom_fields_ids_comments_bytes_and_inode() {
     let fixture = Fixture::new();
     let original = fixture.legacy();
     let metadata = fs::metadata(&fixture.config).unwrap();
-    succeeds(fixture.apply(&["--script", ".=dev", "--node-version", "24.0.0"]));
+    succeeds(fixture.apply(&["--script", ".=dev"]));
     assert_eq!(fs::read_to_string(&fixture.config).unwrap(), original);
     assert_eq!(fs::metadata(&fixture.config).unwrap().ino(), metadata.ino());
     assert_eq!(
@@ -183,10 +180,9 @@ fn replacement_changes_only_reviewed_fields_and_retains_the_existing_group_and_c
     let fixture = Fixture::new();
     fixture.legacy();
     fs::set_permissions(&fixture.config, fs::Permissions::from_mode(0o640)).unwrap();
-    let preview =
-        succeeds(fixture.run(&["--replace", "custom project", "--node-version", "24.0.0"]));
+    let preview = succeeds(fixture.run(&["--replace", "custom project"]));
     assert!(preview.contains("~ services.custom service.cmd"));
-    succeeds(fixture.apply(&["--replace", "custom project", "--node-version", "24.0.0"]));
+    succeeds(fixture.apply(&["--replace", "custom project"]));
     let text = fs::read_to_string(&fixture.config).unwrap();
     for marker in [
         "# KEEP HEADER",
@@ -213,32 +209,22 @@ fn replacement_changes_only_reviewed_fields_and_retains_the_existing_group_and_c
     );
     assert_eq!(fs::metadata(&fixture.config).unwrap().mode() & 0o777, 0o640);
     let bytes = fs::read(&fixture.config).unwrap();
-    succeeds(fixture.apply(&["--replace", "custom project", "--node-version", "24.0.0"]));
+    succeeds(fixture.apply(&["--replace", "custom project"]));
     assert_eq!(fs::read(&fixture.config).unwrap(), bytes);
 }
 
 #[test]
-fn workspace_selections_share_one_environment_and_root_without_importing_libraries() {
+fn workspace_selections_save_only_paths_and_commands_without_importing_libraries() {
     let fixture = Fixture::new();
     fixture.workspace();
-    succeeds(fixture.apply(&[
-        "--project",
-        "apps/web",
-        "--script",
-        "apps/web=dev",
-        "--node-version",
-        "24.0.0",
-    ]));
-    succeeds(fixture.apply(&["--project", "apps/api", "--node-version", "24.0.0"]));
+    succeeds(fixture.apply(&["--project", "apps/web", "--script", "apps/web=dev"]));
+    succeeds(fixture.apply(&["--project", "apps/api"]));
     let value = fixture.config_value();
     assert_eq!(value["projects"].as_table().unwrap().len(), 2);
     assert_eq!(value["services"].as_table().unwrap().len(), 2);
-    assert_eq!(value["node_environments"].as_table().unwrap().len(), 1);
+    assert!(!value.as_table().unwrap().contains_key("node_environments"));
     for project in value["projects"].as_table().unwrap().values() {
-        assert_eq!(
-            project["dependency_root"].as_str(),
-            fixture.repository.canonicalize().unwrap().to_str()
-        );
+        assert!(!project.as_table().unwrap().contains_key("dependency_root"));
     }
     let bytes = fs::read(&fixture.config).unwrap();
     succeeds(fixture.apply(&["--project", "apps/api", "--project", "apps/web"]));
@@ -246,91 +232,55 @@ fn workspace_selections_share_one_environment_and_root_without_importing_librari
 }
 
 #[test]
-fn ambiguity_unknown_flags_and_incompatible_workspace_members_cannot_be_applied() {
+fn ambiguous_commands_require_selection_but_environment_constraints_do_not_block_import() {
     let fixture = Fixture::new();
     fixture.workspace();
+    fails(fixture.apply(&[]), "Selection required");
+    fails(fixture.apply(&["--project", "apps/web"]), "--script");
     fails(
-        fixture.apply(&["--node-version", "24.0.0"]),
-        "Selection required",
-    );
-    fails(
-        fixture.apply(&["--project", "apps/web", "--node-version", "24.0.0"]),
-        "--script",
-    );
-    fails(
-        fixture.apply(&["--project", "packages/library", "--node-version", "24.0.0"]),
+        fixture.apply(&["--project", "packages/library"]),
         "No startup script was invented",
     );
     fails(
-        fixture.apply(&[
-            "--project",
-            "apps/api",
-            "--script",
-            "apps/web=dev",
-            "--node-version",
-            "24.0.0",
-        ]),
+        fixture.apply(&["--project", "apps/api", "--script", "apps/web=dev"]),
         "unselected",
     );
     fails(
-        fixture.apply(&[
-            "--project",
-            "../repository with spaces/apps/api",
-            "--node-version",
-            "24.0.0",
-        ]),
+        fixture.apply(&["--project", "../repository with spaces/apps/api"]),
         "relative paths",
     );
     fails(
-        fixture.apply(&[
-            "--project",
-            "apps/api",
-            "--replace",
-            "absent",
-            "--node-version",
-            "24.0.0",
-        ]),
+        fixture.apply(&["--project", "apps/api", "--replace", "absent"]),
         "Unknown replacement",
     );
     fixture.write(
         "packages/library/package.json",
         &json!({"engines":{"node":"<24"}}).to_string(),
     );
-    fails(
-        fixture.apply(&["--project", "apps/api", "--node-version", "24.0.0"]),
-        "incompatible",
-    );
-    assert!(!fixture.config.exists());
+    succeeds(fixture.apply(&["--project", "apps/api"]));
 }
 
 #[test]
-fn missing_versions_stay_unresolved_and_exact_repository_pins_can_resolve_them() {
+fn import_needs_no_runtime_version_or_installed_tools_and_only_selects_a_manager_name() {
     let fixture = Fixture::new();
-    fails(fixture.run(&[]), "Node selection required");
-    fixture.write(".node-version", "24.0.0\n");
     succeeds(fixture.apply(&[]));
     let fresh = Fixture::new();
     fresh.write(
         "package.json",
-        &json!({"scripts":{"dev":"node server"}}).to_string(),
+        &json!({"scripts":{"dev":"node server"},"engines":{"node":"unrecognized"}}).to_string(),
     );
-    fresh.write("package-lock.json", "{}");
-    fails(
-        fresh.apply(&["--node-version", "24.0.0"]),
-        "version is unresolved",
+    fails(fresh.apply(&[]), "Package manager command is unknown");
+    succeeds(fresh.apply(&["--package-manager", "npm"]));
+    assert_eq!(
+        fresh.config_value()["services"]["repository-with-spaces"]["cmd"][0].as_str(),
+        Some("npm")
     );
-    succeeds(fresh.apply(&[
-        "--node-version",
-        "24.0.0",
-        "--package-manager",
-        "npm@11.0.0",
-    ]));
 }
 
 #[test]
 fn canonical_aliases_reuse_ids_and_configuration_aliases_remain_links() {
     let fixture = Fixture::new();
-    succeeds(fixture.apply(&["--node-version", "24.0.0"]));
+    succeeds(fixture.apply(&[]));
     let original = fs::read(&fixture.config).unwrap();
     let alias = fixture.root.join("alias");
     symlink(&fixture.repository, &alias).unwrap();
@@ -364,14 +314,7 @@ fn slug_collisions_get_distinct_stable_path_ids_and_do_not_overwrite_existing_en
             &json!({"packageManager":"npm@11.0.0","scripts":{"dev":"node server"}}).to_string(),
         );
     }
-    succeeds(fixture.apply(&[
-        "--project",
-        "foo.bar",
-        "--project",
-        "foo_bar",
-        "--node-version",
-        "24.0.0",
-    ]));
+    succeeds(fixture.apply(&["--project", "foo.bar", "--project", "foo_bar"]));
     let value = fixture.config_value();
     let projects = value["projects"].as_table().unwrap();
     assert_eq!(projects.len(), 2);
@@ -392,9 +335,9 @@ fn an_active_or_idle_workspace_blocks_apply_without_stopping_its_service() {
             .output()
             .unwrap(),
     );
-    succeeds(fixture.run(&["--replace", "custom project", "--node-version", "24.0.0"]));
+    succeeds(fixture.run(&["--replace", "custom project"]));
     fails(
-        fixture.apply(&["--replace", "custom project", "--node-version", "24.0.0"]),
+        fixture.apply(&["--replace", "custom project"]),
         "workspace is running",
     );
     assert_eq!(fs::read_to_string(&fixture.config).unwrap(), original);
@@ -407,7 +350,7 @@ fn an_active_or_idle_workspace_blocks_apply_without_stopping_its_service() {
     );
     fails(fixture.apply(&[]), "workspace is running");
     succeeds(fixture.command(&["shutdown"]).output().unwrap());
-    succeeds(fixture.apply(&["--replace", "custom project", "--node-version", "24.0.0"]));
+    succeeds(fixture.apply(&["--replace", "custom project"]));
 }
 
 #[test]
@@ -540,8 +483,6 @@ fn simultaneous_imports_never_publish_partial_files_or_lose_successful_additions
                     name,
                     "--script",
                     &format!("{name}=dev"),
-                    "--node-version",
-                    "24.0.0",
                     "--apply",
                     "--yes",
                 ])
@@ -579,7 +520,7 @@ fn simultaneous_imports_never_publish_partial_files_or_lose_successful_additions
 fn invalid_existing_configs_hardlinks_and_bad_sidecars_do_not_get_replaced() {
     let fixture = Fixture::new();
     fs::write(&fixture.config, "secret_unknown_field = 'PRIVATE_TOKEN'\n").unwrap();
-    let output = fixture.apply(&["--node-version", "24.0.0"]);
+    let output = fixture.apply(&[]);
     assert!(!String::from_utf8_lossy(&output.stderr).contains("PRIVATE_TOKEN"));
     fails(output, "Existing configuration is invalid");
     assert!(
@@ -591,7 +532,7 @@ fn invalid_existing_configs_hardlinks_and_bad_sidecars_do_not_get_replaced() {
     let link = fixture.root.join("hardlink.toml");
     fs::hard_link(&fixture.config, &link).unwrap();
     fails(
-        fixture.apply(&["--replace", "custom project", "--node-version", "24.0.0"]),
+        fixture.apply(&["--replace", "custom project"]),
         "hard-linked",
     );
     fs::remove_file(link).unwrap();
@@ -600,27 +541,17 @@ fn invalid_existing_configs_hardlinks_and_bad_sidecars_do_not_get_replaced() {
     let mut sidecar = canonical.as_os_str().to_os_string();
     sidecar.push(".devctl.edit.lock");
     fs::create_dir(PathBuf::from(sidecar)).unwrap();
-    fails(
-        fixture.apply(&["--replace", "custom project", "--node-version", "24.0.0"]),
-        "edit lock",
-    );
+    fails(fixture.apply(&["--replace", "custom project"]), "edit lock");
     assert_eq!(fs::read(&fixture.config).unwrap(), original);
 }
 
 #[test]
-fn removed_manifests_are_reported_and_overlapping_independent_installation_roots_are_refused() {
+fn removed_manifests_are_retained_and_independent_nested_projects_can_be_imported() {
     let fixture = Fixture::new();
     fixture.workspace();
-    succeeds(fixture.apply(&[
-        "--project",
-        "apps/web",
-        "--script",
-        "apps/web=dev",
-        "--node-version",
-        "24.0.0",
-    ]));
+    succeeds(fixture.apply(&["--project", "apps/web", "--script", "apps/web=dev"]));
     fs::remove_file(fixture.repository.join("apps/web/package.json")).unwrap();
-    let text = succeeds(fixture.apply(&["--project", "apps/api", "--node-version", "24.0.0"]));
+    let text = succeeds(fixture.apply(&["--project", "apps/api"]));
     assert!(text.contains("Retain existing project apps-web"));
     assert_eq!(
         fixture.config_value()["projects"].as_table().unwrap().len(),
@@ -631,18 +562,11 @@ fn removed_manifests_are_reported_and_overlapping_independent_installation_roots
         "nested/package.json",
         &json!({"packageManager":"npm@11.0.0","scripts":{"dev":"node nested"}}).to_string(),
     );
-    fails(
-        other.apply(&[
-            "--project",
-            ".",
-            "--project",
-            "nested",
-            "--node-version",
-            "24.0.0",
-        ]),
-        "overlap",
+    succeeds(other.apply(&["--project", ".", "--project", "nested"]));
+    assert_eq!(
+        other.config_value()["projects"].as_table().unwrap().len(),
+        2
     );
-    assert!(!other.config.exists());
 }
 
 #[test]
@@ -657,7 +581,9 @@ fn real_terminal_guides_selection_and_rechecks_sources_and_destination_after_rev
         "choose",
         "choose_cancel",
         "small",
-        "versions",
+        "manager",
+        "add_apply",
+        "add_cancel",
     ] {
         let fixture = Fixture::new();
         if matches!(
@@ -670,11 +596,15 @@ fn real_terminal_guides_selection_and_rechecks_sources_and_destination_after_rev
                 &json!({"scripts":{"dev":"node api","dev:inspect":"node inspect"}}).to_string(),
             );
         }
-        if mode == "versions" {
+        if mode == "manager" {
             fixture.write(
                 "package.json",
                 &json!({"scripts":{"dev":"node server"}}).to_string(),
             );
+        }
+        if mode.starts_with("add_") {
+            // Explicit add must not inspect even an invalid manifest.
+            fixture.write("package.json", "INVALID_UNUSED_MANIFEST");
         }
         let environment = fixture.command(&[]);
         let mut python = Command::new("python3");
@@ -717,12 +647,7 @@ fn default_destination_is_previewed_before_creation_and_invalid_preferred_config
     let command = |apply: bool| {
         let mut command = Command::new(env!("CARGO_BIN_EXE_devctl"));
         command
-            .args([
-                "import",
-                fixture.repository.to_str().unwrap(),
-                "--node-version",
-                "24.0.0",
-            ])
+            .args(["import", fixture.repository.to_str().unwrap()])
             .current_dir(&fixture.root)
             .env("HOME", &fixture.home)
             .env("PATH", "/usr/bin:/bin");
@@ -748,12 +673,11 @@ fn default_destination_is_previewed_before_creation_and_invalid_preferred_config
         command(false).env_remove("HOME").output().unwrap(),
         "absolute HOME",
     );
-    succeeds(fixture.run(&["--node-version", "24.0.0"]));
+    succeeds(fixture.run(&[]));
 }
 
 #[test]
-fn inline_config_tables_keep_unrelated_text_and_invalid_version_flags_are_not_ignored_on_reimport()
-{
+fn inline_config_tables_keep_unrelated_text_and_invalid_manager_flags_are_rejected() {
     let fixture = Fixture::new();
     let original = "version=1\nworkspace = { name = 'inline workspace' } # KEEP INLINE\nlogs = { enabled = false }\nprojects = { custom = { path = 'repository with spaces' } }\nservices = { server = { project = 'custom', cmd = ['sleep','60'], autostart = false } }\n";
     fs::write(&fixture.config, original).unwrap();
@@ -762,10 +686,10 @@ fn inline_config_tables_keep_unrelated_text_and_invalid_version_flags_are_not_ig
         &["--package-manager", "npm@12.0.0"][..],
     ] {
         let output = fixture.apply(flags);
-        assert_eq!(output.status.code(), Some(1), "{output:?}");
+        assert_eq!(output.status.code(), Some(2), "{output:?}");
         assert_eq!(fs::read_to_string(&fixture.config).unwrap(), original);
     }
-    succeeds(fixture.apply(&["--replace", "custom", "--node-version", "24.0.0"]));
+    succeeds(fixture.apply(&["--replace", "custom"]));
     let text = fs::read_to_string(&fixture.config).unwrap();
     assert!(text.contains("workspace = { name = 'inline workspace' } # KEEP INLINE"));
     assert!(text.contains("projects = { custom = { path = 'repository with spaces' } }"));
@@ -774,4 +698,213 @@ fn inline_config_tables_keep_unrelated_text_and_invalid_version_flags_are_not_ig
         Some(false)
     );
     succeeds(fixture.command(&["validate"]).output().unwrap());
+}
+
+#[test]
+fn explicit_add_works_without_manifests_and_preserves_exact_arguments_and_existing_edits() {
+    let fixture = Fixture::new();
+    fs::remove_file(fixture.repository.join("package.json")).unwrap();
+    let add = |extra: &[&str]| {
+        let mut command = fixture.command(&[
+            "add",
+            fixture.repository.to_str().unwrap(),
+            "--name",
+            "custom runner",
+        ]);
+        command.args(extra).args([
+            "--",
+            "uninstalled-runtime",
+            "argument with spaces",
+            "--apply",
+            "literal $HOME; printf unsafe",
+        ]);
+        command.output().unwrap()
+    };
+    succeeds(add(&[]));
+    assert!(!fixture.config.exists());
+    fails(add(&["--apply"]), "requires --yes");
+    succeeds(add(&["--apply", "--yes"]));
+    let value = fixture.config_value();
+    assert_eq!(
+        value["services"]["custom runner"]["cmd"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_str().unwrap())
+            .collect::<Vec<_>>(),
+        [
+            "uninstalled-runtime",
+            "argument with spaces",
+            "--apply",
+            "literal $HOME; printf unsafe"
+        ]
+    );
+    let mut bytes = fs::read_to_string(&fixture.config).unwrap();
+    bytes.push_str("# User comment\n");
+    fs::write(&fixture.config, &bytes).unwrap();
+    let inode = fs::metadata(&fixture.config).unwrap().ino();
+    succeeds(add(&["--apply", "--yes"]));
+    assert_eq!(fs::read_to_string(&fixture.config).unwrap(), bytes);
+    assert_eq!(fs::metadata(&fixture.config).unwrap().ino(), inode);
+    assert!(fs::read_dir(&fixture.home).unwrap().next().is_none());
+}
+
+#[test]
+fn explicit_add_validates_directory_command_and_name_without_overwriting_entries() {
+    let fixture = Fixture::new();
+    fixture.legacy();
+    let original = fs::read(&fixture.config).unwrap();
+    let other = fixture.root.join("another project");
+    fs::create_dir(&other).unwrap();
+    let output = fixture
+        .command(&[
+            "add",
+            other.to_str().unwrap(),
+            "--name",
+            "custom project",
+            "--apply",
+            "--yes",
+            "--",
+            "sleep",
+            "60",
+        ])
+        .output()
+        .unwrap();
+    fails(output, "name already exists");
+    fails(
+        fixture
+            .command(&["add", "/dev/null", "--", "sleep", "60"])
+            .output()
+            .unwrap(),
+        "must be a directory",
+    );
+    fails(
+        fixture
+            .command(&["add", other.to_str().unwrap(), "--", ""])
+            .output()
+            .unwrap(),
+        "non-empty command",
+    );
+    assert_eq!(fs::read(&fixture.config).unwrap(), original);
+    succeeds(
+        fixture
+            .command(&[
+                "add",
+                other.to_str().unwrap(),
+                "--name",
+                "other",
+                "--apply",
+                "--yes",
+                "--",
+                "sleep",
+                "60",
+            ])
+            .output()
+            .unwrap(),
+    );
+    assert!(
+        fs::read_to_string(&fixture.config)
+            .unwrap()
+            .contains("# KEEP HEADER")
+    );
+    assert_eq!(
+        fixture.config_value()["projects"].as_table().unwrap().len(),
+        2
+    );
+}
+
+#[test]
+fn retired_environment_interfaces_fail_explicitly_instead_of_silently_changing_execution() {
+    let fixture = Fixture::new();
+    let original = fixture.legacy();
+    for args in [
+        vec!["doctor"],
+        vec!["setup"],
+        vec!["start", "--all", "--allow-unverified-dependencies"],
+        vec!["run", "--all", "--allow-unverified-dependencies"],
+    ] {
+        let output = fixture.command(&args).output().unwrap();
+        assert_eq!(output.status.code(), Some(2), "{output:?}");
+    }
+    for content in [
+        format!("{original}\nnode_environment='old'\n"),
+        format!("{original}\n[node_environments.old]\nversion='24.0.0'\n"),
+        original.replace(
+            "path = 'repository with spaces'",
+            "dependency_root='.'\npath = 'repository with spaces'",
+        ),
+    ] {
+        fs::write(&fixture.config, &content).unwrap();
+        fails(
+            fixture.command(&["run", "--all"]).output().unwrap(),
+            "Managed environment configuration was removed",
+        );
+        assert_eq!(fs::read_to_string(&fixture.config).unwrap(), content);
+    }
+    fs::write(&fixture.config, &original).unwrap();
+    let help = succeeds(fixture.command(&["--help"]).output().unwrap());
+    assert!(!help.contains("doctor") && !help.contains("setup"));
+    assert!(help.contains("add"));
+}
+
+#[test]
+fn imported_services_run_inherited_commands_without_environment_checks_and_reconnect() {
+    use std::time::{Duration, Instant};
+    let fixture = Fixture::new();
+    let bin = fixture.root.join("bin");
+    fs::create_dir(&bin).unwrap();
+    let marker = fixture.root.join("ARGUMENTS");
+    let script = format!(
+        "#!/bin/sh\nprintf '%s\\n' \"$PWD\" \"$@\" > '{}'\nprintf 'service output\\n'\nexec /bin/sleep 60\n",
+        marker.display()
+    );
+    fs::write(bin.join("npm"), script).unwrap();
+    fs::set_permissions(bin.join("npm"), fs::Permissions::from_mode(0o700)).unwrap();
+    // A failing node shim and impossible constraints must never gate service startup.
+    let probe_marker = fixture.root.join("PROBE_EXECUTED");
+    fs::write(
+        bin.join("node"),
+        format!("#!/bin/sh\ntouch '{}'\nexit 99\n", probe_marker.display()),
+    )
+    .unwrap();
+    fs::set_permissions(bin.join("node"), fs::Permissions::from_mode(0o700)).unwrap();
+    fixture.write("package.json", &json!({"packageManager":"npm@999.0.0", "engines":{"node":"impossible"}, "scripts":{"dev":"user startup"}}).to_string());
+    succeeds(fixture.apply(&[]));
+    let run = |args: &[&str]| {
+        fixture
+            .command(args)
+            .env("PATH", format!("{}:/usr/bin:/bin", bin.display()))
+            .output()
+            .unwrap()
+    };
+    succeeds(run(&["start", "--all"]));
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while !marker.exists() {
+        assert!(Instant::now() < deadline);
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    let first = succeeds(run(&["status"]));
+    assert!(first.contains("Running"));
+    succeeds(run(&["start", "--all"]));
+    assert_eq!(succeeds(run(&["status"])), first);
+    assert_eq!(
+        fs::read_to_string(marker).unwrap(),
+        format!(
+            "{}\nrun\ndev\n",
+            fixture.repository.canonicalize().unwrap().display()
+        )
+    );
+    assert!(!probe_marker.exists());
+    assert!(!fixture.repository.join("node_modules").exists());
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        if succeeds(run(&["logs", "repository-with-spaces"])).contains("service output") {
+            break;
+        }
+        assert!(Instant::now() < deadline);
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    succeeds(run(&["stop", "--all"]));
+    assert!(succeeds(run(&["status"])).contains("Stopped"));
+    succeeds(run(&["shutdown"]));
 }

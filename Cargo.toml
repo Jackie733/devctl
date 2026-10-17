@@ -20,6 +20,5 @@ serde_yaml_ng = "0.10"
 semver = "1"
 tokio = { version = "1", features = ["macros", "rt", "process", "signal", "time", "sync", "net", "io-util"] }
 toml = "1"
-node-semver = "2.2"
 sha2 = "0.10"
 toml_edit = "0.25.17"

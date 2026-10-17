@@ -18,8 +18,6 @@ pub struct ServiceTask {
     running: Option<JoinHandle<Result<RunOutcome, RunError>>>,
     started: oneshot::Receiver<()>,
     has_started: bool,
-    // Retain dependency-root ownership even after unconfirmed process cleanup.
-    _launch: Option<std::sync::Arc<crate::environment::Launch>>,
 }
 
 impl ServiceTask {
@@ -31,12 +29,10 @@ impl ServiceTask {
             running: Some(tokio::spawn(async move { Err(error) })),
             started: oneshot::channel().1,
             has_started: false,
-            _launch: None,
         }
     }
 
     pub fn spawn(id: String, service: Service, logs: Option<Sink>) -> Self {
-        let launch = service.launch.clone();
         let (stop_sender, stop_request) = oneshot::channel();
         let (started_sender, started) = oneshot::channel();
         let service_id = id.clone();
@@ -57,7 +53,6 @@ impl ServiceTask {
             running: Some(running),
             started,
             has_started: false,
-            _launch: launch,
         }
     }
 
@@ -142,9 +137,6 @@ mod tests {
                 cwd: Some(self.dir.clone()),
                 autostart: false,
                 depends_on: Vec::new(),
-                node_environment: None,
-                managed: None,
-                launch: None,
             }
         }
 
@@ -249,7 +241,6 @@ mod tests {
     async fn a_panicked_task_does_not_confirm_cleanup() {
         let mut task = ServiceTask {
             id: "panicked".into(),
-            _launch: None,
             stop_sender: None,
             running: Some(tokio::spawn(async {
                 panic!("injected task panic");

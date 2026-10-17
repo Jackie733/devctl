@@ -1,4 +1,7 @@
+use sha2::{Digest, Sha256};
+
 use std::{
+    collections::BTreeMap,
     fs::{self, OpenOptions},
     io::Read,
     os::unix::fs::OpenOptionsExt,
@@ -34,6 +37,7 @@ impl Default for Limits {
 
 pub(super) struct Reader {
     pub limits: Limits,
+    pub sources: BTreeMap<PathBuf, String>,
     started: Instant,
     entries: usize,
     manifests: usize,
@@ -44,6 +48,7 @@ impl Reader {
     pub fn new(limits: Limits) -> Self {
         Self {
             limits,
+            sources: BTreeMap::new(),
             started: Instant::now(),
             entries: 0,
             manifests: 0,
@@ -160,6 +165,8 @@ impl Reader {
                 safe(path.display())
             ));
         }
+        self.sources
+            .insert(path.to_owned(), format!("{:x}", Sha256::digest(&bytes)));
         self.bytes += bytes.len();
         self.check()?;
         String::from_utf8(bytes)

@@ -5,7 +5,6 @@ mod config;
 mod control;
 mod control_socket;
 mod discovery;
-mod environment;
 mod import;
 mod logs;
 mod manager;
@@ -55,7 +54,25 @@ async fn run(cli: Cli) -> ExitCode {
 async fn execute(cli: Cli) -> Result<(), String> {
     let command = cli.command.unwrap_or(Command::Tui);
     if let Command::Import { directory, options } = &command {
-        return environment::interruptible(import::run(directory, cli.config, options)).await;
+        return import::interruptible(import::run(directory, cli.config, options)).await;
+    }
+    if let Command::Add {
+        directory,
+        name,
+        command,
+        apply,
+        yes,
+    } = &command
+    {
+        return import::interruptible(import::add(
+            directory,
+            cli.config,
+            name.as_deref(),
+            command,
+            *apply,
+            *yes,
+        ))
+        .await;
     }
     if let Command::Update {
         check,
@@ -67,46 +84,18 @@ async fn execute(cli: Cli) -> Result<(), String> {
     }
     let config_path = config::resolve_path(cli.config)?;
     match command {
-        Command::Import { .. } => {
+        Command::Import { .. } | Command::Add { .. } => {
             unreachable!("Import preview is handled before config discovery.")
         }
         Command::Update { .. } => unreachable!("Updates are handled before config discovery."),
         Command::Tui => tui::run(&config_path).await,
         Command::Supervise { detached } => supervisor::run(&config_path, detached).await,
-        Command::Doctor { services, node } => {
-            environment::interruptible(environment::doctor(
-                &config::load(&config_path)?,
-                &services,
-                node.as_deref(),
-            ))
-            .await
-        }
-        Command::Setup {
-            services,
-            node,
-            apply,
-            yes,
-        } => {
-            environment::interruptible(environment::setup(
-                &config::load(&config_path)?,
-                &services,
-                node.as_deref(),
-                apply,
-                yes,
-            ))
-            .await
-        }
-        Command::Start {
-            services,
-            all,
-            allow_unverified_dependencies,
-        } => {
+        Command::Start { services, all } => {
             client::execute(
                 &config_path,
                 &control::Request::Start {
                     targets: services,
                     all,
-                    allow_unverified_dependencies,
                 },
                 true,
             )
@@ -253,11 +242,7 @@ async fn execute(cli: Cli) -> Result<(), String> {
         }
         Command::Validate => print_validation(&config_path),
         Command::Plan { targets } => print_plan(&config_path, &targets),
-        Command::Run {
-            services,
-            all,
-            allow_unverified_dependencies,
-        } => run_services(&config_path, &services, all, allow_unverified_dependencies).await,
+        Command::Run { services, all } => run_services(&config_path, &services, all).await,
     }
 }
 
@@ -327,12 +312,7 @@ fn print_plan(path: &Path, targets: &[String]) -> Result<(), String> {
     Ok(())
 }
 
-async fn run_services(
-    path: &Path,
-    targets: &[String],
-    all: bool,
-    allow_unverified: bool,
-) -> Result<(), String> {
+async fn run_services(path: &Path, targets: &[String], all: bool) -> Result<(), String> {
     let path = path
         .canonicalize()
         .map_err(|error| format!("Failed to resolve config path {}: {error}", path.display()))?;
@@ -368,17 +348,7 @@ async fn run_services(
         println!("No services selected.");
         return Ok(());
     }
-    let sources = manager.start_sources(&selected)?;
-    let prepared = if sources.values().any(|service| service.managed.is_some()) {
-        tokio::select! {
-            prepared = environment::prepare(sources, allow_unverified) => prepared?,
-            _ = interrupt.recv() => return Err("Environment checks cancelled; no services were started.".into()),
-            _ = terminate.recv() => return Err("Environment checks cancelled; no services were started.".into()),
-        }
-    } else {
-        sources
-    };
-    let started = manager.start_prepared(prepared);
+    let started = manager.start_selected(&selected);
     if let Err(error) = started {
         return match manager.stop_all().await {
             Ok(()) => Err(error),

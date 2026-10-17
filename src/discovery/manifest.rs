@@ -34,8 +34,6 @@ pub(super) struct Directory {
 #[derive(Deserialize)]
 struct PnpmWorkspace {
     packages: Option<Vec<String>>,
-    #[serde(rename = "useNodeVersion")]
-    node_version: Option<String>,
 }
 
 pub(super) fn read(reader: &mut Reader, path: &Path, boundary: &Path) -> Result<Directory, String> {
@@ -106,78 +104,6 @@ pub(super) fn read(reader: &mut Reader, path: &Path, boundary: &Path) -> Result<
                 Err(problem) => directory.problems.push(problem),
             }
         }
-        if let Some(dev_engines) = object.get("devEngines") {
-            directory.evidence.push(Evidence {
-                path: manifest.clone(),
-                field: "devEngines".into(),
-                value: dev_engines.to_string(),
-            });
-            if let Some(manager) = dev_engines.get("packageManager") {
-                let policy = manager
-                    .get("onFail")
-                    .and_then(Value::as_str)
-                    .unwrap_or("error");
-                if matches!(policy, "warn" | "ignore") {
-                    directory.warnings.push(format!(
-                        "Advisory devEngines.packageManager ({policy}) in {}; evidence retained without enforcing a manager constraint.",
-                        safe(manifest.display())
-                    ));
-                } else if policy != "error" {
-                    directory.problems.push(format!(
-                        "Unknown devEngines onFail policy in {}",
-                        safe(manifest.display())
-                    ));
-                } else if let Some(name @ ("npm" | "pnpm")) =
-                    manager.get("name").and_then(Value::as_str)
-                {
-                    match manager.get("version") {
-                        None => directory.managers.push(Manager {
-                            name: name.into(),
-                            version: None,
-                            source: manifest.clone(),
-                            field: "devEngines.packageManager.name".into(),
-                        }),
-                        Some(Value::String(version)) if semver::Version::parse(version).is_ok() => {
-                            match parse_manager(
-                                &format!("{name}@{version}"),
-                                &manifest,
-                                "devEngines.packageManager",
-                            ) {
-                                Ok(manager) => directory.managers.push(manager),
-                                Err(problem) => directory.problems.push(problem),
-                            }
-                        }
-                        Some(Value::String(_)) => {
-                            directory.managers.push(Manager {
-                                name: name.into(),
-                                version: None,
-                                source: manifest.clone(),
-                                field: "devEngines.packageManager.name".into(),
-                            });
-                            directory.warnings.push(format!("devEngines.packageManager version range in {} is recorded but not resolved by this read-only discovery step.", safe(manifest.display())));
-                        }
-                        Some(_) => directory.problems.push(format!(
-                            "Unknown devEngines.packageManager version in {}",
-                            safe(manifest.display())
-                        )),
-                    }
-                } else {
-                    directory.problems.push(format!(
-                        "Unknown/unsupported devEngines.packageManager shape/name in {}",
-                        safe(manifest.display())
-                    ));
-                }
-            }
-        }
-        for key in ["engines", "volta", "executionEnv"] {
-            if let Some(value) = object.get(key) {
-                directory.evidence.push(Evidence {
-                    path: manifest.clone(),
-                    field: key.into(),
-                    value: value.to_string(),
-                });
-            }
-        }
         directory.package = Some(Package { name, scripts });
     }
     let yaml_path = path.join("pnpm-workspace.yaml");
@@ -202,13 +128,6 @@ pub(super) fn read(reader: &mut Reader, path: &Path, boundary: &Path) -> Result<
             value: serde_json::to_string(&patterns).expect("Strings serialize."),
         });
         directory.workspace = Some(patterns);
-        if let Some(version) = yaml.node_version {
-            directory.evidence.push(Evidence {
-                path: yaml_path.clone(),
-                field: "useNodeVersion".into(),
-                value: version,
-            });
-        }
     }
     if directory.package.is_none() && directory.workspace.is_none() {
         return Ok(directory);
@@ -253,46 +172,23 @@ pub(super) fn read(reader: &mut Reader, path: &Path, boundary: &Path) -> Result<
             }
         }
     }
-    for name in [".nvmrc", ".node-version", ".tool-versions"] {
-        if let Some(text) = reader.read(&path.join(name), boundary, false)? {
-            let value = if name == ".tool-versions" {
-                text.lines()
-                    .filter(|line| line.split_whitespace().next() == Some("nodejs"))
-                    .collect::<Vec<_>>()
-                    .join("; ")
-            } else {
-                text.trim().into()
-            };
-            if !value.is_empty() {
-                directory.evidence.push(Evidence {
-                    path: path.join(name),
-                    field: "Node version declaration (not checked)".into(),
-                    value,
-                });
-            }
-        }
-    }
     Ok(directory)
 }
 
 fn parse_manager(text: &str, source: &Path, field: &str) -> Result<Manager, String> {
     let invalid = || {
         format!(
-            "Unsupported package manager declaration {text:?} in {} ({field}); expected npm@10/11.x.y or pnpm@10.x.y without URL/integrity suffix",
+            "Unsupported package manager declaration {text:?} in {} ({field}); expected npm@VERSION or pnpm@VERSION; use devctl add for other commands",
             safe(source.display())
         )
     };
     let (name, raw_version) = text.split_once('@').ok_or_else(invalid)?;
-    let version = semver::Version::parse(raw_version).map_err(|_| invalid())?;
-    if !version.pre.is_empty()
-        || !version.build.is_empty()
-        || !matches!((name, version.major), ("npm", 10 | 11) | ("pnpm", 10))
-    {
+    if raw_version.is_empty() || !matches!(name, "npm" | "pnpm") {
         return Err(invalid());
     }
     Ok(Manager {
         name: name.into(),
-        version: Some(version.to_string()),
+        version: Some(raw_version.to_owned()),
         source: source.into(),
         field: field.into(),
     })

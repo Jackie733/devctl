@@ -28,15 +28,11 @@ interface without stopping your services, then reconnect when you need it.
   candidate version, and keep an offline rollback copy. In 1.3.0 and later, follow
   terminal stages and download progress, with plain output when redirected.
 
-Source 1.5.0 includes `devctl import DIR`: discover Node projects, review selected
-scripts and exact versions, then save workspace configuration with `--apply`.
-Preview preserves files; apply preserves existing edits unless explicitly replaced.
-Import does not install dependencies or start services. See
-[import usage](docs/interaction.md#reviewed-configuration-import-m73).
-For explicitly configured Node services, `doctor` checks declarations and local
-tools, and `setup --node /absolute/path/to/node` previews an existing-tool binding.
-`setup --apply` confirms that binding; managed starts then use those exact tools.
-See [environment usage](docs/interaction.md#local-node-environments-m72).
+Source 1.5.0 adds a directory and explicit command with `devctl add DIR -- COMMAND ARG...`,
+for any language. Optional `import DIR` offers declared npm/pnpm scripts. Preview,
+then save with `--apply`; existing edits are preserved. No environment versions,
+tool binding or dependency checks are required. Commands use the existing environment.
+See [onboarding usage](docs/interaction.md#adding-projects).
 
 ## Platform support
 
@@ -51,18 +47,13 @@ are available, but runtime dependency orchestration, readiness probes, automatic
 restarts, and recovery after a machine reboot are not implemented. See the
 [roadmap](docs/roadmap.md) for the distinction between delivered and proposed work.
 
-Planned automation will accept a project directory, derive startup configuration,
-check and help install its environment/dependencies, and discover, monitor and
-control database/Redis services. Read-only discovery, environment checks and local
-tool binding plus reviewed configuration import are implemented so far. Database
-creation, migrations and application configuration generation are outside this
-increment. M7 now has a [detailed design](DESIGN.md#planned-directory-onboarding-and-environment-preparation-m7)
-and [planned command flow](docs/interaction.md#planned-directory-workflow-m7):
-read-only discovery, reviewed import, environment checks and separately reviewed
-setup. The initial proposal covers Node with npm/pnpm on Mac and Linux/WSL, preserves
-existing configuration edits, and applies imports only while the workspace is
-stopped. Tool/dependency installation remains pending; current
-setup only binds existing tools. See [scope and acceptance](docs/requirements.md#directory-onboarding-and-environment-automation-a01a03).
+The core focuses on service lifecycle, logs and lightweight configuration. Project
+environment diagnosis, runtime version management and automatic installation have
+been removed from the unreleased experiment. Existing managed-field configurations
+need [explicit migration](docs/interaction.md#earlier-unreleased-environment-configurations).
+Future Agent-assisted troubleshooting remains a candidate; service management works
+offline without it. Database/Redis automation is pending reassessment. See
+[scope](docs/requirements.md#directory-onboarding-and-environment-automation-a01a03).
 
 ## Installation
 

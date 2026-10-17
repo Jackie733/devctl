@@ -1012,21 +1012,11 @@ fn shutdown_lines(app: &App, width: u16) -> Vec<Line<'static>> {
             .fg(Color::Cyan)
             .add_modifier(Modifier::BOLD),
     );
-    let mut lines = if let Some(operation) = &app.confirm_start {
-        vec![
-            heading(&clean(&format!("{}?", operation.label()))),
-            Line::from(
-                "Dependency completeness is unverified for this start only. Managed Node services still require valid tools and present dependencies. devctl will not install prerequisites automatically.",
-            ),
-            Line::default(),
-        ]
-    } else {
-        vec![
-            heading(&format!("Stop ALL {} projects?", app.services.len())),
-            Line::from("All running projects will stop; the background workspace will end."),
-            Line::default(),
-        ]
-    };
+    let mut lines = vec![
+        heading(&format!("Stop ALL {} projects?", app.services.len())),
+        Line::from("All running projects will stop; the background workspace will end."),
+        Line::default(),
+    ];
     if usize::from(width) >= confirm.width() + cancel.width() + 4 {
         lines.push(Line::from(vec![confirm, Span::raw("    "), cancel]));
     } else {
@@ -1036,20 +1026,13 @@ fn shutdown_lines(app: &App, width: u16) -> Vec<Line<'static>> {
     wrapped(lines, width)
 }
 
-fn shutdown_block(app: &App) -> Block<'static> {
-    modal_block(
-        if app.confirm_start.is_some() {
-            " Confirm start "
-        } else {
-            " End workspace "
-        },
-        Color::LightRed,
-    )
+fn shutdown_block() -> Block<'static> {
+    modal_block(" End workspace ", Color::LightRed)
 }
 
 fn shutdown_area(area: Rect, app: &App) -> Rect {
     let width = area.width.saturating_sub(4).min(72);
-    let inner = shutdown_block(app).inner(Rect::new(0, 0, width, area.height));
+    let inner = shutdown_block().inner(Rect::new(0, 0, width, area.height));
     let height = shutdown_lines(app, inner.width).len().saturating_add(4);
     popup(
         area,
@@ -1059,7 +1042,7 @@ fn shutdown_area(area: Rect, app: &App) -> Rect {
 }
 
 pub fn can_confirm(area: Rect, app: &App) -> bool {
-    let inner = shutdown_block(app).inner(shutdown_area(area, app));
+    let inner = shutdown_block().inner(shutdown_area(area, app));
     usable(area) && shutdown_lines(app, inner.width).len() <= usize::from(inner.height)
 }
 
@@ -1097,10 +1080,6 @@ fn help_lines(app: &App) -> Vec<Line<'static>> {
         Line::default(),
         heading("PROJECT & WORKSPACE"),
         help_action("s / x", "Start / stop selected project"),
-        help_action(
-            "S / A",
-            "Confirm selected / default start with unverified dependencies",
-        ),
         help_action("a", "Start defaults (autostart = true)"),
         help_action("X", "Stop ALL projects; keep background"),
         help_action("Q", "Confirm ending the entire workspace"),
@@ -1166,10 +1145,10 @@ pub fn help_max_scroll(area: Rect, app: &App) -> u16 {
 }
 
 fn overlay(frame: &mut Frame, app: &App) {
-    if app.confirm_shutdown || app.confirm_start.is_some() {
+    if app.confirm_shutdown {
         let area = shutdown_area(frame.area(), app);
         modal_backdrop(frame, area);
-        let block = shutdown_block(app);
+        let block = shutdown_block();
         let inner = block.inner(area);
         let text = if can_confirm(frame.area(), app) {
             shutdown_lines(app, inner.width)
@@ -1923,19 +1902,5 @@ mod tests {
             spans.iter().map(|s| s.content.as_ref()).collect::<String>(),
             "pre    needle"
         );
-    }
-    #[test]
-    fn dependency_confirmation_explains_start_scope_and_sanitizes_external_ids() {
-        let mut app = App::new();
-        app.confirm_start = Some(super::super::app::Operation::StartUnverified(
-            "web\x1b[2J".into(),
-        ));
-        let output = draw(&app, 120, 30);
-        assert!(output.contains("Confirm start"));
-        assert!(output.contains("unverified dependencies"));
-        assert!(output.contains("y: confirm"));
-        assert!(!output.contains("End workspace"));
-        assert!(!output.contains('\x1b'));
-        assert!(!can_confirm(Rect::new(0, 0, 20, 6), &app));
     }
 }

@@ -30,11 +30,10 @@ multi-project example. Supported fields are:
 
 | Table | Fields and defaults |
 | --- | --- |
-| Root | `version = 1`; `workspace`; optional `projects`, `services`, `logs`, `node_environments` |
+| Root | `version = 1`; `workspace`; optional `projects`, `services`, `logs` |
 | `[workspace]` | Nonempty `name` |
-| `[projects.ID]` | Nonempty existing directory `path`; optional `dependency_root`, default project path |
-| `[services.ID]` | Known `project`; nonempty argument array `cmd`; optional `cwd`; `autostart = true`; optional `depends_on` for validation/planning; optional `node_environment` |
-| `[node_environments.ID]` | Exact stable `version`, `package_manager` (`npm` or `pnpm`), exact stable `package_manager_version`; see [Node environments](#local-node-environments-m72) |
+| `[projects.ID]` | Nonempty existing directory `path` |
+| `[services.ID]` | Known `project`; nonempty argument array `cmd`; optional `cwd`; `autostart = true`; optional `depends_on` for validation/planning |
 | `[logs]` | `enabled`, `max_mib`, `retain_days`; see [storage budgets](../DESIGN.md#storage-identity-format-and-budgets) |
 
 Unknown fields, invalid references, empty executable names, and invalid directories
@@ -42,8 +41,8 @@ fail validation. Project paths resolve from the selected configuration's directo
 relative service `cwd` resolves from its project. The default cwd is the project
 directory. TOML paths do not expand `~` or environment variables. Commands execute
 as argument arrays without an implicit shell, inheriting the supervisor's original
-environment for legacy services. Managed Node services use the selected local
-binding described below; installation remains external in M7.2.
+environment for every service. Environment preparation belongs to the project or
+its chosen tools.
 
 `autostart = true` means membership in the default start group. Opening or reattaching
 the TUI does not automatically start that group. The current runtime supports one
@@ -346,264 +345,92 @@ substeps are not claimed complete before the installer confirms its result.
 The client currently running the update controls presentation. An initial upgrade
 from 1.2.2 uses the older output; subsequent updates from 1.3.0 use this display.
 
-## Read-only project discovery (M7.1)
+## Adding projects
 
-`devctl import DIR` begins with bounded, read-only Node project discovery. This
-stage needs no Node/npm/pnpm installation and executes no project commands. It
-reports package paths, script source/content, working directories, shared dependency
-roots, manager declarations and raw version evidence. The full import then plans
-configuration changes as described below; an invalid selected config blocks planning
-without hiding the discovery evidence already printed.
-
-Startup suggestions prioritize development entries and retain other declared scripts
-for explicit selection. Multiple suggestions require a choice. Root/member commands
-may overlap; discovery warns without interpreting task graphs. Libraries without
-scripts remain visible. Missing manager evidence stays unresolved. Limits and pattern
-rules belong to [DESIGN.md](../DESIGN.md#discovery-and-evidence). Terminal control
-characters are escaped, and `.env` contents are not read.
-
-## Reviewed configuration import (M7.3)
+Use an explicit directory and command for any language. Preview first, then save:
 
 ```sh
-devctl import /absolute/repository
-devctl --config /path/to/workspace.toml import /absolute/repository \
-  --project apps/web --script apps/web=dev \
-  --node-version 24.18.0 --package-manager pnpm@10.3.0
-devctl --config /path/to/workspace.toml import /absolute/repository \
-  --project apps/web --script apps/web=dev \
-  --node-version 24.18.0 --package-manager pnpm@10.3.0 --apply
+devctl --config /path/to/workspace.toml add /path/to/project --name api -- python server.py
+devctl --config /path/to/workspace.toml add /path/to/project --name api --apply -- python server.py
 ```
 
-Without `--apply`, import shows discovery, the full configuration destination,
-selected IDs, a field diff and four-state installation findings without writing
-config, creating parent directories or changing local bindings. Resolved previews
-exit 0 even when tools/dependencies need later setup. Incomplete scans, incompatible
-source declarations, invalid existing configs or unresolved selections exit 1;
-invalid CLI usage exits 2. A complete scan alone is no longer a successful resolved
-import. Missing installations do not authorize downloads or imply readiness.
+The command and its arguments follow `--`; option-looking arguments after it belong
+to the service. There is no implicit shell, interpolation or executable/version
+validation. Arguments, including spaces, are saved exactly. Supply an explicit shell
+command only when the project requires one. Omit `--name` to derive a stable ID from
+the directory. Commands can use the project's existing environment-tool entry point.
 
-Import options and destination selection are defined in the
-[command contract](#command-contract). These import flags are implemented, including
-`--apply`/`--yes`, project/script selections and explicit `--replace PROJECT_ID`.
-One runnable package can be selected automatically; one plausible startup script can
-be selected within it. Other packages/scripts require explicit selection. In a TTY,
-arrows/j/k move, Space selects packages and Enter continues or chooses one script;
-Esc/Ctrl-C cancels. Libraries are visible but disabled. A clipped selection screen
-requires resizing before changes can be selected. Only missing version choices ask
-for exact Node or npm/pnpm versions; no release-index/LTS selection exists yet.
-Exact repository pins or compatible existing choices can resolve versions, and
-`--node` verifies an explicitly selected local executable. Saving never adopts tools.
-Known exact-manager metadata rejects an incompatible Node/manager tuple even when
-the requested Node is not installed. Unavailable tool metadata remains unverified
-until doctor/setup; it is never an application-readiness claim.
+Existing canonical projects retain their command and edits; no duplicate is added.
+A requested name already used by a different project/service is rejected. Change an
+explicit command by editing configuration while the workspace is stopped. Invalid
+paths and empty executables are rejected; a missing executable is reported when
+starting. Saving configuration is not proof that an application can run.
 
-Apply shows the concrete diff before one `y/N` confirmation. In a non-TTY it requires
-`--yes` and resolved choices; `--yes` never chooses an ambiguous entry. Source
-changes, destination changes, contention or cancellation require a fresh preview.
-An active foreground runner or supervisor (including an idle background workspace)
-blocks apply; import never stops it. Shut it down, apply, then reopen the TUI.
+### Optional script import
 
-Canonical project directories identify existing entries. Reimport preserves IDs,
-comments, ordering, commands, cwd, autostart, dependencies and unrelated config.
-Unchanged import does not rewrite the file. `--replace` updates only the selected
-project's discovered dependency root, script command, cwd and environment reference;
-its autostart and other fields stay unchanged. New entries join the default group.
-Multiple existing services for one project require manual resolution before a
-replacement; preserved aliases never create another duplicate. Missing discovered
-packages are reported and retained. Existing configs with missing project directories
-remain validation errors and are not repaired implicitly.
-
-Unsupported TOML layouts that the editor cannot round-trip safely are refused before
-writing. Import uses UTF-8 paths and rejects hard-linked destinations; existing config
-symlink aliases are resolved to their target and remain aliases. Transaction limits
-and publication guarantees belong to
-[DESIGN.md](../DESIGN.md#configuration-transaction-and-supervisor-boundary).
-
-Successful apply prints the saved path, project/service IDs and quoted doctor/setup/
-TUI commands. A provided `--node` path remains in the setup hint. Then use the normal
-[environment checks](#local-node-environments-m72) and TUI lifecycle. Tool/dependency
-installation remains pending; import does not change project files or start services.
-
-## Local Node environments (M7.2)
-
-This source-tree increment supports npm 10/11 and pnpm 10 with explicitly selected
-exact Node/tool versions. Configuration can be saved by directory import or authored
-manually. Optional fields are illustrated in the
-[configuration example](../DESIGN.md#design-baseline-and-compatibility).
-`dependency_root` resolves relative to the project and must contain it. A managed
-service must use exactly `[MANAGER, "run", SCRIPT]` with its project as cwd and a
-declared nonempty script. Other commands continue as legacy services when they have
-no `node_environment`. Older devctl versions reject these new config fields.
+For npm/pnpm repositories, import can fill the same path/command fields from declared
+scripts. No installed Node or package manager is needed to import:
 
 ```sh
-devctl --config /path/to/devctl.toml doctor web --node /absolute/path/to/node
-devctl --config /path/to/devctl.toml setup web --node /absolute/path/to/node
-devctl --config /path/to/devctl.toml setup web --node /absolute/path/to/node --apply
-devctl --config /path/to/devctl.toml doctor web
-devctl --config /path/to/devctl.toml start web
+devctl --config /path/to/workspace.toml import /path/to/repository
+devctl --config /path/to/workspace.toml import /path/to/repository \
+  --project apps/web --project apps/api \
+  --script apps/web=dev --script apps/api=dev --apply
 ```
 
-Doctor reports `satisfied`, `missing`, `incompatible` or `unknown` separately for
-declarations, tools, local bindings and dependencies, with observed versions/paths
-and a check timestamp. Omitted SERVICE selects all configured services. It exits 1
-if any item is not satisfied, including legacy entries without declared environments.
-It does not run project scripts, install, or change bindings. `validate` checks
-configuration structure; it does not replace doctor.
+Repeat `--project RELATIVE_PATH` to select packages relative to the supplied directory;
+`.` selects its root. Repeat `--script RELATIVE_PATH=SCRIPT` for actual declared
+scripts. One runnable project/one suggested script can be selected automatically;
+otherwise use flags or terminal choices. Arrow/j/k navigation, Space selects projects,
+Enter continues, Esc/Ctrl-C cancels. Libraries without scripts remain visible but
+disabled. Resize a clipped screen before making selections. If manager evidence is
+missing, choose its command in the terminal or pass `--package-manager npm|pnpm`.
+This is a command-name selection, with no version option or version checks.
 
-Setup without `--apply` previews bindings without writing. Apply asks `y/N` in a
-terminal; other answers cancel. Redirected use requires `--apply --yes` after review.
-It rechecks reviewed declarations and tools before recording private local bindings.
-An absolute `--node` must identify the actual native executable; shims are not
-activated. Only existing matching tools are supported: no downloads, dependency
-installs, configuration edits or service starts. Changed source declarations require
-a fresh preview; a changed same-path tool can be reverified explicitly only when
-the binding is unused. Binding a different installation to an existing tuple is
-refused. Bindings belong to this machine/HOME and are not exported with config.
-If a multi-environment apply fails, already completed verified bindings are retained.
+Discovery displays sources, scripts, workspace roots and possible root/member command
+overlap. It ignores environment constraints and runtime version files. A conflicting
+manager/layout or incomplete scan fails with guidance to use explicit `add`. Other
+languages and unsupported repository layouts can always use `add` or direct config.
+Scanner limits and path containment belong to [DESIGN](../DESIGN.md#command-configuration-and-discovery).
 
-Startup checks every new instance in the selection before starting any of them.
-Already running services remain running. Status/stop remain available while checks
-run; stop of an overlapping selection or shutdown cancels the pending start.
-Startup does not install prerequisites. Unsupported runtime switching, hooks or
-custom script shells block managed operation; see
-[binding mechanisms and limits](../DESIGN.md#environment-checks-and-runtime-binding).
+Repeat import preserves existing IDs, comments, commands, cwd and autostart. Use
+`--replace PROJECT_ID` to review replacement of that discovered project's command
+and cwd. Multiple existing services for one project require manual resolution.
+Removed manifests do not remove entries. An unchanged apply preserves bytes/inode.
 
-Checks cover all participating shared-root packages. No declared dependencies is
-satisfied; missing dependency directories is missing.
-Existing directories are unknown until installation/inventory support arrives in
-M7.4. To accept that uncertainty for one start, use
-`start/run --allow-unverified-dependencies` or TUI `S`/`A` followed by `y`.
-This never bypasses missing dependencies, invalid declarations, tool failures or
-unconfirmed process cleanup. Regular `s`/`a` and later starts require checks again.
-Process `Running` still does not establish application readiness.
+### Saving and feedback
 
-## Planned directory workflow (M7)
+Both commands use the normal config discovery order; `--config PATH` can select a
+new file. Without an existing candidate, propose `~/.config/devctl/devctl.toml`.
+Without absolute HOME, require explicit `--config`. Never replace an invalid chosen
+config or silently fall back. Preview prints the destination and additions/explicit
+replacements without creating files, checking tools, installing or starting services.
 
-**Partially implemented full workflow.** Discovery, reviewed configuration import
-and local-tool binding above exist. Tool/dependency installation, inventory checks
-and complete platform acceptance remain pending. M7.2 usage above is authoritative
-for current setup; setup installation flags below are future work.
-[A01/A02](requirements.md#directory-onboarding-and-environment-automation-a01a03) owns
-scope; [planned mechanisms](../DESIGN.md#planned-directory-onboarding-and-environment-preparation-m7)
-own discovery rules, supported tools, limits, storage and transactions.
+`--apply` asks for confirmation in a terminal; redirected use requires `--apply --yes`.
+`--yes` skips final confirmation only; ambiguous projects/scripts still require flags.
+Changed sources/config, lock contention or a running/idle managed workspace refuse
+apply. Shut down the workspace, apply, then reopen it. Saving is atomic, preserves
+user edits, and does not reload a running supervisor. See the
+[transaction design](../DESIGN.md#configuration-transaction-and-supervisor-boundary).
 
-### Command contract
+After saving, use the printed TUI/start commands. Start uses the existing supervisor
+environment and normal lifecycle checks; failures are reported through status/logs.
+The configured command may perform its own preparation/network actions; devctl adds
+no environment checks or installation. A complete preview/save exits 0; unresolved
+choices, invalid sources/configs, conflicts and cancellation exit 1; invalid CLI
+usage exits 2.
 
-| Command | Observable behavior |
-| --- | --- |
-| `devctl import DIR` | Read evidence, select packages/scripts and preview additions plus environment findings; no file writes, installs or service changes |
-| `devctl import DIR --apply` | Review then atomically save the selected configuration changes; do not install or start |
-| `devctl doctor [SERVICE...]` | Check selected imported services, or all when omitted; show tool/dependency evidence and repair guidance without installing |
-| `devctl setup [SERVICE...]` | Preview the exact setup actions for selected imported services, or all when omitted |
-| `devctl setup [SERVICE...] --apply` | Review, execute the selected setup actions, then recheck; do not start services |
+### Earlier unreleased environment configurations
 
-`--config PATH` chooses the target workspace, including a new file for import.
-Without it, import reuses the existing discovery order. If no candidate exists,
-it proposes `~/.config/devctl/devctl.toml`; it shows the full destination before
-apply and does not create directories during preview. An invalid existing config
-is an error, never replaced by a new one. Without absolute HOME, new workspaces
-require `--config`. doctor/setup require an existing valid workspace. Update/help/
-version retain their existing independence from workspace discovery.
+The environment-management experiment has been removed. `doctor`, `setup`,
+`--node`, `--node-version` and `--allow-unverified-dependencies` are unavailable;
+TUI starts use the ordinary `s`/`a` controls. Earlier unreleased configurations with
+`node_environments`, service `node_environment`, or project `dependency_root` fail
+explicitly rather than silently changing execution.
 
-Import options are deliberately bounded:
-
-- Repeat `--project RELATIVE_PATH` to select candidates; `.` selects the supplied root.
-  Paths identify displayed packages relative to DIR, not package display names.
-- Repeat `--script RELATIVE_PATH=SCRIPT` to choose an actual declared script.
-- `--node-version EXACT` and `--package-manager npm@EXACT|pnpm@EXACT` select
-  versions compatible with the shown constraints. They do not change declarations.
-- `--node ABSOLUTE_PATH` selects an existing executable for checking/adoption;
-  its observed version must agree with `--node-version` when both are present.
-- `--replace PROJECT_ID` explicitly includes a proposed changed existing entry
-  in the diff. Without it, reimport preserves existing entries and reports drift.
-  New version choices affect existing environment references only through such a
-  reviewed replacement; do not mutate a shared environment tuple in place.
-
-Only apply commands accept `--yes`, which skips the final confirmation of an
-already explicit, fully resolved plan. It never selects ambiguous packages/scripts,
-changes lockfiles, enables lifecycle scripts or stops services. In a non-TTY,
-apply requires `--yes` and all necessary selections as flags; otherwise fail before
-mutation with the missing selections listed. A read-only preview may show unresolved
-choices, but returns nonzero while the plan cannot be applied. Do not read passwords
-from stdin or hang waiting for choices in redirected use.
-
-Current setup accepts `--node ABSOLUTE_PATH` for adopting an exact matching local Node.
-The following installation flags are planned for M7.4 and are not available yet.
-`--allow-lockfile-change` explicitly selects a non-frozen install action when a
-lockfile exists. `--allow-scripts` explicitly selects normal manager lifecycle
-execution (including explicitly displayed package-manager hooks) subject to the
-repository's build policy; the default suppresses lifecycle scripts and pnpmfile
-hooks. Neither option repairs or edits repository approval policy automatically. With
-`--yes`, these explicit flags are still necessary. Without a lockfile, the preview
-always states that installation creates one.
-
-### Guided workflow and feedback
-
-1. Import shows the effective repository/scan roots, completion or limits, project
-   paths, declared scripts, shared installation roots and sources for each decision.
-   In a TTY, arrows/j/k move, Space selects packages, Enter chooses a script or
-   advances; Esc/Ctrl-C cancels before apply. Unknown choices stay visible.
-2. Show a configuration diff and four-state environment findings. Saving changes
-   and installing software are separate reviewed actions. In a TTY, `--apply` asks
-   one final confirmation of the concrete changes; default is cancel.
-3. Successful import prints saved path and project/service IDs, plus exact
-   doctor/setup and ordinary TUI/start commands. An unchanged repeat says no change
-   and does not rewrite the file. No implied application readiness or auto-start.
-4. Setup preview shows tool versions, executable paths, downloads, every command
-   and working directory, affected workspace members, script policy, possible
-   dependency-tree replacement and lockfile writes. Already satisfied actions are
-   skipped with evidence. Unresolved actions cannot be applied.
-5. Applied setup displays one active stage and live sanitized child output.
-   Failure identifies the stage, what may already have changed, and a recheck/retry
-   command. Recheck reports each result separately; "installation completed" does
-   not imply the application or its database is ready.
-6. Open the existing TUI and use its normal start/log/stop/leave controls. Imported
-   projects behave like existing independent services. TUI managed-service startup
-   failures show the doctor/setup command; unknown dependency evidence requires an
-   explicit confirmation before that start only. CLI `start/run` can acknowledge
-   that same limitation with `--allow-unverified-dependencies`. Legacy commands
-   keep their current behavior.
-
-Doctor results contain the checked item, satisfied/missing/incompatible/unknown,
-required/observed version, source path, check time and next step. Show "dependency
-check satisfied; lifecycle builds skipped" when appropriate, not "ready". A new
-process observation cannot erase a failed/unknown environment check. Do not expose
-credential values or `.env` contents in evidence.
-
-Configuration apply is refused while the workspace is managed. Explain: "This
-workspace is running. Import preview is available. Shut down this workspace, apply
-the import, then reopen it." Do not stop it automatically, even if it is idle.
-Dependency setup refuses roots held by live managed services and names affected
-projects; unrelated tool downloads can still be planned separately. Legacy/external
-processes are an explicit limitation of this protection, not verified idle roots.
-
-Esc cancels a selection without changes. Ctrl-C during setup cancels the active
-process group and reports partial changes; it does not imply rollback. Terminal
-closure also ends setup, unlike persistent development services. No automatic
-retry, privileged prompt or unbounded wait.
-
-A complete preview/apply with no blocking findings exits 0; unresolved choices,
-failed checks/installations, lock contention and cancellation exit 1; invalid CLI
-usage exits 2. A saved import may exit 0 while reporting missing dependencies: its
-named operation is saving configuration. doctor/setup recheck exits 1 if requested
-checks remain missing, incompatible or unknown. Print the outcome distinction.
-
-### Import and local-binding example
-
-For a repository with web/API workspace members (versions here are illustrative):
-
-```sh
-devctl import /absolute/repository
-devctl import /absolute/repository --project apps/web --project apps/api \
-  --script apps/web=dev --script apps/api=dev \
-  --node-version 24.18.0 --package-manager pnpm@10.3.0 --apply
-devctl doctor web api
-devctl setup web api
-devctl setup web api --apply
-devctl
-```
-
-Actual IDs appear in the import diff; commands above assume the reviewed IDs are
-web/api. A compatible existing tool can be adopted rather than downloaded. No
-manual TOML authoring is needed for this path. Existing application settings and
-external infrastructure must already be supplied; import does not generate them.
+For those configurations, first shut down the old supervisor using the old binary.
+Choose the command/environment entry point you normally use, remove the three
+managed fields, run `validate` and reopen the workspace. The tool does not rewrite
+these files or delete private bindings automatically. Released ordinary command
+configs require no migration. Updating the devctl program itself remains available
+through `update`; project runtime version management has been removed.

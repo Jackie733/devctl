@@ -3,75 +3,69 @@
 Keep current work and necessary handoff here; Git retains history. Collaboration
 rules are in [AGENTS.md](../AGENTS.md).
 
-## Current: M7.3 reviewed configuration import implemented (A01, W05)
+## Current: lightweight onboarding simplification implemented (A01/A02, W05)
 
-Authorized by the user's instruction to continue after M7.2 (`e84c3dd`). Source
-remains **1.5.0, unreleased**. Scope: [A01](requirements.md#directory-onboarding-and-environment-automation-a01a03);
-mechanisms: [configuration transaction](../DESIGN.md#configuration-transaction-and-supervisor-boundary);
-operations: [M7.3 usage](interaction.md#reviewed-configuration-import-m73).
+Authorized by the user's 2026-10-17 instruction to implement the discussed reduction.
+Source remains **1.5.0, unreleased**. Scope:
+[requirements](requirements.md#directory-onboarding-and-environment-automation-a01a03);
+mechanisms: [DESIGN](../DESIGN.md#lightweight-project-onboarding-m7);
+operations: [adding projects](interaction.md#adding-projects).
 
-Completion criteria met: explicit/guided project and script selections; exact
-version choices and source compatibility; stable canonical-directory identities;
-new/existing config plans; no-write previews; preserved comments/user edits and
-no-op bytes/inode; explicit replacements; source/target rechecks; atomic publication;
-active-workspace refusal; import/start race coverage; real-terminal and real-Node
-verification; public references and Chinese overview synchronized.
+Completion criteria: language-independent directory/argv addition; optional npm/pnpm
+script import without version selection or tool/dependency checks; remove doctor,
+setup, managed bindings, environment launch preflight and dependency confirmation
+controls; preserve reviewed/atomic config saves, comments, identity/no-op behavior,
+active-workspace refusal and import/start race protection; explicit rejection of
+retired fields/options; verify normal start/log/stop/leave/reconnect; synchronize
+English references and Chinese overview; local commit only.
 
-Import saves only reviewed additions/replacements. It never installs, adopts tools,
-starts services or edits repository files. Existing legacy commands remain unchanged
-without explicit replacement. Tool/dependency installation and inventory remain M7.4;
-full M7/platform/user acceptance is not claimed.
+Completion criteria met in source: explicit `add`, command-only optional import,
+removed environment subsystem/launch gates/CLI/TUI options, safe configuration
+transactions and explicit retired-field migration guidance. The node-semver direct
+dependency and its unused transitive dependencies are removed. English reference
+documents and the Chinese overview agree. No Agent integration was introduced.
+This is implementation/agent verification, not full target-platform/user acceptance.
+No installed devctl, user project/configuration or private tool binding was changed.
 
-### Recorded M7.3 validation
+### Recorded validation
 
-- `cargo test --locked`: **307 passed** across 16 suites. Includes 16 configuration
-  import CLI tests, four transaction tests, the existing discovery/legacy lifecycle/
-  background/TUI/update suites and a new tool-pair compatibility regression.
+- `cargo test --locked`: **292 passed** across 15 suites, including 20 import/add
+  CLI tests and retained lifecycle/background/TUI/logging/update checks. Dedicated
+  environment tests were removed with their subsystem; relevant import tests now
+  verify the reduced behavior. New checks cover literal argv, absent/broken manifests
+  on explicit add, missing local tools/version constraints, inherited command execution,
+  name conflicts, retired fields/options and same-manager differing versions.
+- Real PTY import/add selection/confirmation/cancel/signal/resize/source/target
+  changes passed, including both explicit-add confirmation outcomes. Existing
+  import/start race, concurrent save, alias, comment, no-op inode, active/idle
+  ownership and transaction failure tests remain green.
 - `cargo fmt --check`; `cargo clippy --locked --all-targets -- -D warnings`;
   `cargo clippy --locked --all-targets --target x86_64-unknown-linux-gnu -- -D warnings`:
-  passed. No Linux/WSL runtime, physical Intel or macOS 14 acceptance was added.
-- Coverage includes new/default destinations, missing versions, ambiguity, shared
-  installation roots, unselected member constraints, stable collision IDs, aliases,
-  preserved manual fields/inline comments, replacements, no-op inode preservation,
-  removed manifests, incompatible selected tools, malformed inputs, special/oversized
-  files, hardlinks, sidecar failures and concurrent creators/editors/parent changes.
-- Real PTY coverage: project/script selection, disabled libraries, exact-version
-  prompts, clipped-screen refusal, confirmation/cancel, signal cleanup, source and
-  target changes while reviewing, terminal restoration and no writes on refusal.
-- A deterministic gated-read test replaces config during foreground/supervisor
-  preflight: only the newly committed command executes. Final declarations are
-  reread under ownership; initial invalid configs still fail without sidecars.
-- Disposable projects/private HOME with actual Node **24.18.0**, npm **11.16.0** and
-  pnpm **10.3.0** passed import preview/apply without manual TOML, quoted doctor/setup
-  hints, explicit local binding, start/status/stop/restart, TUI leave/reconnect with
-  unchanged instance, shutdown and unchanged repeat import. Spaces/apostrophes in
-  project/config paths worked, nested tool versions stayed bound and project `.bin`
-  spies were not executed. No package downloads/dependency installation occurred.
-- Read-only bogu planning generated web/API additions sharing its declared pnpm
-  version/root in a disposable destination preview. A separate preview against the
-  user's existing config preserved its web/API IDs, custom commands and autostart.
-  Config bytes, manifest/workspace/lockfile hashes and bogu Git status were unchanged.
-  No bogu services, dependency files, database or installed devctl were modified.
-- Local Markdown links/anchors, balanced fences, managed TOML and Python helper
-  parsing, nine shell documentation blocks and `git diff --check` passed.
-  `toml_edit` 0.25.17 is MIT OR Apache-2.0; lockfile changes are scoped to this editor
-  and its already present dependencies' required features.
+  passed. Linux/WSL runtime, physical Intel and macOS 14 acceptance were not added.
+- `python3 /tmp/devctl-slim-real.py`: actual Python, npm and pnpm projects in a
+  private HOME/temp directory passed preview/save/start/idempotence/log viewing,
+  real TUI leave/reconnect, normal stop/restart/shutdown and unchanged repeat saves.
+  Spaces/apostrophes worked; source files stayed unchanged and no project dependencies
+  were installed. A deliberately nonexistent pnpm version in the initial fixture
+  produced its own manager error in retained logs; corrected declared versions passed.
+  Configured commands retain their own behavior, including possible network actions.
+- Read-only bogu web/API import passed with no installed-tool/version selections.
+  Source manifests/workspace/lockfile, actual user-config hashes and bogu Git status
+  were unchanged; no bogu services or database actions ran.
+- `python3 /tmp/devctl-slim-doccheck.py`: **130** local Markdown links/anchors,
+  **28** shell examples (`bash -n`), Python AST, balanced fences and `git diff --check`
+  passed. No performance improvement is claimed without separate measurements.
 
 ## Next steps
 
-1. M7.4: isolated tool/dependency installation, policy, progress/cancellation and
-   inventory; then M7.5 complete acceptance. The baseline is authorized; routine
-   implementation needs no repeated approval. Import saving/local binding exist;
-   downloads and dependency installation do not.
-   Complete real directory-to-running-project and platform acceptance before calling
-   M7 delivered. Do not install into bogu implicitly.
-2. Preserve public Mac release/platform gaps and real WSL U01/log and X03 update/
-   rollback acceptance. Remote CI, macOS 14/physical Intel verification, and anonymous
-   public Mac download/update verification remain outstanding. Public 1.4.0 remains
-   Linux-only according to the prior handoff; this task did not re-fetch public
-   release status. No push/tag/publication.
-3. Continue M8 discovery/control research after M7; native Windows and reboot
-   recovery remain candidates.
+1. Gather daily-project/user acceptance for the simplified flow; preserve separate
+   real WSL log/UI and update/rollback acceptance plus Mac release/platform gaps below.
+   Remote CI, macOS 14/physical Intel verification and anonymous public Mac
+   download/update remain outstanding. No automatic push/tag/publication or installed
+   binary replacement.
+2. A03 database/Redis control and Agent-assisted diagnosis remain pending assessment,
+   not automatic next milestones. Native Windows/reboot recovery remain candidates.
+   A02 installation/version management is explicitly removed from core scope.
 
 ## Retained Mac deployment and release handoff (X01, X03)
 

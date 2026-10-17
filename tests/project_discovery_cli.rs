@@ -252,11 +252,6 @@ fn apply_flags_are_exposed_and_explicit_config_selects_the_destination() {
         Some(1)
     );
     let output = fixture.run(&["--config", "new.toml", "import", "."]);
-    assert_eq!(output.status.code(), Some(1));
-    assert!(
-        String::from_utf8(output.stderr)
-            .unwrap()
-            .contains("Node selection required")
-    );
+    assert!(output.status.success(), "{output:?}");
     assert!(!fixture.project.join("new.toml").exists());
 }

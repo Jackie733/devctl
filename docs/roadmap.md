@@ -26,41 +26,31 @@ The 1.2.2 documentation/license release provides the next real version for testi
 
 ## Next steps
 
-The user requested M7 detailed design on 2026-10-16 after local Mac deployment.
-Its design baseline is recorded; M7.1–M7.3 discovery, local binding and config import are implemented, and the
-remaining M7 workflow is pending. Existing Mac publication and historical WSL
-acceptance work remain explicit follow-ups in
-[tasks.md](tasks.md), rather than prerequisites that silently block this design.
+The user revised M7 on 2026-10-17: keep lightweight onboarding and remove
+core environment inspection/version management/installation. Earlier discovery and
+configuration work is retained where it supports that boundary; the M7.2 bindings
+and planned M7.4 installer are superseded. Git retains the original design/history.
 
 | Order | Work | Acceptance basis |
 | --- | --- | --- |
-| Baseline | M7 design (A01/A02, W05 package.json import) | Detailed [mechanisms](../DESIGN.md#planned-directory-onboarding-and-environment-preparation-m7), [interaction](interaction.md#planned-directory-workflow-m7), acceptance cases and implementation slices recorded; implementation authorized; discovery, local binding and configuration import delivered |
-| Current | M7 implementation | M7.1–M7.3 delivered; next is M7.4 tool/dependency installation; the milestone is complete only after the whole directory-to-running-project workflow |
-| Following | M8 (A03) | Research actual database/Redis sources, credentials, stopped instances and shared-service control before detailed implementation design |
-| Outstanding | Real WSL log/UI and cross-version update/rollback | Preserve the [log](wsl.md#verify-logs) and [update](wsl.md#verify-updates) checks with real projects |
-| Outstanding | Native Mac publication/platform evidence | Preserve the release and platform handoff in tasks.md; no automatic push/tag/publication |
-| As demonstrated | Reliability/usability fixes | Reproduce issues and connect the smallest fix to an existing requirement |
-| Later | Assess candidates when concrete scenarios justify them | Preserve the [candidate list](requirements.md#post-mvp-scope); do not schedule automatically |
+| Implemented, acceptance pending | Simplify A01 onboarding and remove A02 core environment management | Explicit add, optional script import, no version selections/readiness gates; safe saves and ordinary lifecycle regression checks |
+| Following | Verify lightweight onboarding with real daily projects | Directory/command to ordinary TUI start/log/stop/leave/reconnect; record separate Mac/WSL and user acceptance |
+| Outstanding | Real WSL log/UI and cross-version update/rollback | Preserve [log](wsl.md#verify-logs) and [update](wsl.md#verify-updates) checks |
+| Outstanding | Native Mac publication/platform evidence | Keep the release/platform handoff in tasks.md; no automatic push/tag/publication |
+| Pending assessment | A03 database/Redis discovery/control | Reassess concrete need and core boundary before research/design; no longer an automatic next milestone |
+| Candidate | Agent-assisted diagnostics and solutions | Assess an actual failure workflow using existing status/log/control commands; no new Agent integration implemented |
+| As demonstrated | Reliability/usability fixes | Reproduce issues and tie the smallest fix to an existing requirement |
 
-### M7 implementation slices
+### M7 implementation boundary
 
-These are incremental local implementation/commit boundaries, not independent
-claims of user acceptance. Each slice preserves legacy behavior and has focused
-checks; later slices must not be described as already implemented.
-
-| Slice | Deliverable | Required evidence before advancing |
-| --- | --- | --- |
-| M7.1: discovery (implemented) | Bounded manifest/workspace scan, candidates, source/conflict reporting and read-only import preview | Single package, bogu-shaped workspace, ambiguity, exclusion, symlink/limit and no-command-execution fixtures |
-| M7.2: environment binding (implemented) | Optional Node config fields, version semantics, bounded doctor checks, explicit local-only setup and service-specific launch binding | npm-range cases, stalled shims, compatible local tools, different per-project versions, nested script tools and unchanged legacy execution |
-| M7.3: configuration import (implemented) | Selection/replacement flow, stable IDs, comment-preserving atomic writes and active-workspace refusal | New/existing config, repeat/no-op, edits preserved, path aliases, simultaneous import and supervisor-start races |
-| M7.4: setup | Isolated verified tool install, shared-root dependency actions, progress/cancellation/retry and post-checks | Temporary HOME and disposable projects; checksum/network/permission failures, script policy, lockfile policy, shared-root locks and cleanup |
-| M7.5: complete acceptance | Full CLI onboarding into ordinary TUI start/log/stop/leave/reconnect | All [M7 cases](requirements.md#m7-acceptance-cases), actual supplied bogu directory and separate Mac/WSL evidence; no business-data mutations |
-
-Run relevant tests, `cargo fmt --check`, and `cargo clippy --all-targets -- -D warnings`
-for functional changes; broaden the suite for launch/config integration. Re-run
-legacy lifecycle/background/TUI checks when touching their boundaries. Record real
-commands/results and limitations in tasks.md, commit each coherent slice, and do
-not push automatically.
+A01 includes language-independent `add`, bounded optional npm/pnpm script `import`,
+selection, canonical IDs, preserved edits and atomic configuration saves. Commands
+run in the existing environment; onboarding does not install or validate versions.
+A02 tool binding, dependency inventory and installation are removed from core scope.
+See [acceptance](requirements.md#m7-acceptance-cases),
+[mechanisms](../DESIGN.md#lightweight-project-onboarding-m7) and
+[usage](interaction.md#adding-projects). Tests establish implementation evidence;
+real target-platform workflows and user acceptance remain distinct.
 
 Dedicated restart shortcuts may be worth assessing if explicit stop/start becomes
 frequent. Dependency orchestration, probes, crash restart, reboot recovery, native
