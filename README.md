@@ -28,11 +28,12 @@ interface without stopping your services, then reconnect when you need it.
   candidate version, and keep an offline rollback copy. In 1.3.0 and later, follow
   terminal stages and download progress, with plain output when redirected.
 
-Source 1.5.0 adds a directory and explicit command with `devctl add DIR -- COMMAND ARG...`,
-for any language. Optional `import DIR` offers declared npm/pnpm scripts. Preview,
-then save with `--apply`; existing edits are preserved. No environment versions,
-tool binding or dependency checks are required. Commands use the existing environment.
-See [onboarding usage](docs/interaction.md#adding-projects).
+Source 1.5.0 lets you press **a** in the TUI, paste a project directory, choose an
+existing npm/pnpm script or enter your usual command, then review and save. The new
+project stays stopped until you start it. First use needs no handwritten config.
+`A` starts the default group. CLI `add`/`import` remain available. No environment
+versions, tool bindings or dependency checks are required. See
+[onboarding usage](docs/interaction.md#adding-projects).
 
 ## Platform support
 
@@ -74,6 +75,11 @@ running supervisor. For 1.0/1.1 installations, or a 1.2.0 client affected by API
 limits, use the [external installer](docs/install.md#prebuilt-binary) first.
 
 ## Quick start
+
+Run `devctl`, press `a`, and enter your project directory. Choose a declared script
+or enter your normal command, then confirm saving. The new project appears immediately
+and stays stopped; existing services keep running. Press `s` to start, `q` to leave
+services running, or `Q` to end the workspace. The manual configuration alternative follows.
 
 Put a `devctl.toml` beside your project directories:
 
@@ -117,7 +123,7 @@ devctl
 ```
 
 The TUI connects to an idle workspace without starting services. Press `s` to start
-the selected service, or `a` to start the default group. Services join that group
+the selected service, or `A` to start the default group. Services join that group
 unless configured with `autostart = false`.
 
 With no `--config`, devctl looks for `./devctl.toml`, `~/devctl.toml`, then
@@ -152,7 +158,8 @@ do not need workspace configuration. For foreground operation, use
 | `h/l`, `Tab`, `1/0` | Switch between projects and logs |
 | `Enter`, `Esc` | Enter logs or return to projects, subject to the current mode |
 | `s/x` | Start or stop the selected project |
-| `a`, `X` | Start the default group or stop all services |
+| `a` | Add a project: directory, command, review/save |
+| `A`, `X` | Start the default group or stop all services |
 | `gg/G`, `PageUp/PageDown` | Navigate logs; `G` resumes following outside selection mode |
 | `p` | Pause or resume following logs |
 | `/`, `n/N` | Search literal text and jump between matches |

@@ -201,6 +201,7 @@ struct Buffer {
 
 pub struct Store {
     buffers: BTreeMap<String, Buffer>,
+    sender: mpsc::Sender<Event>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -230,36 +231,42 @@ pub fn channel(
 ) -> (BTreeMap<String, Sink>, mpsc::Receiver<Event>, Store) {
     let (sender, receiver) = mpsc::channel(QUEUE_CAPACITY);
     let mut sinks = BTreeMap::new();
-    let mut buffers = BTreeMap::new();
+    let mut store = Store {
+        buffers: BTreeMap::new(),
+        sender,
+    };
     for id in ids {
+        let sink = store.register(&id);
+        sinks.insert(id, sink);
+    }
+    (sinks, receiver, store)
+}
+
+impl Store {
+    pub fn register(&mut self, id: &str) -> Sink {
+        assert!(!self.buffers.contains_key(id), "log stream must be new");
         let dropped = Arc::new(AtomicU64::new(0));
         let incomplete = Arc::new(AtomicBool::new(false));
-        sinks.insert(
-            id.clone(),
-            Sink {
-                service: Arc::from(id.as_str()),
-                instance: 0,
-                sender: sender.clone(),
-                dropped: dropped.clone(),
-                incomplete: incomplete.clone(),
-            },
-        );
-        buffers.insert(
-            id,
+        self.buffers.insert(
+            id.to_owned(),
             Buffer {
                 records: VecDeque::new(),
                 bytes: 0,
                 next: 1,
                 evicted: 0,
-                dropped,
-                incomplete,
+                dropped: dropped.clone(),
+                incomplete: incomplete.clone(),
             },
         );
+        Sink {
+            service: Arc::from(id),
+            instance: 0,
+            sender: self.sender.clone(),
+            dropped,
+            incomplete,
+        }
     }
-    (sinks, receiver, Store { buffers })
-}
 
-impl Store {
     pub fn push(&mut self, event: Event) -> Option<(String, Record)> {
         let buffer = self.buffers.get_mut(event.service.as_ref())?;
         let mut record = event.record;
@@ -391,6 +398,31 @@ mod tests {
         while let Ok(event) = receiver.try_recv() {
             store.push(event);
         }
+    }
+
+    #[test]
+    fn adding_a_stream_preserves_existing_sequences_and_loss_counters() {
+        let (sink, mut receiver, mut store) = setup();
+        sink.with_instance(7).emit(Source::Stdout, b"before", false);
+        drain(&mut receiver, &mut store);
+        let new = store.register("new");
+        sink.with_instance(7).emit(Source::Stdout, b"after", false);
+        new.with_instance(8)
+            .emit(Source::Stderr, b"new output", false);
+        drain(&mut receiver, &mut store);
+        let old = store.query("web", 10, None, None).unwrap();
+        assert_eq!(
+            old.records
+                .iter()
+                .map(|r| (r.sequence, r.instance))
+                .collect::<Vec<_>>(),
+            [(1, 7), (2, 7)]
+        );
+        assert_eq!(old.dropped, 0);
+        let added = store.query("new", 10, None, None).unwrap();
+        assert_eq!(added.records[0].sequence, 1);
+        assert_eq!(added.records[0].instance, 8);
+        assert_eq!(added.records[0].text, "new output");
     }
 
     #[test]

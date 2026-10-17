@@ -16,7 +16,7 @@ use globset::{GlobBuilder, GlobMatcher};
 use files::{Limits, Reader};
 use manifest::{Directory, Evidence};
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub(crate) struct Candidate {
     pub path: PathBuf,
     pub workspace_root: PathBuf,
@@ -35,7 +35,7 @@ pub(crate) struct Manager {
     pub field: String,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub(crate) struct Report {
     pub root: PathBuf,
     pub boundary: PathBuf,

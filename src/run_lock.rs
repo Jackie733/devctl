@@ -6,9 +6,14 @@ use std::{
 
 pub struct RunLock {
     _file: File,
+    target: PathBuf,
 }
 
 impl RunLock {
+    pub(crate) fn owns(&self, target: &Path) -> bool {
+        self.target == target
+    }
+
     pub fn acquire(path: &Path) -> Result<Self, String> {
         let config_path = path.canonicalize().map_err(|error| {
             format!("Failed to resolve config path {}: {error}", path.display())
@@ -51,7 +56,10 @@ impl RunLock {
             ));
         }
         match file.try_lock() {
-            Ok(()) => Ok(Some(Self { _file: file })),
+            Ok(()) => Ok(Some(Self {
+                _file: file,
+                target: config_path.into(),
+            })),
             Err(TryLockError::WouldBlock) => Ok(None),
             Err(TryLockError::Error(error)) => Err(format!(
                 "Failed to acquire run lock {}: {error}",

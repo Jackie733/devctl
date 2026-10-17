@@ -1,4 +1,5 @@
 mod app;
+mod onboarding;
 mod terminal;
 mod view;
 
@@ -94,6 +95,7 @@ enum Action {
     Control(Operation),
     Copy,
     Quit,
+    Onboarding(onboarding::Action),
 }
 
 fn handle_key(app: &mut App, key: KeyEvent, area: ratatui::layout::Rect) -> Action {
@@ -102,6 +104,19 @@ fn handle_key(app: &mut App, key: KeyEvent, area: ratatui::layout::Rect) -> Acti
     }
     if key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL) {
         return Action::Quit;
+    }
+    let can_save = app.add.is_some() && view::onboarding_can_save(area, app);
+    if let Some(dialog) = &mut app.add {
+        if !view::onboarding_usable(area) && key.code != KeyCode::Esc {
+            return Action::Redraw;
+        }
+        if key.code == KeyCode::Enter
+            && matches!(dialog.step, onboarding::Step::Review(_))
+            && !can_save
+        {
+            return Action::Redraw;
+        }
+        return Action::Onboarding(dialog.key(key));
     }
     let half_page =
         key.modifiers == KeyModifiers::CONTROL && matches!(key.code, KeyCode::Char('u' | 'd'));
@@ -336,7 +351,16 @@ fn handle_key(app: &mut App, key: KeyEvent, area: ratatui::layout::Rect) -> Acti
                         .into();
             }
         }
-        KeyCode::Char('a') => return Action::Control(Operation::StartAll),
+        KeyCode::Char('a') => {
+            if app.pending.is_none() && !app.add_busy {
+                app.add = Some(onboarding::Dialog::new());
+                app.goto_top = false;
+            } else {
+                app.feedback =
+                    "Wait for the current service operation before adding a project.".into();
+            }
+        }
+        KeyCode::Char('A') => return Action::Control(Operation::StartAll),
         KeyCode::Char('X') => return Action::Control(Operation::StopAll),
         KeyCode::Char('s' | 'x') => match app.selected.clone() {
             Some(id) => {
@@ -360,12 +384,23 @@ pub async fn run(path: &Path) -> Result<(), String> {
     let mut guard = terminal::TerminalGuard::enter().map_err(|error| error.to_string())?;
     let mut requests = Requests::default();
     let mut copies = JoinSet::new();
+    let mut additions = JoinSet::new();
 
     let result = async {
-        let path = path.canonicalize().map_err(|error| format!("Failed to resolve config path {}: {error}", path.display()))?;
+        let path = crate::import::configuration_path(path)?;
+        let mut has_config = match std::fs::symlink_metadata(&path) {
+            Ok(metadata) if metadata.is_file() => true,
+            Ok(_) => return Err("Workspace configuration must be a regular file.".into()),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => false,
+            Err(error) => return Err(format!("Cannot inspect workspace configuration: {error}")),
+        };
         let mut terminal = Terminal::new(CrosstermBackend::new(stdout())).map_err(|error| error.to_string())?;
         let mut events = EventStream::new();
         let mut app = App::new();
+        if !has_config {
+            app.feedback = "No workspace yet. Press a to add your first project.".into();
+            app.connection_error = Some("Add a project to create the configuration.".into());
+        }
         let mut status_tick = interval(Duration::from_millis(500));
         let mut logs_tick = interval(Duration::from_millis(200));
         let mut draw_tick = interval(Duration::from_millis(33));
@@ -377,12 +412,13 @@ pub async fn run(path: &Path) -> Result<(), String> {
         let mut logs_due = false;
         let mut dirty = true;
         loop {
-            if status_due && requests.status.is_none() {
+            let saving = app.add.as_ref().is_some_and(|d| matches!(d.step, onboarding::Step::Saving));
+            if status_due && requests.status.is_none() && has_config && !saving {
                 requests.spawn(&path, Context::Status { epoch: app.epoch }, Request::Status {}, create);
                 create = false; // Only this initial request may create an idle supervisor.
                 status_due = false;
             }
-            if logs_due && app.connected && requests.logs.is_none()
+            if logs_due && app.connected && requests.logs.is_none() && !saving
                 && let Some(service) = app.selected.clone()
             {
                 let query = app.logs.query();
@@ -436,6 +472,23 @@ pub async fn run(path: &Path) -> Result<(), String> {
                                     }
                                     dirty = true;
                                 }
+                                Action::Onboarding(action) => {
+                                    match action {
+                                        onboarding::Action::Close => app.add = None,
+                                        onboarding::Action::Work(work) if additions.is_empty() => {
+                                            let workspace = app.workspace_id.clone();
+                                            if matches!(work, onboarding::Work::Save(_)) {
+                                                requests.cancel_queries();
+                                                app.epoch += 1;
+                                                app.selection_epoch += 1;
+                                            }
+                                            app.add_busy = true;
+                                            additions.spawn(onboarding::execute(work, path.clone(), workspace));
+                                        }
+                                        _ => {}
+                                    }
+                                    dirty = true;
+                                }
                                 Action::Control(operation) => {
                                     if app.begin(operation.clone()) {
                                         requests.spawn(&path, Context::Control { operation: operation.clone(), workspace: app.workspace_id.clone().expect("Connected workspace has an identity.") }, operation.request(), false);
@@ -450,6 +503,9 @@ pub async fn run(path: &Path) -> Result<(), String> {
                                 logs_due = true;
                             }
                         }
+                        Event::Paste(text) => {
+                            if let Some(dialog) = &mut app.add { dialog.paste(&text); dirty = true; }
+                        }
                         Event::Resize(width, height) => {
                             let area = ratatui::layout::Rect::new(0, 0, width, height);
                             let height = view::log_height(area, &app);
@@ -458,6 +514,41 @@ pub async fn run(path: &Path) -> Result<(), String> {
                         },
                         _ => {}
                     }
+                }
+                Some(completion) = additions.join_next(), if !additions.is_empty() => {
+                    app.add_busy = false;
+                    match completion {
+                        Ok(onboarding::Finished::Scanned(result)) => {
+                            if let Some(dialog) = &mut app.add
+                                && let onboarding::Action::Work(work) = dialog.scanned(result) {
+                                app.add_busy = true;
+                                additions.spawn(onboarding::execute(work, path.clone(), app.workspace_id.clone()));
+                            }
+                        }
+                        Ok(onboarding::Finished::Previewed(result)) => {
+                            if let Some(dialog) = &mut app.add { dialog.previewed(result); }
+                        }
+                        Ok(onboarding::Finished::Saved { draft, response, error, committed }) => {
+                            has_config = path.is_file();
+                            if let Some(response) = response { app.apply_status(response); }
+                            requests.cancel_queries();
+                            if let Some(error) = error {
+                                app.feedback = error.clone();
+                                if committed { app.add = None; }
+                                else if let Some(dialog) = &mut app.add { dialog.step = onboarding::Step::Review(draft); dialog.error = Some(error); }
+                            } else {
+                                if app.services.contains_key(&draft.id) { app.select_id(&draft.id); }
+                                app.add = None;
+                                app.success(if committed { format!("Added {}. Press s to start; the new project is stopped.", draft.id) } else { "Already configured; existing command and edits preserved.".into() });
+                            }
+                            status_due = true; logs_due = true;
+                        }
+                        Err(error) => {
+                            app.feedback = format!("Project addition failed: {error}; check configuration before retrying.");
+                            app.add = None;
+                        }
+                    }
+                    dirty = true;
                 }
                 Some(completion) = copies.join_next(), if !copies.is_empty() => {
                     app.copying = false;
@@ -582,6 +673,7 @@ pub async fn run(path: &Path) -> Result<(), String> {
     // These tasks only own client connections, never service processes.
     requests.tasks.shutdown().await;
     copies.shutdown().await;
+    additions.shutdown().await;
     match (result, guard.restore()) {
         (Ok(()), Ok(())) => Ok(()),
         (Err(error), Ok(())) => Err(error),
@@ -1083,5 +1175,48 @@ mod tests {
         assert!(app.logs.search.is_none() && app.focus == Focus::Logs);
         handle_key(&mut app, key(KeyCode::Esc), area());
         assert_eq!(app.focus, Focus::Projects);
+    }
+    #[test]
+    fn add_shortcut_is_modal_and_group_start_moves_to_uppercase() {
+        let mut app = connected();
+        assert!(matches!(
+            handle_key(&mut app, key(KeyCode::Char('A')), area()),
+            Action::Control(Operation::StartAll)
+        ));
+        assert!(matches!(
+            handle_key(&mut app, key(KeyCode::Char('a')), area()),
+            Action::Redraw
+        ));
+        assert!(app.add.is_some());
+        assert!(matches!(
+            handle_key(&mut app, key(KeyCode::Char('q')), area()),
+            Action::Onboarding(onboarding::Action::None)
+        ));
+        assert_eq!(app.add.as_ref().unwrap().input, "q");
+        let tiny = ratatui::layout::Rect::new(0, 0, 40, 10);
+        assert!(matches!(
+            handle_key(&mut app, key(KeyCode::Enter), tiny),
+            Action::Redraw
+        ));
+        assert!(matches!(
+            app.add.as_ref().unwrap().step,
+            onboarding::Step::Path
+        ));
+        assert!(matches!(
+            handle_key(&mut app, key(KeyCode::Esc), area()),
+            Action::Onboarding(onboarding::Action::Close)
+        ));
+        app.add.as_mut().unwrap().step = onboarding::Step::Scanning;
+        assert!(matches!(
+            handle_key(&mut app, key(KeyCode::Esc), area()),
+            Action::Onboarding(onboarding::Action::Close)
+        ));
+        app.add = None;
+        app.add_busy = true;
+        handle_key(&mut app, key(KeyCode::Char('a')), area());
+        assert!(
+            app.add.is_none(),
+            "Canceled read-only job must join before a new dialog can start"
+        );
     }
 }

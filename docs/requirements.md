@@ -129,12 +129,12 @@ future candidate, not implementation authorization.
 
 | ID | Scope | Observable acceptance |
 | --- | --- | --- |
-| A01 | Add directories and explicit commands; optional npm/pnpm script import | Add a working project without hand-written TOML or selecting environment versions; preserve edits and avoid duplicates; use ordinary start/log/stop/reconnect |
+| A01 | TUI path/script/command addition; CLI add/import remain available | Add a project from the TUI without writing TOML/CLI setup commands or selecting environment versions; hot-add without restarting running services; preserve edits/duplicates and normal lifecycle |
 | A02 | Removed from core | No doctor/setup, managed tool bindings, installation or dependency-readiness gate; unknown retired fields/options fail explicitly |
 | A03 | Infrastructure discovery/monitoring/control pending reassessment | Historical scope retained for a later concrete scenario; not an automatic next milestone |
 
-The primary onboarding workflow is a directory plus the command the user normally
-runs. It works across languages without ecosystem-specific installers or mandatory
+The primary onboarding workflow accepts a directory inside the TUI, offers explicit
+script choices, or asks for the command the user normally runs. It works across languages without ecosystem-specific installers or mandatory
 scanning. Optional script discovery reads explicit repository declarations, offers
 ambiguous entry points for selection and saves the chosen directory/command.
 Discovery/save must not execute repository commands. Onboarding and service startup
@@ -171,8 +171,10 @@ commands and migration guidance live in [interaction](interaction.md#adding-proj
 | Conflicting/unsupported/incomplete discovery | Explain and offer explicit add; scanner support never gates ordinary command use |
 | Environment constraints, absent dependencies or unavailable runtime | Import/save are allowed; actual command execution reports its own failures |
 | Repeat import/add, aliases, edits, explicit replacement | No duplicates; preserve comments/IDs/commands/cwd/autostart and no-op bytes/inode |
-| Concurrent saves, source/target changes and active/idle runner | No partial file, overwritten edits or stale commands; refuse apply to an owned workspace |
+| Concurrent saves, source/target changes and active/idle runner | No partial file, overwritten edits or stale commands; CLI refuses owned workspaces, TUI appends through the existing supervisor without restart; externally changed existing declarations require reopening |
 | Earlier unreleased managed fields/options | Clear rejection/migration guidance; never silently switch tool execution |
+| First-use/cancel/paste/clipped TUI | Add without existing config; no files before confirmation; typed shortcut letters stay input; cancellation/resize cannot save invisibly |
+| Other client starts during review | Saving succeeds with its process/state/logs/workspace identity preserved; new project stays stopped |
 | Normal service lifecycle | Start, logs, stop, repeat start, leave/reconnect and complete cleanup stay correct |
 | macOS and WSL2 | Record evidence independently; build checks are not platform/user acceptance |
 

@@ -6,8 +6,10 @@ use std::{
     collections::{BTreeMap, BTreeSet},
     os::unix::ffi::OsStrExt,
     path::{Component, Path, PathBuf},
+    sync::Arc,
 };
 
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use toml_edit::{DocumentMut, Item, Table, TableLike, value};
 
@@ -40,7 +42,7 @@ fn digest(bytes: &[u8]) -> String {
 fn report_fingerprint(report: &Report) -> String {
     digest(format!("{report:?}").as_bytes())
 }
-fn config_fingerprint(config: &Config) -> String {
+pub(crate) fn config_fingerprint(config: &Config) -> String {
     digest(format!("{config:?}").as_bytes())
 }
 
@@ -556,7 +558,6 @@ impl Destination {
         let requested = config::resolve_import_path(path)?;
         let target = storage::identity(&requested)?;
         text_path(&target)?;
-        println!("Configuration destination: {}", safe(target.display()));
         let original = storage::read(&target)?;
         let existing = original.as_ref().map(|original| config::parse(&original.text, &target).map_err(|_| "Existing configuration is invalid; it will not be replaced. Run validate separately for private diagnostics.".to_owned())).transpose()?;
         Ok(Self {
@@ -610,21 +611,10 @@ async fn save(
     {
         return Err("Import cancelled; no configuration changed.".into());
     }
-    let transaction = storage::Transaction::begin(
-        &destination.requested,
-        &destination.target,
-        &destination.original,
-    )?;
-    let fresh = recheck()?;
-    if fresh.text != plan.text || fresh.config_fingerprint != plan.config_fingerprint {
-        return Err("Reviewed source/configuration evidence changed; preview again. No configuration was written.".into());
-    }
-    if plan.changes.is_empty() {
+    if !publish(destination, plan, recheck)? {
         println!("No changes; configuration was not rewritten.");
         return Ok(());
     }
-    transaction.publish(&plan.text)?;
-    drop(transaction);
     println!(
         "Saved configuration: {}",
         safe(destination.target.display())
@@ -641,6 +631,278 @@ async fn save(
     Ok(())
 }
 
+fn publish(
+    destination: &Destination,
+    plan: &Plan,
+    recheck: impl FnOnce() -> Result<Plan, String>,
+) -> Result<bool, String> {
+    let transaction = storage::Transaction::begin(
+        &destination.requested,
+        &destination.target,
+        &destination.original,
+    )?;
+    let fresh = recheck()?;
+    if fresh.text != plan.text || fresh.config_fingerprint != plan.config_fingerprint {
+        return Err("Reviewed source/configuration evidence changed; preview again. No configuration was written.".into());
+    }
+    if plan.changes.is_empty() {
+        return Ok(false);
+    }
+    transaction.publish(&plan.text)?;
+    drop(transaction);
+    Ok(true)
+}
+
+pub(crate) fn configuration_path(path: &Path) -> Result<PathBuf, String> {
+    storage::identity(path)
+}
+
+/// An in-memory reviewed addition. No user input, output, writes or process probes.
+pub(crate) struct Draft {
+    destination: Destination,
+    plan: Plan,
+    directory: PathBuf,
+    selections: Vec<Selection>,
+    source: Option<(PathBuf, String)>,
+    pub path: PathBuf,
+    pub arguments: Vec<String>,
+    pub id: String,
+}
+
+/// Compact reviewed intent, rather than sending a potentially 1 MiB configuration.
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct Proposal {
+    directory: PathBuf,
+    arguments: Vec<String>,
+    revision: String,
+    proposed: String,
+    id: String,
+    source: Option<ReviewedSource>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ReviewedSource {
+    root: PathBuf,
+    fingerprint: String,
+}
+
+pub(crate) struct Addition {
+    pub services: BTreeMap<String, config::Service>,
+    pub fingerprint: String,
+}
+
+pub(crate) fn apply_owned(
+    proposal: Proposal,
+    path: &Path,
+    owner: Arc<crate::run_lock::RunLock>,
+    live: &str,
+) -> Result<Addition, String> {
+    let mut draft = Draft::new(
+        &proposal.directory,
+        Some(path.into()),
+        None,
+        &proposal.arguments,
+        None,
+    )?;
+    if draft.revision() != proposal.revision
+        || draft.plan.config_fingerprint != proposal.proposed
+        || draft.id != proposal.id
+    {
+        return Err("Reviewed configuration changed; edit the path to preview again. No configuration was written.".into());
+    }
+    let existing = draft
+        .destination
+        .existing
+        .as_ref()
+        .ok_or("Workspace configuration disappeared; reopen the workspace.")?;
+    if config_fingerprint(existing) != live {
+        return Err("Existing workspace configuration changed outside the TUI; reopen the workspace before adding projects. No configuration was written.".into());
+    }
+    let existing_ids: BTreeSet<_> = existing.services.keys().cloned().collect();
+    draft.source = proposal
+        .source
+        .map(|source| (source.root, source.fingerprint));
+    let transaction = storage::Transaction::begin_owned(
+        &draft.destination.requested,
+        &draft.destination.target,
+        &draft.destination.original,
+        owner,
+    )?;
+    let fresh = draft.recheck()?;
+    if fresh.text != draft.plan.text || fresh.config_fingerprint != draft.plan.config_fingerprint {
+        return Err("Reviewed source/configuration evidence changed; preview again. No configuration was written.".into());
+    }
+    let mut config = config::parse(&fresh.text, path)?;
+    config.services.retain(|id, _| !existing_ids.contains(id));
+    if !fresh.changes.is_empty() {
+        transaction.publish(&fresh.text)?;
+    }
+    Ok(Addition {
+        services: config.services,
+        fingerprint: fresh.config_fingerprint,
+    })
+}
+
+impl Draft {
+    fn revision(&self) -> String {
+        digest(format!("{:?}", self.destination.original).as_bytes())
+    }
+    pub fn proposal(&self) -> Proposal {
+        Proposal {
+            directory: self.directory.clone(),
+            arguments: self.arguments.clone(),
+            revision: self.revision(),
+            proposed: self.plan.config_fingerprint.clone(),
+            id: self.id.clone(),
+            source: self
+                .source
+                .as_ref()
+                .map(|(root, fingerprint)| ReviewedSource {
+                    root: root.clone(),
+                    fingerprint: fingerprint.clone(),
+                }),
+        }
+    }
+    pub fn new(
+        directory: &Path,
+        config_path: Option<PathBuf>,
+        name: Option<&str>,
+        arguments: &[String],
+        report: Option<&Report>,
+    ) -> Result<Self, String> {
+        let path = directory.canonicalize().map_err(|error| {
+            format!(
+                "Cannot resolve project directory {}: {error}",
+                safe(directory.display())
+            )
+        })?;
+        if !path.is_dir() {
+            return Err("Project path must be a directory.".into());
+        }
+        if arguments
+            .first()
+            .is_none_or(|argument| argument.trim().is_empty())
+        {
+            return Err("Provide a non-empty command after --.".into());
+        }
+        let destination = Destination::open(config_path)?;
+        let existing_project = destination.existing.as_ref().and_then(|config| {
+            config
+                .projects
+                .iter()
+                .find(|(_, project)| project.path == path)
+        });
+        let mut used: BTreeSet<_> = destination
+            .existing
+            .iter()
+            .flat_map(|config| config.projects.keys().chain(config.services.keys()))
+            .cloned()
+            .collect();
+        let (id, existing) = if let Some((id, _)) = existing_project {
+            (id.clone(), true)
+        } else if let Some(name) = name {
+            if name.trim().is_empty() {
+                return Err("Project name must not be empty.".into());
+            }
+            if !used.insert(name.into()) {
+                return Err("Project/service name already exists; choose another --name. No entries were overwritten.".into());
+            }
+            (name.to_owned(), false)
+        } else {
+            (
+                unique(
+                    &slug(
+                        path.file_name()
+                            .unwrap_or_default()
+                            .to_string_lossy()
+                            .as_ref(),
+                    ),
+                    path.as_os_str().as_bytes(),
+                    &mut used,
+                )?,
+                false,
+            )
+        };
+        let displayed_arguments = destination
+            .existing
+            .as_ref()
+            .and_then(|config| {
+                existing
+                    .then(|| {
+                        config
+                            .services
+                            .values()
+                            .find(|service| service.project == id)
+                    })
+                    .flatten()
+            })
+            .map_or_else(|| arguments.to_vec(), |service| service.cmd.clone());
+        let selections = vec![Selection {
+            path: path.clone(),
+            project: id.clone(),
+            service: id.clone(),
+            command: (!existing).then(|| arguments.to_vec()),
+            replace: false,
+            existing,
+        }];
+        let plan = destination.plan(&path, &selections)?;
+        Ok(Self {
+            destination,
+            plan,
+            directory: directory.into(),
+            selections,
+            source: report.map(|r| (r.root.clone(), report_fingerprint(r))),
+            path,
+            arguments: displayed_arguments,
+            id,
+        })
+    }
+    pub fn command_text(&self) -> String {
+        if let [shell, flag, text] = self.arguments.as_slice()
+            && shell == "/bin/sh"
+            && flag == "-c"
+        {
+            return format!("{text} (via /bin/sh)");
+        }
+        self.arguments
+            .iter()
+            .map(|argument| {
+                if argument
+                    .chars()
+                    .all(|c| c.is_ascii_alphanumeric() || "-_/.:".contains(c))
+                {
+                    argument.clone()
+                } else {
+                    shell_word(argument)
+                }
+            })
+            .collect::<Vec<_>>()
+            .join(" ")
+    }
+    pub fn target(&self) -> &Path {
+        &self.destination.target
+    }
+    pub fn changes(&self) -> &[String] {
+        &self.plan.changes
+    }
+    pub fn apply(&self) -> Result<bool, String> {
+        publish(&self.destination, &self.plan, || self.recheck())
+    }
+    fn recheck(&self) -> Result<Plan, String> {
+        if self.directory.canonicalize().ok().as_ref() != Some(&self.path) || !self.path.is_dir() {
+            return Err("Project directory changed after review; preview again.".into());
+        }
+        if let Some((path, fingerprint)) = &self.source
+            && report_fingerprint(&discovery::scan(path)?) != *fingerprint
+        {
+            return Err("Reviewed source evidence changed; edit the path to preview again. No configuration was written.".into());
+        }
+        self.destination.plan(&self.path, &self.selections)
+    }
+}
+
 pub async fn run(
     directory: &Path,
     config_path: Option<PathBuf>,
@@ -652,6 +914,10 @@ pub async fn run(
         return Err("Project discovery has unresolved problems; use devctl add with an explicit directory and command. No files changed.".into());
     }
     let destination = Destination::open(config_path)?;
+    println!(
+        "Configuration destination: {}",
+        safe(destination.target.display())
+    );
     let selections = selections(&report, destination.existing.as_ref(), options).await?;
     let plan = destination.plan(&report.root, &selections)?;
     if let Some(existing) = &destination.existing {
@@ -687,77 +953,22 @@ pub async fn add(
     apply: bool,
     yes: bool,
 ) -> Result<(), String> {
-    let path = directory.canonicalize().map_err(|error| {
-        format!(
-            "Cannot resolve project directory {}: {error}",
-            safe(directory.display())
-        )
-    })?;
-    if !path.is_dir() {
-        return Err("Project path must be a directory.".into());
-    }
-    if arguments
-        .first()
-        .is_none_or(|argument| argument.trim().is_empty())
-    {
-        return Err("Provide a non-empty command after --.".into());
-    }
-    let destination = Destination::open(config_path)?;
-    let existing_project = destination.existing.as_ref().and_then(|config| {
-        config
-            .projects
-            .iter()
-            .find(|(_, project)| project.path == path)
-    });
-    let mut used: BTreeSet<_> = destination
-        .existing
-        .iter()
-        .flat_map(|config| config.projects.keys().chain(config.services.keys()))
-        .cloned()
-        .collect();
-    let (id, existing) = if let Some((id, _)) = existing_project {
+    let draft = Draft::new(directory, config_path, name, arguments, None)?;
+    println!(
+        "Configuration destination: {}",
+        safe(draft.target().display())
+    );
+    if draft.changes().is_empty() {
         println!(
             "Preserve project {}: already configured; existing commands and edits are retained. Edit the configuration to change an explicit command.",
-            safe(id)
+            safe(&draft.id)
         );
-        (id.clone(), true)
-    } else if let Some(name) = name {
-        if name.trim().is_empty() {
-            return Err("Project name must not be empty.".into());
-        }
-        if !used.insert(name.into()) {
-            return Err("Project/service name already exists; choose another --name. No entries were overwritten.".into());
-        }
-        (name.to_owned(), false)
-    } else {
-        (
-            unique(
-                &slug(
-                    path.file_name()
-                        .unwrap_or_default()
-                        .to_string_lossy()
-                        .as_ref(),
-                ),
-                path.as_os_str().as_bytes(),
-                &mut used,
-            )?,
-            false,
-        )
-    };
-    let selections = vec![Selection {
-        path: path.clone(),
-        project: id.clone(),
-        service: id,
-        command: (!existing).then(|| arguments.to_vec()),
-        replace: false,
-        existing,
-    }];
-    let plan = destination.plan(&path, &selections)?;
-    save(&destination, &plan, apply, yes, || {
-        if directory.canonicalize().ok().as_ref() != Some(&path) || !path.is_dir() {
+    }
+    save(&draft.destination, &draft.plan, apply, yes, || {
+        if directory.canonicalize().ok().as_ref() != Some(&draft.path) || !draft.path.is_dir() {
             return Err("Project directory changed after review; preview again.".into());
         }
-        destination.plan(&path, &selections)
+        draft.destination.plan(&draft.path, &draft.selections)
     })
     .await
 }
@@ -796,4 +1007,127 @@ fn shell_word(text: &str) -> String {
     }
     output.push('\'');
     output
+}
+
+#[cfg(test)]
+mod hot_add_tests {
+    use super::*;
+    use crate::run_lock::RunLock;
+    use std::{
+        fs,
+        sync::atomic::{AtomicU64, Ordering},
+    };
+
+    static NEXT: AtomicU64 = AtomicU64::new(0);
+    struct Fixture {
+        root: PathBuf,
+        config: PathBuf,
+    }
+    impl Fixture {
+        fn new() -> Self {
+            let root = std::env::temp_dir().join(format!(
+                "devctl-hot-add-{}-{}",
+                std::process::id(),
+                NEXT.fetch_add(1, Ordering::Relaxed)
+            ));
+            fs::create_dir(&root).unwrap();
+            let config = root.join("workspace.toml");
+            fs::write(&config, "version=1\n[workspace]\nname='hot-add'\n").unwrap();
+            Self { root, config }
+        }
+        fn draft(&self, name: &str) -> Draft {
+            let dir = self.root.join(name);
+            fs::create_dir_all(&dir).unwrap();
+            Draft::new(
+                &dir,
+                Some(self.config.clone()),
+                None,
+                &["sleep".into(), "60".into()],
+                None,
+            )
+            .unwrap()
+        }
+        fn fingerprint(&self) -> String {
+            config_fingerprint(&config::load(&self.config).unwrap())
+        }
+    }
+    impl Drop for Fixture {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.root);
+        }
+    }
+
+    #[test]
+    fn owned_save_publishes_additions_and_rejects_a_competing_review_without_losing_ownership() {
+        let f = Fixture::new();
+        let first = f.draft("first");
+        let second = f.draft("second");
+        let live = f.fingerprint();
+        let owner = Arc::new(RunLock::acquire(&f.config).unwrap());
+        assert!(first.apply().unwrap_err().contains("workspace is running"));
+        let wire = toml::to_string(&first.proposal()).unwrap();
+        let added = apply_owned(
+            toml::from_str(&wire).unwrap(),
+            &f.config,
+            owner.clone(),
+            &live,
+        )
+        .unwrap();
+        assert_eq!(added.services.keys().collect::<Vec<_>>(), ["first"]);
+        assert_eq!(added.fingerprint, f.fingerprint());
+        let saved = fs::read(&f.config).unwrap();
+        assert!(
+            apply_owned(
+                second.proposal(),
+                &f.config,
+                owner.clone(),
+                &added.fingerprint
+            )
+            .err()
+            .unwrap()
+            .contains("changed")
+        );
+        assert_eq!(saved, fs::read(&f.config).unwrap());
+        assert!(RunLock::try_acquire(&f.config).unwrap().is_none());
+        let second = f.draft("second");
+        let added = apply_owned(second.proposal(), &f.config, owner, &added.fingerprint).unwrap();
+        assert_eq!(added.services.keys().collect::<Vec<_>>(), ["second"]);
+        assert_eq!(config::load(&f.config).unwrap().services.len(), 2);
+    }
+
+    #[test]
+    fn fresh_review_cannot_silently_load_external_changes_to_live_configuration() {
+        let f = Fixture::new();
+        let live = f.fingerprint();
+        let owner = Arc::new(RunLock::acquire(&f.config).unwrap());
+        fs::write(
+            &f.config,
+            "version=1\n[workspace]\nname='external change'\n",
+        )
+        .unwrap();
+        let draft = f.draft("new");
+        let original = fs::read(&f.config).unwrap();
+        assert!(
+            apply_owned(draft.proposal(), &f.config, owner, &live)
+                .err()
+                .unwrap()
+                .contains("outside the TUI")
+        );
+        assert_eq!(original, fs::read(&f.config).unwrap());
+    }
+
+    #[test]
+    fn owned_transaction_refuses_a_lock_for_another_configuration() {
+        let f = Fixture::new();
+        let other = Fixture::new();
+        let draft = f.draft("new");
+        let owner = Arc::new(RunLock::acquire(&other.config).unwrap());
+        assert!(
+            apply_owned(draft.proposal(), &f.config, owner, &f.fingerprint())
+                .err()
+                .unwrap()
+                .contains("owner does not match")
+        );
+        assert!(config::load(&f.config).unwrap().services.is_empty());
+    }
 }

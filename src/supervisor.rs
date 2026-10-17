@@ -12,6 +12,7 @@ use crate::{
     config,
     control::{self, Command, Request, Response},
     control_socket::ControlSocket,
+    import,
     logs::{self, Store},
     manager::{Manager, ServiceState},
     run_lock::RunLock,
@@ -110,6 +111,7 @@ fn dispatch(
             };
             let _ = reply.send(snapshot(manager, result.err()));
         }
+        Request::AddProject { .. } => unreachable!("additions run outside dispatch"),
         request => {
             if pending.len() >= 32 {
                 let _ = reply.send(Response::failed("Too many pending stop requests."));
@@ -217,12 +219,14 @@ async fn run_inner(path: &Path, detached: bool) -> Result<(), String> {
         }
     };
     let config = config::load(&path)?;
+    let mut config_fingerprint = import::config_fingerprint(&config);
     let socket = ControlSocket::bind(&path, &_run_lock)?;
     let (sinks, mut output, mut logs) = logs::channel(config.services.keys().cloned());
     let archive = Archive::start(&path, config.logs, workspace_id.clone(), _run_lock.clone())?;
     let mut manager = Manager::with_logs(config.services, sinks);
     let (commands, mut incoming) = mpsc::channel(32);
     let mut clients = JoinSet::new();
+    let mut additions = JoinSet::new();
     let mut pending = Vec::<PendingStop>::new();
     let mut shutting_down = false;
     let mut reply_on_shutdown = false;
@@ -258,9 +262,42 @@ async fn run_inner(path: &Path, detached: bool) -> Result<(), String> {
             }
             _ = sleep_until(accept_after), if !accepting => {}
             Some(command) = incoming.recv() => {
-                let shutdown_request = matches!(&command.request, Request::Shutdown {});
-                dispatch(command, &mut manager, &mut pending, &mut shutting_down, &logs, &archive);
-                reply_on_shutdown |= shutdown_request && shutting_down;
+                match command {
+                    Command { request: Request::AddProject { proposal, .. }, reply } => {
+                        if shutting_down || !additions.is_empty() {
+                            let _ = reply.send(Response::failed("Workspace is saving or shutting down; review and retry the addition."));
+                        } else {
+                            let path = path.clone();
+                            let owner = _run_lock.clone();
+                            let live = config_fingerprint.clone();
+                            additions.spawn_blocking(move || (reply, import::apply_owned(proposal, &path, owner, &live)));
+                        }
+                    }
+                    command => {
+                        let shutdown_request = matches!(&command.request, Request::Shutdown {});
+                        dispatch(command, &mut manager, &mut pending, &mut shutting_down, &logs, &archive);
+                        reply_on_shutdown |= shutdown_request && shutting_down;
+                    }
+                }
+            }
+            Some(completion) = additions.join_next(), if !additions.is_empty() => {
+                match completion {
+                    Ok((reply, result)) => {
+                        let error = match result {
+                            Ok(addition) => {
+                                for (id, service) in addition.services {
+                                    let sink = logs.register(&id);
+                                    manager.add(id, service, sink);
+                                }
+                                config_fingerprint = addition.fingerprint;
+                                None
+                            }
+                            Err(error) => Some(error),
+                        };
+                        let _ = reply.send(snapshot(&mut manager, error));
+                    }
+                    Err(error) => eprintln!("Project save outcome unknown: {error}; reopen the workspace to reconcile configuration."),
+                }
             }
             Some(event) = output.recv() => { if let Some((service, record)) = logs.push(event) {archive.push(service,record);} },
             completion = manager.wait_next(), if manager.has_pending_tasks() => {
@@ -277,7 +314,7 @@ async fn run_inner(path: &Path, detached: bool) -> Result<(), String> {
             Some(_result) = clients.join_next(), if !clients.is_empty() => {}
         }
         complete_stops(&mut manager, &mut pending, !shutting_down);
-        if shutting_down && !manager.has_pending_tasks() {
+        if shutting_down && !manager.has_pending_tasks() && additions.is_empty() {
             if manager.has_unconfirmed_cleanup() {
                 // Keep the ownership lock and diagnostics when safe exit cannot be proved.
                 shutting_down = false;

@@ -7,6 +7,7 @@ use std::{
 use crossterm::{
     clipboard::CopyToClipboard,
     cursor::{Hide, Show},
+    event::{DisableBracketedPaste, EnableBracketedPaste},
     execute,
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
@@ -17,6 +18,7 @@ pub struct TerminalGuard {
     raw_mode: bool,
     alternate_screen: bool,
     cursor_hidden: bool,
+    paste_enabled: bool,
 }
 
 impl TerminalGuard {
@@ -43,6 +45,8 @@ impl TerminalGuard {
             execute!(stdout(), EnterAlternateScreen)?;
             guard.cursor_hidden = true;
             execute!(stdout(), Hide)?;
+            guard.paste_enabled = true;
+            execute!(stdout(), EnableBracketedPaste)?;
             Ok(())
         })();
 
@@ -59,6 +63,12 @@ impl TerminalGuard {
 
     pub fn restore(&mut self) -> io::Result<()> {
         let mut errors = Vec::new();
+        if self.paste_enabled {
+            match execute!(stdout(), DisableBracketedPaste) {
+                Ok(()) => self.paste_enabled = false,
+                Err(error) => errors.push(format!("bracketed paste: {error}")),
+            }
+        }
         if self.raw_mode {
             match disable_raw_mode() {
                 Ok(()) => self.raw_mode = false,

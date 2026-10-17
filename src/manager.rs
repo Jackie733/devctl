@@ -78,6 +78,14 @@ impl Manager {
         self.services.keys().cloned().collect()
     }
 
+    /// Only new declarations may join a live workspace. Never replace task state.
+    pub fn add(&mut self, id: String, service: Service, sink: Sink) {
+        assert!(!self.services.contains_key(&id), "addition must be new");
+        self.services.insert(id.clone(), service);
+        self.statuses.insert(id.clone(), ServiceStatus::default());
+        self.logs.insert(id, sink);
+    }
+
     pub fn is_pending(&self, id: &str) -> bool {
         self.tasks.get(id).is_some_and(|task| !task.is_joined())
     }

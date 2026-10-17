@@ -73,3 +73,42 @@ fn disk_history_search_copy_and_fresh_entry_follow_work_in_a_real_terminal() {
 fn mac_copy_handles_unicode_failure_and_in_flight_navigation_without_touching_host_clipboard() {
     scenario("mac-copying");
 }
+
+fn add_scenario(mode: &str) {
+    let output = Command::new("python3")
+        .arg(Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/support/tui_add_pty.py"))
+        .args([env!("CARGO_BIN_EXE_devctl"), mode])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{mode}: {}\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn add_dialog_creates_first_workspace_runs_and_preserves_duplicate_projects() {
+    add_scenario("manual");
+    add_scenario("default");
+}
+#[test]
+fn add_dialog_cancellation_and_clipped_confirmation_never_write_unreviewed_configuration() {
+    add_scenario("cancel");
+    add_scenario("small");
+}
+#[test]
+fn add_dialog_selects_workspace_member_and_declared_script_without_version_management() {
+    add_scenario("workspace");
+}
+#[test]
+fn add_dialog_rechecks_source_and_target_after_review() {
+    add_scenario("source_changed");
+    add_scenario("target_changed");
+}
+#[test]
+fn add_dialog_hot_adds_without_restarting_services_or_losing_logs() {
+    add_scenario("running");
+    add_scenario("concurrent");
+}

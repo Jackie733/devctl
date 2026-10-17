@@ -5,6 +5,12 @@ User-facing changes are grouped by released version. Download artifacts from
 
 ## 1.5.0 — Unreleased
 
+- Add a TUI project dialog on `a`: paste a directory, choose declared npm/pnpm
+  projects/scripts or enter a custom command, review/save and return to the list.
+  First use needs no config file. Move default-group start to `A`. Hot-add through
+  the existing supervisor while preserving running services, log streams and session;
+  the new project stays stopped. Refuse conflicting edits/saves for review.
+
 - Add config-independent, read-only `import DIR` discovery for Node manifests,
   npm/pnpm workspace members, declared scripts and package-manager evidence.
   Explain command overlap, conflicts and bounded/incomplete scans without running

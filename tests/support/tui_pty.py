@@ -82,7 +82,7 @@ class Screen:
 
 
 class Tui:
-    def __init__(self, workspace, discover=False, windows_clipboard=False, explicit_tui=False, mac_clipboard=False):
+    def __init__(self, workspace, discover=False, windows_clipboard=False, explicit_tui=False, mac_clipboard=False, wait_for="Connected"):
         self.workspace = workspace
         self.master, self.slave = pty.openpty()
         self.screen = Screen()
@@ -115,7 +115,7 @@ class Tui:
             preexec_fn=lambda: fcntl.ioctl(self.slave, termios.TIOCSCTTY, 0),
         )
         workspace.clients.append(self)
-        self.wait('Connected')
+        self.wait(wait_for)
 
     def _winsize(self, width, height):
         fcntl.ioctl(self.slave, termios.TIOCSWINSZ, struct.pack('HHHH', height, width, 0, 0))
@@ -283,7 +283,7 @@ def lifecycle():
         ui.send(b's')
         ui.pump(.25)
         assert w.starts('web') == first and len(first) == 1
-        ui.send(b'a')
+        ui.send(b'A')
         w.states(web='Running', weapp='Running', middle='Running')
         w.wait_starts('weapp', 1)
         assert w.starts('web') == first
@@ -339,7 +339,7 @@ def lifecycle():
         again.send(b'X')
         w.states(web='Stopped', weapp='Stopped', middle='Stopped')
         again.wait('All services stopped; background workspace retained.')
-        again.send(b'a')
+        again.send(b'A')
         w.states(web='Running', weapp='Running', middle='Running')
         again.wait('Start request accepted')
         again.send(b'Qy')
@@ -408,7 +408,7 @@ def slow_stop_and_failure():
     w = Workspace('failure')
     try:
         ui = Tui(w)
-        ui.send(b'a')
+        ui.send(b'A')
         w.states(weapp='Failed', web='Running', middle='Running')
         ui.choose('weapp')
         ui.wait('Selected: weapp | Failed')

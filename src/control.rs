@@ -31,6 +31,11 @@ pub enum Request {
         all: bool,
     },
     Shutdown {},
+    /// Reviewed append-only save, applied by the workspace owner.
+    AddProject {
+        workspace_id: String,
+        proposal: crate::import::Proposal,
+    },
     Logs {
         service: String,
         limit: usize,
@@ -147,17 +152,24 @@ pub async fn connection(
         return Ok(());
     };
     let (reply, response) = oneshot::channel();
-    let mut response = match commands.try_send(Command { request, reply }) {
-        Ok(()) => match timeout(Duration::from_secs(10), response).await {
-            Ok(Ok(response)) => response,
-            Ok(Err(_)) => {
-                Response::failed("Workspace is shutting down; request completion is unknown.")
-            }
+    let stale = matches!(&request, Request::AddProject { workspace_id: expected, .. } if expected != workspace_id);
+    let mut response = if stale {
+        Response::failed("Workspace changed; review the addition again.")
+    } else {
+        match commands.try_send(Command { request, reply }) {
+            Ok(()) => match timeout(Duration::from_secs(10), response).await {
+                Ok(Ok(response)) => response,
+                Ok(Err(_)) => {
+                    Response::failed("Workspace is shutting down; request completion is unknown.")
+                }
+                Err(_) => {
+                    Response::failed("Request completion timed out; query status before retrying.")
+                }
+            },
             Err(_) => {
-                Response::failed("Request completion timed out; query status before retrying.")
+                Response::failed("Workspace is busy or shutting down; request was not accepted.")
             }
-        },
-        Err(_) => Response::failed("Workspace is busy or shutting down; request was not accepted."),
+        }
     };
     response.workspace_id = workspace_id.to_owned();
     timeout(Duration::from_secs(2), async {
@@ -252,5 +264,35 @@ mod tests {
             .await
             .unwrap_err();
         assert!(error.to_string().contains("different configuration"));
+    }
+    #[tokio::test]
+    async fn addition_refuses_a_stale_workspace_before_dispatch() {
+        let (mut client, server) = UnixStream::pair().unwrap();
+        let (sender, mut receiver) = mpsc::channel(1);
+        let task = tokio::spawn(async move {
+            connection(server, Path::new("/tmp/config"), sender, "current").await
+        });
+        client.write_all(CONTROL_HEADER).await.unwrap();
+        let mut header = [0; 9];
+        client.read_exact(&mut header).await.unwrap();
+        assert_eq!(&header, b"DEVCTL 1\n");
+        let length = client.read_u32().await.unwrap();
+        let mut identity = vec![0; length as usize];
+        client.read_exact(&mut identity).await.unwrap();
+        write_frame(
+            &mut client,
+            &toml::from_str::<Request>("action='add_project'\nworkspace_id='stale'\n[proposal]\ndirectory='/tmp/project'\narguments=['sleep','60']\nrevision='old'\nproposed='reviewed'\nid='project'\n").unwrap(),
+            MAX_REQUEST,
+        )
+        .await
+        .unwrap();
+        let response: Response = read_frame(&mut client, MAX_RESPONSE).await.unwrap();
+        assert_eq!(response.workspace_id, "current");
+        assert!(response.error.unwrap().contains("Workspace changed"));
+        task.await.unwrap().unwrap();
+        assert!(
+            receiver.try_recv().is_err(),
+            "Stale addition must never reach the manager"
+        );
     }
 }

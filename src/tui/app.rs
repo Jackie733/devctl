@@ -618,6 +618,8 @@ pub struct App {
     pub confirm_shutdown: bool,
     pub help: bool,
     pub search_input: Option<String>,
+    pub add: Option<super::onboarding::Dialog>,
+    pub add_busy: bool,
 }
 
 impl App {
@@ -649,11 +651,14 @@ impl App {
             confirm_shutdown: false,
             help: false,
             search_input: None,
+            add: None,
+            add_busy: false,
         }
     }
 
     pub fn busy(&self) -> bool {
-        self.pending.is_some()
+        self.add.as_ref().is_some_and(|dialog| dialog.busy())
+            || self.pending.is_some()
             || self.copying
             || (!self.connected && self.workspace_id.is_none() && self.connection_error.is_none())
             || (self.connected
@@ -850,8 +855,15 @@ impl App {
             return false;
         }
         let next = ids[next].clone();
+        self.select_id(&next)
+    }
+
+    pub fn select_id(&mut self, id: &str) -> bool {
+        if !self.services.contains_key(id) || self.selected.as_deref() == Some(id) {
+            return false;
+        }
         self.remember_position();
-        self.selected = Some(next);
+        self.selected = Some(id.to_owned());
         self.selection_epoch += 1;
         self.reset_logs();
         true
@@ -898,7 +910,7 @@ impl App {
             self.reset_logs();
             self.confirm_shutdown = false;
             if self.workspace_id.is_none() {
-                self.feedback = "Connected. Services were not started automatically. s: start selected; a: start default.".into();
+                self.feedback = "Connected. Services were not started automatically. s: start selected; a: add project; A: start default.".into();
             }
         }
         self.connected = true;

@@ -21,8 +21,8 @@ Workspace commands select the first existing configuration, without merging:
 
 Home candidates use an absolute `HOME`. Missing files are skipped; directories,
 broken symlinks, inspection errors, or an invalid selected file are errors. An explicit
-path never falls back. A missing configuration reports searched paths instead of
-creating an empty workspace. Connecting to an existing supervisor does not reload
+path never falls back. Non-TUI commands report searched paths when configuration is missing. The TUI
+opens an empty view for first-project addition, without creating files before save. Connecting to an existing supervisor does not reload
 the file; shutdown and recreate the supervisor to apply changes.
 
 Configuration version is `1`. The [README](../README.md#quick-start) has a minimal
@@ -56,7 +56,7 @@ Add `--config /path/to/devctl.toml` to select a workspace explicitly.
 
 | Command | Behavior |
 | --- | --- |
-| `devctl` / `devctl tui` | Connect to or create an idle background workspace; requires a TTY |
+| `devctl` / `devctl tui` | Open the workspace or first-project empty view; requires a TTY |
 | `devctl validate` | Validate fields, paths, and references without executing commands |
 | `devctl plan [SERVICE...]` | Preview dependency-first order; defaults to the default group; does not execute commands |
 | `devctl start SERVICE...` | Start selected services; create the supervisor if needed |
@@ -109,7 +109,8 @@ These keys describe the main view outside popups, search input, and line selecti
 | Either panel | `p` | Pause/resume following, outside line selection |
 | Either panel | `H/L`, `←/→` | Scroll long log lines horizontally by eight columns |
 | Service | `s/x` | Start/stop the selected service |
-| Workspace | `a`, `X` | Start the default group / stop all and keep the supervisor |
+| Add project | `a` | Open path/script/command/save dialog |
+| Workspace | `A`, `X` | Start the default group / stop all and keep the supervisor |
 | Workspace | `Q` | Open shutdown confirmation |
 | Connection | `r` | Reconnect to an existing supervisor; do not create or reload it |
 | Help | `?` | Open contextual help |
@@ -346,6 +347,38 @@ from 1.2.2 uses the older output; subsequent updates from 1.3.0 use this display
 
 ## Adding projects
 
+Open `devctl` (or select a workspace with `--config PATH`) and press **a**:
+
+1. Paste or type a project directory, then Enter. `~/` and quoted pasted paths are
+   accepted; Ctrl-U clears input. No repository command runs during inspection.
+2. npm/pnpm declarations supply project and script choices. One runnable project
+   and one startup suggestion can go directly to review. Otherwise choose with
+   Up/Down and Enter; workspace root/member alternatives remain separate.
+3. If no usable script is found, a basic marker can label Python/Rust/Go/Java;
+   enter the command you normally run. This text is explicitly saved as
+   `/bin/sh -c COMMAND`, so ordinary shell quoting/operators work. Other languages
+   use the same custom-command input. No runtime versions or installation choices.
+4. Review the directory, type, command and destination; Enter saves and returns to
+   the project list. The added service remains stopped; press `s` to start it.
+   Press `e` on review to edit the command. Long reviews can be scrolled; reach the
+   end before confirming. A clipped view
+   cannot confirm. Esc edits the path, then Esc cancels; Ctrl-C leaves the client.
+
+An empty first-use view creates the normal default config only after save. Existing
+canonical projects are preserved without duplicate entries or command replacement.
+Background scanning/planning keeps controls and rendering responsive. Bracketed paste
+is confined to the active input; service shortcut letters in typed text are literal.
+Saving hot-adds the project to the existing workspace: running services, their logs
+and the workspace identity remain intact; the new project stays stopped. Other open
+clients see it on their next status refresh. A changed source/configuration or a
+competing save requires review/retry instead of overwriting edits. Changes to existing
+service declarations outside the TUI require a workspace reopen; this workflow only
+adds projects. First-use save creates and opens the new idle workspace. An older
+supervisor that cannot accept additions must be shut down and reopened under the
+new binary. CLI save commands retain their existing owned-workspace refusal.
+
+### Explicit command addition
+
 Use an explicit directory and command for any language. Preview first, then save:
 
 ```sh
@@ -407,9 +440,11 @@ replacements without creating files, checking tools, installing or starting serv
 
 `--apply` asks for confirmation in a terminal; redirected use requires `--apply --yes`.
 `--yes` skips final confirmation only; ambiguous projects/scripts still require flags.
-Changed sources/config, lock contention or a running/idle managed workspace refuse
-apply. Shut down the workspace, apply, then reopen it. Saving is atomic, preserves
-user edits, and does not reload a running supervisor. See the
+Changed sources/config or lock contention refuse apply. CLI commands also refuse
+a running/idle managed workspace: shut it down, apply, then reopen it. The TUI uses
+the append-only hot update described above. Saving is atomic, preserves
+user edits, and applies only the reviewed additions in the TUI. CLI saving never
+reloads a running supervisor. See the
 [transaction design](../DESIGN.md#configuration-transaction-and-supervisor-boundary).
 
 After saving, use the printed TUI/start commands. Start uses the existing supervisor
@@ -423,7 +458,7 @@ usage exits 2.
 
 The environment-management experiment has been removed. `doctor`, `setup`,
 `--node`, `--node-version` and `--allow-unverified-dependencies` are unavailable;
-TUI starts use the ordinary `s`/`a` controls. Earlier unreleased configurations with
+TUI starts use the ordinary `s`/`A` controls. Earlier unreleased configurations with
 `node_environments`, service `node_environment`, or project `dependency_root` fail
 explicitly rather than silently changing execution.
 

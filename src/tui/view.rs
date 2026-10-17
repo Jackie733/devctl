@@ -343,6 +343,7 @@ fn shortcuts(text: String) -> Line<'static> {
                         | "j/k"
                         | "Enter"
                         | "a"
+                        | "A"
                         | "X"
                         | "Q"
                         | "/"
@@ -554,7 +555,7 @@ pub fn render(frame: &mut Frame, app: &App) {
         if area.width < 60 {
             format!("s/x {id} j/k Enter")
         } else {
-            format!("s/x {id} | j/k select | Enter logs | a default | X stop ALL | Q end")
+            format!("s/x {id} | j/k select | Enter logs | a add | A default | X stop ALL | Q end")
         }
     } else if let Some(search) = &app.logs.search {
         format!(
@@ -1080,7 +1081,8 @@ fn help_lines(app: &App) -> Vec<Line<'static>> {
         Line::default(),
         heading("PROJECT & WORKSPACE"),
         help_action("s / x", "Start / stop selected project"),
-        help_action("a", "Start defaults (autostart = true)"),
+        help_action("a", "Add a project: directory, command, save"),
+        help_action("A", "Start defaults (autostart = true)"),
         help_action("X", "Stop ALL projects; keep background"),
         help_action("Q", "Confirm ending the entire workspace"),
         help_action("r", "Sync existing background"),
@@ -1144,8 +1146,81 @@ pub fn help_max_scroll(area: Rect, app: &App) -> u16 {
     count.saturating_sub(height).min(usize::from(u16::MAX)) as u16
 }
 
+pub fn onboarding_usable(area: Rect) -> bool {
+    area.width >= 50 && area.height >= 12
+}
+
+fn onboarding_rows(area: Rect, app: &App) -> (Rect, Vec<Line<'static>>, u16) {
+    let area = popup(
+        area,
+        area.width.saturating_sub(4).min(96),
+        area.height.saturating_sub(2).min(28),
+    );
+    let inner = modal_block(" Add project ", Color::Cyan).inner(area);
+    let dialog = app.add.as_ref().expect("open dialog");
+    let lines = wrapped(
+        dialog
+            .lines(usize::from(inner.height))
+            .into_iter()
+            .map(|line| Line::from(clean(&line)))
+            .collect(),
+        inner.width,
+    );
+    let height = lines
+        .len()
+        .saturating_add(4)
+        .max(8)
+        .min(usize::from(area.height)) as u16;
+    let area = popup(area, area.width, height);
+    let inner = modal_block(" Add project ", Color::Cyan).inner(area);
+    let max = lines
+        .len()
+        .saturating_sub(usize::from(inner.height))
+        .min(u16::MAX as usize) as u16;
+    (area, lines, max)
+}
+pub fn onboarding_can_save(area: Rect, app: &App) -> bool {
+    if !onboarding_usable(area) {
+        return false;
+    }
+    let (_, _, max) = onboarding_rows(area, app);
+    app.add.as_ref().is_some_and(|dialog| dialog.scroll >= max)
+}
+
 fn overlay(frame: &mut Frame, app: &App) {
-    if app.confirm_shutdown {
+    if let Some(dialog) = &app.add {
+        let (area, lines, max) = onboarding_rows(frame.area(), app);
+        modal_backdrop(frame, area);
+        let block = modal_block(" Add project ", Color::Cyan).title_bottom(
+            if matches!(dialog.step, super::onboarding::Step::Review(_)) {
+                " Up/Down: scroll | Enter: save | e: edit | Esc: back "
+            } else {
+                " Ctrl-C: leave "
+            },
+        );
+        let lines = if onboarding_usable(frame.area()) {
+            lines
+        } else {
+            vec![
+                heading("Resize to at least 50 x 12."),
+                note("Esc: back/cancel | Ctrl-C: leave"),
+            ]
+        };
+        frame.render_widget(
+            Paragraph::new(lines)
+                .scroll((
+                    if dialog.text_input() {
+                        max
+                    } else {
+                        dialog.scroll.min(max)
+                    },
+                    0,
+                ))
+                .style(modal_style())
+                .block(block),
+            area,
+        );
+    } else if app.confirm_shutdown {
         let area = shutdown_area(frame.area(), app);
         modal_backdrop(frame, area);
         let block = shutdown_block();

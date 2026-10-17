@@ -3,96 +3,62 @@
 Keep current work and necessary handoff here; Git retains history. Collaboration
 rules are in [AGENTS.md](../AGENTS.md).
 
-## Current: lightweight onboarding implemented and locally installed (A01/A02, W05)
+## Current: TUI project addition (A01, W05)
 
-Authorized by the user's 2026-10-17 instruction to implement the discussed reduction.
-Source remains **1.5.0, unreleased**. Scope:
-[requirements](requirements.md#directory-onboarding-and-environment-automation-a01a03);
-mechanisms: [DESIGN](../DESIGN.md#lightweight-project-onboarding-m7);
+Authorized by the user's request to add projects inside the TUI instead of requiring
+CLI setup commands. Keep the 2026-10-17 simplified core boundary: environment checks,
+version management and installation remain removed; Agent support is a candidate.
+Scope: [requirements](requirements.md#directory-onboarding-and-environment-automation-a01a03);
+mechanisms: [TUI design](../DESIGN.md#tui-project-addition);
 operations: [adding projects](interaction.md#adding-projects).
 
-Completion criteria: language-independent directory/argv addition; optional npm/pnpm
-script import without version selection or tool/dependency checks; remove doctor,
-setup, managed bindings, environment launch preflight and dependency confirmation
-controls; preserve reviewed/atomic config saves, comments, identity/no-op behavior,
-active-workspace refusal and import/start race protection; explicit rejection of
-retired fields/options; verify normal start/log/stop/leave/reconnect; synchronize
-English references and Chinese overview; local commit only.
+Completion criteria: `a` path entry/paste; existing npm/pnpm project/script choices;
+manual command fallback with a type label; reviewed atomic save and hot addition; first-use
+empty workspace; duplicate/user-edit preservation; no command execution before start;
+no environment setup; no running-service interruption; visible/cancelable input and
+clipped-screen protection; `A` for default start; real PTY and full regression checks;
+reference docs/Chinese overview synchronized; local commit only.
 
-Completion criteria met in source: explicit `add`, command-only optional import,
-removed environment subsystem/launch gates/CLI/TUI options, safe configuration
-transactions and explicit retired-field migration guidance. The node-semver direct
-dependency and its unused transitive dependencies are removed. English reference
-documents and the Chinese overview agree. No Agent integration was introduced.
-This is implementation/agent verification, not full target-platform/user acceptance.
-The simplification preserved user projects/configuration and private tool bindings.
-A subsequent explicit request authorized the local Mac reinstall recorded below.
+Implemented and agent-verified locally; real daily-project user acceptance remains
+pending. Confirmed TUI saves append through the existing supervisor, preserving
+running tasks, states, log streams and session. Source/target/live-declaration checks
+prevent conflicting saves or silent external changes. Scanning/planning/rechecking
+run outside the event loop. Existing CLI active-workspace refusal remains. First-use
+save creates an idle workspace. Hot update is limited to reviewed additions; editing
+existing declarations or external-file watching is not implemented.
 
-### Recorded validation
+Verified on 2026-10-17:
 
-- `cargo test --locked`: **292 passed** across 15 suites, including 20 import/add
-  CLI tests and retained lifecycle/background/TUI/logging/update checks. Dedicated
-  environment tests were removed with their subsystem; relevant import tests now
-  verify the reduced behavior. New checks cover literal argv, absent/broken manifests
-  on explicit add, missing local tools/version constraints, inherited command execution,
-  name conflicts, retired fields/options and same-manager differing versions.
-- Real PTY import/add selection/confirmation/cancel/signal/resize/source/target
-  changes passed, including both explicit-add confirmation outcomes. Existing
-  import/start race, concurrent save, alias, comment, no-op inode, active/idle
-  ownership and transaction failure tests remain green.
+- `cargo test --locked`: 303 passed across 15 suites, including real PTY first-use,
+  paste/edit/cancel/clipped views, npm/pnpm member/script choices, duplicate no-op,
+  source/target conflicts, live additions, multiple-client visibility/conflicts,
+  unchanged old process/log/session identity and new stream archive/reconnect.
 - `cargo fmt --check`; `cargo clippy --locked --all-targets -- -D warnings`;
-  `cargo clippy --locked --all-targets --target x86_64-unknown-linux-gnu -- -D warnings`:
-  passed. Linux/WSL runtime, physical Intel and macOS 14 acceptance were not added.
-- `python3 /tmp/devctl-slim-real.py`: actual Python, npm and pnpm projects in a
-  private HOME/temp directory passed preview/save/start/idempotence/log viewing,
-  real TUI leave/reconnect, normal stop/restart/shutdown and unchanged repeat saves.
-  Spaces/apostrophes worked; source files stayed unchanged and no project dependencies
-  were installed. A deliberately nonexistent pnpm version in the initial fixture
-  produced its own manager error in retained logs; corrected declared versions passed.
-  Configured commands retain their own behavior, including possible network actions.
-- Read-only bogu web/API import passed with no installed-tool/version selections.
-  Source manifests/workspace/lockfile, actual user-config hashes and bogu Git status
-  were unchanged; no bogu services or database actions ran.
-- `python3 /tmp/devctl-slim-doccheck.py`: **130** local Markdown links/anchors,
-  **28** shell examples (`bash -n`), Python AST, balanced fences and `git diff --check`
-  passed. No performance improvement is claimed without separate measurements.
-
-### Local Mac reinstall
-
-The user explicitly requested reinstalling the latest source after `68ab377`.
-Finishing criteria met: optimized native build installed at the existing PATH
-location, previous binary retained, user config unchanged/valid, installed command
-and real TUI/lifecycle checks passed, prior idle workspace restored using the new
-binary with both services stopped. Source remains **1.5.0**, so version text alone
-cannot distinguish this build from the previous local installation.
-
-- `MACOSX_DEPLOYMENT_TARGET=14.0 cargo build --release --locked`: passed from code
-  commit `68ab377`; `file`, `codesign --verify --strict` and `xcrun vtool -show-build`
-  verified arm64, valid signature and macOS 14 deployment baseline.
-- Installed with `bash scripts/devctl-update` and the release build's SHA-256.
-  `~/.local/bin/devctl` matches the build; `devctl.previous` matches the previously
-  installed bytes. Existing user config SHA-256 is unchanged and `validate` passed.
-- Fresh login Zsh resolves `~/.local/bin/devctl`; version is 1.5.0, `add`/`import`
-  are available and retired environment commands are absent.
-- `python3 /tmp/devctl-installed-smoke.py`: installed release passed temporary-project
-  preview/save/start/logs/real TUI leave/reconnect/shutdown and descendant cleanup.
-  The first script incorrectly waited for the resident supervisor to exit; corrected
-  readiness handling passed. The old idle supervisor was shut down before replacement;
-  a fresh idle supervisor now manages the original config, with API/web both stopped.
-  No bogu application or database action ran; no source/installed PATH setup edits.
-- This local binary supersedes the installed identity in the older Mac handoff below.
-  The older bundles remain historical artifacts, not packages of this new code.
-  No public release, push or tag was performed.
+  Linux cross-target clippy with `--target x86_64-unknown-linux-gnu`: passed.
+- A real Node 24/npm project exercised directory-only TUI creation, script review,
+  start/logs/leave/reconnect/stop/shutdown without installs or source-file changes.
+  Repeated this and the live-add/concurrent-window checks using the installed release.
+- Local Markdown links/anchors, shell-example syntax, Python AST, fences and
+  `git diff --check`: passed. Dialog output inspected in the PTY screen renderer.
+- `MACOSX_DEPLOYMENT_TARGET=14.0 cargo build --release --locked`: passed; installed
+  native ARM64 build at `~/.local/bin/devctl`, version 1.5.0, SHA-256
+  `a4f128e7c7d19893c38001778870009fca140e8c886a6252c1d0fe74088f6a3d`.
+  Strict signature, macOS 14 minimum and login Zsh resolution checks passed. Previous
+  source `68ab377` binary retained as `devctl.previous`; additional backups/receipts
+  are in `/tmp/devctl-hot-install-dwnrrjsa`.
+- Existing Mac workspace was idle before its old supervisor was replaced. Installed
+  TUI open/add/cancel preserved its configuration bytes; API/web remain stopped and
+  the new idle supervisor uses the normal environment. User config SHA-256 remains
+  `167c99bdac6678ab36fa3ece1e04cad76fee67c1c2767fd23e703c4e9ad028a4`.
+  This verifies preservation, not renewed Bogu business-flow acceptance.
 
 ## Next steps
 
-1. Gather daily-project/user acceptance for the simplified flow; preserve separate
-   real WSL log/UI and update/rollback acceptance plus Mac release/platform gaps below.
-   Remote CI, macOS 14/physical Intel verification and anonymous public Mac
-   download/update remain outstanding. No automatic push/tag/publication.
-2. A03 database/Redis control and Agent-assisted diagnosis remain pending assessment,
-   not automatic next milestones. Native Windows/reboot recovery remain candidates.
-   A02 installation/version management is explicitly removed from core scope.
+1. User try the installed `devctl`: `a`, directory, select/edit command, review/save,
+   then `s`. Verify daily projects and hot addition while another service is running.
+2. Retain separate WSL runtime/user acceptance and Mac release/platform gaps below.
+   A03 infrastructure control/Agent diagnosis remain pending assessment, not automatic
+   next milestones. No public push/tag/release.
 
 ## Retained Mac deployment and release handoff (X01, X03)
 

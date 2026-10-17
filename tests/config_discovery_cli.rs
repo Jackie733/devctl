@@ -103,13 +103,7 @@ fn explicit_path_then_cwd_then_home_determine_the_workspace_without_merging() {
 #[test]
 fn missing_config_lists_search_locations_and_does_not_start_a_workspace() {
     let fixture = Fixture::new();
-    for args in [
-        &[][..],
-        &["validate"][..],
-        &["tui"],
-        &["status"],
-        &["start", "--all"],
-    ] {
+    for args in [&["validate"][..], &["status"], &["start", "--all"]] {
         let output = fixture.run(args);
         assert_eq!(output.status.code(), Some(1));
         assert!(output.stdout.is_empty());
@@ -124,6 +118,11 @@ fn missing_config_lists_search_locations_and_does_not_start_a_workspace() {
             assert!(error.contains(path.to_str().unwrap()), "{error}");
             assert!(!path.exists());
         }
+    }
+    for args in [&[][..], &["tui"][..]] {
+        let output = fixture.run(args);
+        assert_eq!(output.status.code(), Some(1));
+        assert!(String::from_utf8_lossy(&output.stderr).contains("TUI requires a terminal"));
     }
     assert_eq!(fs::read_dir(&fixture.cwd).unwrap().count(), 0);
     assert_eq!(

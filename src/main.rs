@@ -82,7 +82,11 @@ async fn execute(cli: Cli) -> Result<(), String> {
     {
         return update::run(check, version.as_deref(), rollback).await;
     }
-    let config_path = config::resolve_path(cli.config)?;
+    let config_path = if matches!(command, Command::Tui) {
+        config::resolve_import_path(cli.config)?
+    } else {
+        config::resolve_path(cli.config)?
+    };
     match command {
         Command::Import { .. } | Command::Add { .. } => {
             unreachable!("Import preview is handled before config discovery.")

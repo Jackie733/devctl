@@ -617,10 +617,65 @@ Keep stable sidecars. Concurrent creators/editors or changed evidence fail witho
 overwriting their work. External editors do not cooperate, so the final external
 edit race cannot be eliminated by advisory locks.
 
-Refuse apply while a foreground runner or supervisor (including idle background)
-owns the workspace; preview remains available. No hot reload or automatic shutdown.
+CLI saves refuse while a foreground runner or supervisor (including idle background)
+owns the workspace; preview remains available. The TUI uses the owner-mediated
+append-only hot update below; existing services are never restarted for addition.
 Both runner entry points validate without side effects, discard that snapshot, and
 reread under run ownership before starting. This retains the import/start race fix.
+
+### TUI project addition
+
+`a` opens a path/choice/custom-command/review modal; `A` starts the default group.
+Missing configuration opens a memory-only first-use view; normalize its destination
+without creating files. Existing invalid/nonregular configs still fail. A save creates
+normal v1 project/service entries using the same import `Draft` and transaction.
+CLI output remains outside pure planning/publication; no stdout diagnostics corrupt
+the TUI. Discover npm/pnpm scripts using existing bounded scanning, with canonical
+source-byte fingerprints retained through confirmation. Other marker files label a
+project type only; custom text is saved as explicit `/bin/sh -c` argv. Do not invent
+framework commands, run probes or prepare environments.
+
+Only one addition job exists per client. Scanning, planning and source recheck/write
+run off the TUI loop. Modal input captures service shortcut letters, UTF-8
+text capped at 4096 bytes and bracketed paste; restore bracketed-paste mode with other terminal state.
+Esc cancels read-only work and discards its eventual result; a new job cannot start
+until it joins. The dialog requires at least 50 columns/12 rows. Saving starts only after a visible
+review; clipped windows cannot
+confirm and overflowing reviews require scrolling to the end. Cancel/leave before
+save never writes. After confirmation, publication remains atomic; leaving during
+an in-flight save may leave its result unknown, so reopening rereads configuration.
+
+A confirmed TUI save sends internal `add_project` with the expected workspace
+identity and compact reviewed intent: directory/argv, original file snapshot digest,
+proposed resolved configuration digest/ID and optional discovery evidence digest.
+Reject a stale workspace identity before dispatch. The supervisor accepts one save
+worker at a time; disk reads, source rechecks and publication run off the manager
+loop while starts/stops/logs remain responsive. Reject a simultaneous save with a
+retry message; a later stale review fails its snapshot comparison.
+
+The worker reconstructs the append-only draft, compares reviewed evidence and
+checks the current disk declarations against the supervisor's loaded fingerprint.
+External changes to existing declarations/settings require an explicit workspace
+reopen; they must not be silently loaded during an addition. Comments-only changes
+can be reviewed again and preserved. The worker retains the supervisor's run lock
+and checks its target identity, then takes the same edit lock and uses the existing
+snapshot/parent/atomic publication checks. CLI writers still cannot take the run
+lock. First-use save without a supervisor uses the ordinary transaction, then opens
+the new idle workspace.
+
+After successful publication, register only new services, stopped statuses and log
+sinks in the serialized manager loop; update its declaration fingerprint, then
+acknowledge. Existing declarations/tasks/instances, service states, log sequences,
+workspace identity and archive session remain intact. New log streams share the
+bounded channel; the archive lazily registers them on first output. Other clients
+see new entries on ordinary status polling. Preserve log reading bookmarks when
+selecting the new project and invalidate stale client queries without disconnecting.
+Shutdown waits for an accepted write to finish, even if the requesting client leaves.
+Report unknown/partial save outcomes explicitly and reconcile by reopening; do not
+replay starts. Older supervisors lacking this request reject it safely; reopen
+under the new binary before trying again. This supports reviewed additions only,
+not external-file watching or live replacement/removal of existing declarations.
+Existing CLI protocol operations remain unchanged.
 
 ### Removed environment compatibility and future extensions
 

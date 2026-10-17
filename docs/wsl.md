@@ -60,7 +60,7 @@ A plan previews disk configuration; it does not reload an existing supervisor.
 ## Verify the everyday workflow
 
 1. Open the TUI without starting services. Select one project and press `s`; confirm
-   the others stay stopped, then press `a` to start the default group.
+   the others stay stopped, then press `A` to start the default group.
 2. Inspect each project's stdout/stderr and errors. Stop one service with `x`; the
    others should keep running. Start it again without duplicate processes.
 3. Press `q`, confirm services remain active with `devctl status`, and reconnect.

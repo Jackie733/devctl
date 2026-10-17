@@ -4,7 +4,10 @@ use std::{
     io::{Read, Write},
     os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt, PermissionsExt},
     path::{Component, Path, PathBuf},
-    sync::atomic::{AtomicU64, Ordering},
+    sync::{
+        Arc,
+        atomic::{AtomicU64, Ordering},
+    },
 };
 
 use crate::run_lock::RunLock;
@@ -108,7 +111,7 @@ pub(super) struct Transaction {
     target: PathBuf,
     original: Option<Snapshot>,
     parent: File,
-    _run: RunLock,
+    _run: Arc<RunLock>,
     _edit: File,
 }
 
@@ -117,6 +120,27 @@ impl Transaction {
         requested: &Path,
         target: &Path,
         original: &Option<Snapshot>,
+    ) -> Result<Self, String> {
+        Self::begin_with_owner(requested, target, original, None)
+    }
+
+    pub fn begin_owned(
+        requested: &Path,
+        target: &Path,
+        original: &Option<Snapshot>,
+        run: Arc<RunLock>,
+    ) -> Result<Self, String> {
+        if !run.owns(target) {
+            return Err("Configuration owner does not match destination.".into());
+        }
+        Self::begin_with_owner(requested, target, original, Some(run))
+    }
+
+    fn begin_with_owner(
+        requested: &Path,
+        target: &Path,
+        original: &Option<Snapshot>,
+        owner: Option<Arc<RunLock>>,
     ) -> Result<Self, String> {
         if original
             .as_ref()
@@ -138,8 +162,11 @@ impl Transaction {
         }
         let parent_file = File::open(parent)
             .map_err(|error| format!("Cannot retain import parent identity: {error}"))?;
-        let run = RunLock::try_acquire_target(target)?.ok_or(
-            "This workspace is running or another import is applying. Preview is available. Shut down this workspace, apply the import, then reopen it.")?;
+        let run = match owner {
+            Some(owner) => owner,
+            None => Arc::new(RunLock::try_acquire_target(target)?.ok_or(
+                "This workspace is running or another import is applying. Preview is available. Shut down this workspace, apply the import, then reopen it.")?),
+        };
         let mut sidecar = target.as_os_str().to_os_string();
         sidecar.push(".devctl.edit.lock");
         let edit = OpenOptions::new()

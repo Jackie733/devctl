@@ -105,7 +105,6 @@ fn discovery_stays_read_only_but_invalid_existing_config_blocks_import_planning(
         "npm@10.9.0",
         "scripts.dev",
         "Scan: complete",
-        "Configuration destination",
     ] {
         assert!(text.contains(expected), "{text}");
     }

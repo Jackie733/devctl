@@ -33,7 +33,7 @@ and planned M7.4 installer are superseded. Git retains the original design/histo
 
 | Order | Work | Acceptance basis |
 | --- | --- | --- |
-| Implemented, acceptance pending | Simplify A01 onboarding and remove A02 core environment management | Explicit add, optional script import, no version selections/readiness gates; safe saves and ordinary lifecycle regression checks |
+| Implemented, acceptance pending | Simplify A01 onboarding and remove A02 core environment management | TUI path/script/command/save, explicit CLI alternatives, no environment management; append-only hot update and lifecycle checks |
 | Following | Verify lightweight onboarding with real daily projects | Directory/command to ordinary TUI start/log/stop/leave/reconnect; record separate Mac/WSL and user acceptance |
 | Outstanding | Real WSL log/UI and cross-version update/rollback | Preserve [log](wsl.md#verify-logs) and [update](wsl.md#verify-updates) checks |
 | Outstanding | Native Mac publication/platform evidence | Keep the release/platform handoff in tasks.md; no automatic push/tag/publication |
@@ -43,7 +43,8 @@ and planned M7.4 installer are superseded. Git retains the original design/histo
 
 ### M7 implementation boundary
 
-A01 includes language-independent `add`, bounded optional npm/pnpm script `import`,
+A01 includes TUI path/script/custom-command addition, language-independent CLI `add`,
+bounded optional npm/pnpm script `import`,
 selection, canonical IDs, preserved edits and atomic configuration saves. Commands
 run in the existing environment; onboarding does not install or validate versions.
 A02 tool binding, dependency inventory and installation are removed from core scope.
