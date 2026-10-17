@@ -21,10 +21,12 @@ Mac. Cancelled the initial three-platform preflight run `39040877432`; remove In
 from CI, packaging, native update targets and public platform documentation before
 rerunning. No version tag or release has been created.
 
-Release preflight exposed the two history PTY scenarios timing out after 8 seconds
-on the shared Mac runner while the paced 4200-line producer had not finished. Give
-that producer up to 30 seconds; retain exact 4201-new-record, paused-anchor, eviction
-and disk restoration assertions. Reverify locally and on both supported CI targets.
+Release preflight exposed history-fixture timer coalescing on the hosted Mac:
+per-line sub-ms sleeps took over 30 seconds for 4200 records in the native-artifact
+check. Generate bounded batches of 16 lines with 20 ms pauses instead, keeping the
+same complete-record, paused-anchor, eviction and disk-restoration assertions.
+Throughput/drop behavior remains covered separately by high-output tests. Both
+supported platforms must reverify the final fixture/source before tagging.
 
 Preparation in progress. Latest implementation verification passed 310 local tests,
 format/clippy and Linux cross-clippy; installed client is from `9f75dfe`. This release

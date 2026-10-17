@@ -202,12 +202,13 @@ if mode == 'slow':
 if mode == 'history':
     for number in range(350):
         print(service + '-history-' + str(number))
-        time.sleep(.001)
+        # Small batches avoid macOS timer coalescing of per-line sub-ms sleeps.
+        if number % 16 == 15: time.sleep(.02)
     print(service + '-history-ready')
     while not (root / 'history-more').exists(): time.sleep(.02)
     for number in range(4200):
         print(service + '-new-' + str(number))
-        time.sleep(.001 if (root / 'persist-paced').exists() else .0005)
+        if number % 16 == 15: time.sleep(.02)
     print(service + '-history-more-done')
     while True: time.sleep(1)
 number = 0
@@ -241,7 +242,6 @@ class Workspace:
             args = [sys.executable, '-u', str(worker), str(self.root), service, worker_mode]
             text += f'\n[services.{service}]\nproject = "demo"\ncmd = {json.dumps(args)}\nautostart = true\n'
         self.config.write_text(text)
-        if mode == 'disk-history': (self.root / 'persist-paced').touch()
 
     def cli(self, *args, success=True):
         result = subprocess.run([BINARY, '--config', str(self.config), *args], capture_output=True, timeout=22, env={**os.environ, 'XDG_STATE_HOME': str(self.root / 'state')})
