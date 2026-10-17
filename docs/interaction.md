@@ -109,7 +109,6 @@ These keys describe the main view outside popups, search input, and line selecti
 | Either panel | `p` | Pause/resume following, outside line selection |
 | Either panel | `H/L`, `←/→` | Scroll long log lines horizontally by eight columns |
 | Service | `s/x` | Start/stop the selected service |
-| Service / workspace | `S` / `A` | Review starting the selected service / default group with unknown dependency evidence; `y` confirms for this request, `n`/`Esc` cancels |
 | Workspace | `a`, `X` | Start the default group / stop all and keep the supervisor |
 | Workspace | `Q` | Open shutdown confirmation |
 | Connection | `r` | Reconnect to an existing supervisor; do not create or reload it |
