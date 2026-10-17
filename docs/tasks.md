@@ -3,7 +3,7 @@
 Keep current work and necessary handoff here; Git retains history. Collaboration
 rules are in [AGENTS.md](../AGENTS.md).
 
-## Current: lightweight onboarding simplification implemented (A01/A02, W05)
+## Current: lightweight onboarding implemented and locally installed (A01/A02, W05)
 
 Authorized by the user's 2026-10-17 instruction to implement the discussed reduction.
 Source remains **1.5.0, unreleased**. Scope:
@@ -25,7 +25,8 @@ transactions and explicit retired-field migration guidance. The node-semver dire
 dependency and its unused transitive dependencies are removed. English reference
 documents and the Chinese overview agree. No Agent integration was introduced.
 This is implementation/agent verification, not full target-platform/user acceptance.
-No installed devctl, user project/configuration or private tool binding was changed.
+The simplification preserved user projects/configuration and private tool bindings.
+A subsequent explicit request authorized the local Mac reinstall recorded below.
 
 ### Recorded validation
 
@@ -56,13 +57,39 @@ No installed devctl, user project/configuration or private tool binding was chan
   **28** shell examples (`bash -n`), Python AST, balanced fences and `git diff --check`
   passed. No performance improvement is claimed without separate measurements.
 
+### Local Mac reinstall
+
+The user explicitly requested reinstalling the latest source after `68ab377`.
+Finishing criteria met: optimized native build installed at the existing PATH
+location, previous binary retained, user config unchanged/valid, installed command
+and real TUI/lifecycle checks passed, prior idle workspace restored using the new
+binary with both services stopped. Source remains **1.5.0**, so version text alone
+cannot distinguish this build from the previous local installation.
+
+- `MACOSX_DEPLOYMENT_TARGET=14.0 cargo build --release --locked`: passed from code
+  commit `68ab377`; `file`, `codesign --verify --strict` and `xcrun vtool -show-build`
+  verified arm64, valid signature and macOS 14 deployment baseline.
+- Installed with `bash scripts/devctl-update` and the release build's SHA-256.
+  `~/.local/bin/devctl` matches the build; `devctl.previous` matches the previously
+  installed bytes. Existing user config SHA-256 is unchanged and `validate` passed.
+- Fresh login Zsh resolves `~/.local/bin/devctl`; version is 1.5.0, `add`/`import`
+  are available and retired environment commands are absent.
+- `python3 /tmp/devctl-installed-smoke.py`: installed release passed temporary-project
+  preview/save/start/logs/real TUI leave/reconnect/shutdown and descendant cleanup.
+  The first script incorrectly waited for the resident supervisor to exit; corrected
+  readiness handling passed. The old idle supervisor was shut down before replacement;
+  a fresh idle supervisor now manages the original config, with API/web both stopped.
+  No bogu application or database action ran; no source/installed PATH setup edits.
+- This local binary supersedes the installed identity in the older Mac handoff below.
+  The older bundles remain historical artifacts, not packages of this new code.
+  No public release, push or tag was performed.
+
 ## Next steps
 
 1. Gather daily-project/user acceptance for the simplified flow; preserve separate
    real WSL log/UI and update/rollback acceptance plus Mac release/platform gaps below.
    Remote CI, macOS 14/physical Intel verification and anonymous public Mac
-   download/update remain outstanding. No automatic push/tag/publication or installed
-   binary replacement.
+   download/update remain outstanding. No automatic push/tag/publication.
 2. A03 database/Redis control and Agent-assisted diagnosis remain pending assessment,
    not automatic next milestones. Native Windows/reboot recovery remain candidates.
    A02 installation/version management is explicitly removed from core scope.
