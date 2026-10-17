@@ -28,7 +28,7 @@ interface without stopping your services, then reconnect when you need it.
   candidate version, and keep an offline rollback copy. In 1.3.0 and later, follow
   terminal stages and download progress, with plain output when redirected.
 
-Source 1.5.0 lets you press **a** in the TUI, paste a project directory, choose an
+Version 1.5.0 lets you press **a** in the TUI, paste a project directory, choose an
 existing npm/pnpm script or enter your usual command, then review and save. The new
 project stays stopped until you start it. First use needs no handwritten config.
 `A` starts the default group. CLI `add`/`import` remain available. No environment
@@ -37,11 +37,10 @@ versions, tool bindings or dependency checks are required. See
 
 ## Platform support
 
-The supported release target is **Linux x86_64**, including **Windows WSL2**.
-Release binaries use musl and do not require Rust or a particular glibc version.
-The 1.5.0 source tree adds native **macOS 14+ (Apple Silicon and Intel)**.
-The current public 1.4.0 release is Linux-only; use the [Mac source installation](docs/install.md#macos)
-until multi-platform artifacts are published. Native Windows remains unsupported.
+Release **1.5.0** provides native programs for **Linux x86_64** (including **WSL2**),
+**macOS 14+ Apple Silicon**, and **macOS 14+ Intel**. The Linux musl program needs
+neither Rust nor a particular glibc version. Native Windows is not supported.
+See the [installation guide](docs/install.md) for the matching download.
 
 Commands must run without interactive input. Dependency validation and planning
 are available, but runtime dependency orchestration, readiness probes, automatic
@@ -58,7 +57,7 @@ offline without it. Database/Redis automation is pending reassessment. See
 
 ## Installation
 
-For the current Linux release, get the binary, external installer, and checksums from
+Get your platform binary, external installer, and checksums from
 [GitHub Releases](https://github.com/Jackie733/devctl/releases/latest), then follow
 the [installation guide](docs/install.md#prebuilt-binary) to verify and install them
 into `~/.local/bin/devctl`. No GitHub account, token, or local compilation is needed.

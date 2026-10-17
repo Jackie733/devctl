@@ -17,11 +17,11 @@
 - **有界日志存储**：近期记录保存在内存，历史记录按容量与期限保留；查询旧会话不启动服务。
 - **校验与回退**：通过公开 Release 清单更新，验证 SHA-256 和候选程序版本，并保留离线回退副本。1.3.0 起显示终端阶段与下载进度，重定向时使用纯文本输出。
 
-1.5.0 源码支持在 TUI 按 **a** 添加项目：粘贴目录，选择 npm/pnpm 项目已有脚本，或填写平时使用的命令，确认后保存。首次使用也不必手写配置，保存后项目保持停止。**A** 改为启动默认组合；命令行 `add`、`import` 仍可使用。无需选择环境版本，详见[添加项目](docs/interaction.md#adding-projects)。
+1.5.0 支持在 TUI 按 **a** 添加项目：粘贴目录，选择 npm/pnpm 项目已有脚本，或填写平时使用的命令，确认后保存。首次使用也不必手写配置，保存后项目保持停止。**A** 改为启动默认组合；命令行 `add`、`import` 仍可使用。无需选择环境版本，详见[添加项目](docs/interaction.md#adding-projects)。
 
 ## 平台支持
 
-当前发布目标为 **Linux x86_64**，包含 **Windows WSL2**。发布程序使用 musl 静态构建，无需安装 Rust，也不依赖特定 glibc 版本。1.5.0 源码已加入 **macOS 14 及以上版本（Apple 芯片和 Intel）**的原生支持；当前公开的 1.4.0 仍只有 Linux 程序，多平台版本发布前请使用 [Mac 源码安装步骤](docs/install.md#macos)。Windows 原生支持仍未提供。
+**1.5.0** 提供 **Linux x86_64（含 Windows WSL2）**、**macOS 14 及以上版本的 Apple 芯片和 Intel** 程序。Linux 版本使用 musl 静态构建，无需安装 Rust，也不依赖特定 glibc 版本。请按[安装指南](docs/install.md)下载对应平台的程序；Windows 原生支持仍未提供。
 
 开发命令需要能够非交互运行。目前支持依赖校验与计划展示，尚未实现运行时依赖编排、就绪探针、自动重启或机器重启后的恢复。已交付和候选功能的区别见[路线图](docs/roadmap.md)。
 
@@ -29,7 +29,7 @@
 
 ## 安装
 
-当前 Linux 版本可从 [GitHub Releases](https://github.com/Jackie733/devctl/releases/latest) 下载程序、外部安装器与校验值，按[安装指南](docs/install.md#prebuilt-binary)校验后安装到 `~/.local/bin/devctl`。无需 GitHub 账号、Token 或本地编译。详细参考文档以英文维护。
+可从 [GitHub Releases](https://github.com/Jackie733/devctl/releases/latest) 下载程序、外部安装器与校验值，按[安装指南](docs/install.md#prebuilt-binary)校验后安装到 `~/.local/bin/devctl`。无需 GitHub 账号、Token 或本地编译。详细参考文档以英文维护。
 
 已安装 **1.2.1 或更高版本**时，先检查更新：
 

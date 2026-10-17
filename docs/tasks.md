@@ -3,69 +3,35 @@
 Keep current work and necessary handoff here; Git retains history. Collaboration
 rules are in [AGENTS.md](../AGENTS.md).
 
-## Current: TUI directory completion (A01, W05)
+## Current: publish v1.5.0 (X03; A01, W05, X01)
 
-Authorized by the user's request for Tab path completion in the add-project dialog.
-Scope: [requirements](requirements.md#directory-onboarding-and-environment-automation-a01a03);
-operations: [adding projects](interaction.md#adding-projects);
-mechanisms: [TUI design](../DESIGN.md#tui-project-addition).
+Authorized on 2026-10-17 to publish the new feature version and push GitHub.
+Release includes TUI project addition, append-only hot update, Tab directory
+completion, lightweight CLI onboarding and native Mac distribution. Cargo package
+and lock already use 1.5.0; previous public latest is v1.4.0.
 
-Completion criteria: Tab completes directories only; unique matches append `/`;
-multiple matches extend the common prefix and allow deterministic Tab/Shift-Tab
-cycling with visible candidates; support absolute/relative/`~/`, quoted, spaced and
-Unicode paths. Preserve input on failure, ignore stale completion results after
-editing, and keep typing/cancel responsive. Complete off the UI loop with bounded
-single-directory reads and no shell execution/config writes. Enter immediately
-after Tab must inspect the completed path. Existing save/hot-add/lifecycle behavior
-must pass regression checks. Synchronize docs/Chinese overview, verify installed
-Mac client without interrupting the current background, commit locally; no push.
+Completion criteria: dated changelog and matching EN/ZH/download docs; clean source
+commit pushed without overwriting remote changes; all three platform build/test/
+package checks pass; version tag matches that tested commit; publish complete
+binary/installer/source/manifest/checksum assets; verify public downloads, anonymous
+updates and rollback on every supported platform. Preserve local user workspaces.
 
-Implemented and agent-verified on 2026-10-17. Reuses the onboarding worker and
-dialog, with no new runtime dependency. Results only replace unchanged path input;
-typing cancels any queued inspection and clears cached alternatives. Enter during
-a completion queues inspection, including initially empty input. Actual discovery,
-reviewed save and hot addition retain their existing behavior. The PTY renderer now
-accounts for wide Unicode characters so Chinese paths can be inspected accurately.
-
-Validation:
-
-- `cargo test --locked`: 310 tests passed across 15 suites. New checks cover unique
-  and shared Unicode prefixes, spaces, sorted forward/reverse cycling, `~/`, relative
-  and quoted paths, child completion, files/hidden entries/directory symlinks, missing
-  directories/HOME, excessive matches, stale input and queued Enter. Existing TUI,
-  hot-add, background, logging, import, update and ownership regressions passed.
-- `cargo fmt --check`; `cargo clippy --locked --all-targets -- -D warnings`;
-  Linux cross-target clippy with `--target x86_64-unknown-linux-gnu`: passed.
-  Linux runtime/user acceptance was not performed on this Mac.
-- Real PTY completion-to-save workflow passed with debug and installed release:
-  blank Tab/Enter, home/relative/quoted paths, Chinese/spaces, candidate switching,
-  failed completion followed by editing, save with the added project stopped.
-  Installed candidate display/cancel was inspected; before confirmation no config
-  was created. Captured screen: `/tmp/devctl-tab-screen-kvp23406/completion-screen.txt`.
-- Markdown links/anchors, shell-example syntax, Python AST, fences and
-  `git diff --check`: passed.
-- `MACOSX_DEPLOYMENT_TARGET=14.0 cargo build --release --locked`: passed. Native
-  ARM64 release installed via `scripts/devctl-update` to `~/.local/bin/devctl`;
-  strict signature and macOS 14 minimum checks passed. Installed SHA-256:
-  `b8503e4edcd8956c825c78a4408f32957e8c897c4ecbc6c2330858829297cf55`.
-  Previous installed `a59be5f` code is retained as `devctl.previous`. Additional
-  installation receipt/backups: `/tmp/devctl-tab-install-m0tnixi2`.
-  Existing config bytes, service states and background workspace identity were
-  unchanged across installation; no workspace restart was needed for this client
-  change. Version remains 1.5.0, unreleased.
+Preparation in progress. Latest implementation verification passed 310 local tests,
+format/clippy and Linux cross-clippy; installed client is from `9f75dfe`. This release
+must also pass hosted Linux, Apple Silicon and Intel checks. CI does not establish
+WSL terminal/user acceptance or acceptance on physical macOS 14/Intel hardware.
 
 ## Next steps
 
-1. User try the updated TUI: leave an old client with `q`, run `devctl`, then `a`,
-   type a partial directory and Tab; Tab/Shift-Tab cycles alternatives. Daily-project
-   user acceptance of the complete onboarding/hot-add workflow remains separate.
-2. Retain WSL runtime and Mac release/platform gaps below. A03/Agent diagnosis is
-   pending assessment; no public push/tag/release.
+1. Push release preparation, run the existing three-platform workflow without
+   publication, fix any failures, then tag/publish the tested commit and verify the
+   public release. Record actual workflow/release links and source identity.
+2. Keep real daily-project/WSL and Mac platform acceptance gaps separate. A03/Agent
+   diagnosis remains pending assessment; no additional feature implementation.
 
 ## Retained Mac deployment and release handoff (X01, X03)
 
-Authorized on 2026-10-16, using the user's existing bogu repository. Source version
-is **1.5.0, unreleased**. Platform scope and acceptance remain owned by
+Authorized on 2026-10-16, using the user's existing bogu repository. Historical local validation below predates the 1.5.0 publication work above. Platform scope and acceptance remain owned by
 [requirements](requirements.md#confirmed-scenario); installation is in
 [install.md](install.md#macos).
 

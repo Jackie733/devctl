@@ -1,16 +1,13 @@
 # Installation and updates
 
-Current public release: **1.4.0**, for Linux x86_64 including WSL2. Use the
-[WSL guide](wsl.md) for Windows integration. Releases are public and do not require
-GitHub authentication.
-
-The **1.5.0 source tree** adds native macOS 14+ support for Apple Silicon and Intel.
-Until a multi-platform release is published, use the [Mac source installation](#macos).
-Historical 1.4.0 attachments do not run on macOS. Native Windows is not supported.
+Current public release: **1.5.0**, for Linux x86_64 including WSL2, macOS 14+
+Apple Silicon and macOS 14+ Intel. Use the [WSL guide](wsl.md) for Windows
+integration. Releases are public and do not require GitHub authentication.
+Historical 1.4.0 attachments are Linux-only. Native Windows is not supported.
 
 ## Requirements
 
-For the existing Linux release:
+For Linux / WSL2:
 
 - Linux x86_64 and a writable, absolute `HOME`.
 - Bash, curl 7.76.0 or newer, and standard Linux tools: `flock`, `mktemp`, `cp`,
@@ -29,27 +26,27 @@ Download the program, external installer, and checksums into a new version-speci
 directory. This uses fixed release URLs rather than the GitHub REST API:
 
 ```sh
-mkdir -p "$HOME/Downloads/devctl-v1.4.0"
-cd "$HOME/Downloads/devctl-v1.4.0"
+mkdir -p "$HOME/Downloads/devctl-v1.5.0"
+cd "$HOME/Downloads/devctl-v1.5.0"
 curl --disable --fail --fail-early --location \
   --proto '=https' --proto-redir '=https' \
   --connect-timeout 10 --max-time 180 --remote-name-all \
-  'https://github.com/Jackie733/devctl/releases/download/v1.4.0/devctl-v1.4.0-x86_64-unknown-linux-musl' \
-  'https://github.com/Jackie733/devctl/releases/download/v1.4.0/devctl-update' \
-  'https://github.com/Jackie733/devctl/releases/download/v1.4.0/SHA256SUMS'
+  'https://github.com/Jackie733/devctl/releases/download/v1.5.0/devctl-v1.5.0-x86_64-unknown-linux-musl' \
+  'https://github.com/Jackie733/devctl/releases/download/v1.5.0/devctl-update' \
+  'https://github.com/Jackie733/devctl/releases/download/v1.5.0/SHA256SUMS'
 sha256sum --check --ignore-missing SHA256SUMS
 ```
 
 Continue only when download and verification succeed. `--ignore-missing` skips the
 source archive and `update.json` if you did not download them. You can also download
-the same files from the [release page](https://github.com/Jackie733/devctl/releases/tag/v1.4.0).
+the same files from the [release page](https://github.com/Jackie733/devctl/releases/tag/v1.5.0).
 
 For an existing installation, first [shut down active workspaces](#before-switching-versions)
 and leave their TUIs. Then install:
 
 ```sh
-binary_sha=$(awk '$2 == "devctl-v1.4.0-x86_64-unknown-linux-musl" { print $1 }' SHA256SUMS)
-bash ./devctl-update ./devctl-v1.4.0-x86_64-unknown-linux-musl "$binary_sha"
+binary_sha=$(awk '$2 == "devctl-v1.5.0-x86_64-unknown-linux-musl" { print $1 }' SHA256SUMS)
+bash ./devctl-update ./devctl-v1.5.0-x86_64-unknown-linux-musl "$binary_sha"
 export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
 hash -r
 command -v devctl
@@ -57,7 +54,7 @@ devctl --version
 ```
 
 In Zsh use `rehash` instead of `hash -r`. The result should be
-`~/.local/bin/devctl` and `devctl 1.4.0`. The installer preserves an existing
+`~/.local/bin/devctl` and `devctl 1.5.0`. The installer preserves an existing
 program as `~/.local/bin/devctl.previous`; a first installation has no backup.
 Installing identical bytes again preserves the useful previous version.
 
@@ -68,7 +65,35 @@ configuration; installation does not create or replace it.
 
 ## macOS
 
-Build from a checkout containing the 1.5.0 Mac changes. Source builds require Rust
+Download the native 1.5.0 program, installer and checksums into a new directory.
+Choose `aarch64-apple-darwin` for Apple Silicon or `x86_64-apple-darwin` for Intel:
+
+```sh
+mkdir -p "$HOME/Downloads/devctl-v1.5.0"
+cd "$HOME/Downloads/devctl-v1.5.0"
+devctl_target=aarch64-apple-darwin
+curl --disable --fail --fail-early --location \
+  --proto '=https' --proto-redir '=https' \
+  --connect-timeout 10 --max-time 180 --remote-name-all \
+  "https://github.com/Jackie733/devctl/releases/download/v1.5.0/devctl-v1.5.0-$devctl_target" \
+  'https://github.com/Jackie733/devctl/releases/download/v1.5.0/devctl-update' \
+  'https://github.com/Jackie733/devctl/releases/download/v1.5.0/SHA256SUMS'
+shasum -a 256 --check --ignore-missing SHA256SUMS
+# For an existing installation, complete the shutdown step below first.
+devctl_binary="devctl-v1.5.0-$devctl_target"
+devctl_sha=$(awk -v name="$devctl_binary" '$2 == name { print $1 }' SHA256SUMS)
+bash ./devctl-update "./$devctl_binary" "$devctl_sha"
+export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
+rehash
+command -v devctl
+devctl --version
+```
+
+Continue only after checksum verification succeeds. The same shutdown, backup and
+rollback rules apply on both systems. Do not substitute a Linux artifact. Local Mac
+copying uses pbcopy; over SSH it uses the displaying terminal's OSC 52 support.
+
+For a source build, use a checkout of v1.5.0. Source builds require Rust
 and Apple's Command Line Tools (`xcode-select --install` if absent); development
 checks also require Python 3. The deployment baseline is macOS 14. Local acceptance
 was performed on Apple Silicon/macOS 26.5.1; see [current evidence](tasks.md) for
@@ -100,18 +125,8 @@ fit the OS Unix-socket limit (104 bytes on macOS). A deeply nested checkout or t
 long default macOS temporary directory can exceed it; moving the configuration
 changes workspace/log identity, so shut down the old workspace first.
 
-After a multi-platform release exists, download the artifact matching the Mac:
-`aarch64-apple-darwin` for Apple Silicon, or `x86_64-apple-darwin` for Intel, plus
-`devctl-update` and `SHA256SUMS` from that same version. Verify downloaded files with
-`shasum -a 256 --check --ignore-missing SHA256SUMS`, then pass the native program
-and its checksum to the installer as above. Do not substitute a Linux artifact.
-The same shutdown, backup and rollback rules apply on both systems. Local Mac
-copying uses pbcopy; over SSH it uses the displaying terminal's OSC 52 support.
-
-The public 1.4.0 manifest has no Mac asset. Online `update --check`/`update` can only
-succeed for a release containing the native target; local installation and offline
-rollback work before publication. A local mock-download test is not public-release
-verification.
+The 1.5.0 manifest contains both Mac targets, so public `update --check` and `update`
+select the native artifact. The historical 1.4.0 manifest has no Mac asset.
 
 ## Before switching versions
 
@@ -140,9 +155,9 @@ devctl update
 devctl --version
 ```
 
-To test the real **1.3.0 → 1.4.0** upgrade, check that your initial version is 1.3.0,
+To test the real **1.4.0 → 1.5.0** upgrade, check that your initial version is 1.4.0,
 check for an available update, complete the shutdown step, run `devctl update`, and
-confirm version 1.4.0. The old binary should be retained as `devctl.previous`.
+confirm version 1.5.0. The old binary should be retained as `devctl.previous`.
 A subsequent check should report that the running version is current. Terminal
 progress is provided by clients 1.3.0 and later; the initial upgrade from 1.2.2
 still uses the older client's output.
@@ -150,8 +165,8 @@ still uses the older client's output.
 A specific stable release can be checked or installed explicitly:
 
 ```sh
-devctl update --check --version 1.4.0
-devctl update --version 1.4.0
+devctl update --check --version 1.5.0
+devctl update --version 1.5.0
 ```
 
 Explicit selection permits same-version installation and downgrades. The selected
@@ -181,7 +196,7 @@ If the restored client has no update command or still uses the old API, restore 
 new program using the verified installer you downloaded earlier:
 
 ```sh
-bash "$HOME/Downloads/devctl-v1.4.0/devctl-update" --rollback
+bash "$HOME/Downloads/devctl-v1.5.0/devctl-update" --rollback
 hash -r
 devctl --version
 ```
@@ -191,7 +206,7 @@ supervisors started afterward.
 
 ## Build from source
 
-For the existing Linux release, use Linux or WSL2 with Git, Python 3, and a Rust toolchain. For the new Mac source tree, use the [Mac instructions](#macos). CI is tested with Rust
+Use Linux or WSL2 with Git, Python 3, and a Rust toolchain. Mac users can use the [Mac instructions](#macos). CI is tested with Rust
 1.98.1; install Rust through the [official instructions](https://rust-lang.org/tools/install/).
 On Ubuntu, development tests also need Bash, Zsh, and the normal build tools:
 
@@ -200,7 +215,7 @@ sudo apt update
 sudo apt install -y build-essential curl git python3 zsh
 git clone https://github.com/Jackie733/devctl.git
 cd devctl
-git switch --detach v1.4.0
+git switch --detach v1.5.0
 cargo build --release --locked
 ./target/release/devctl --version
 ```

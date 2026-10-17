@@ -3,7 +3,7 @@
 User-facing changes are grouped by released version. Download artifacts from
 [GitHub Releases](https://github.com/Jackie733/devctl/releases).
 
-## 1.5.0 — Unreleased
+## 1.5.0 — 2026-10-17
 
 - Add Tab directory completion to the TUI project-path input, with shared-prefix
   extension, sorted candidate cycling, Unicode/spaces and `~/` support. Keep reads
