@@ -21,12 +21,15 @@ Mac. Cancelled the initial three-platform preflight run `39040877432`; remove In
 from CI, packaging, native update targets and public platform documentation before
 rerunning. No version tag or release has been created.
 
-Release preflight exposed history-fixture timer coalescing on the hosted Mac:
-per-line sub-ms sleeps took over 30 seconds for 4200 records in the native-artifact
-check. Generate bounded batches of 16 lines with 20 ms pauses instead, keeping the
-same complete-record, paused-anchor, eviction and disk-restoration assertions.
-Throughput/drop behavior remains covered separately by high-output tests. Both
-supported platforms must reverify the final fixture/source before tagging.
+History fixtures now require a receiver acknowledgement after each 32 records.
+Hosted Mac timer coalescing and concurrent load made time-paced exact-count inputs
+unreliable (including bounded-queue drops); waiting longer alone was insufficient.
+The logs query is ordered behind archive writes, so it drains both memory/disk
+queues without changing product backpressure. Preserve all exact-count, paused
+anchor, eviction and disk restoration assertions; high-output tests retain overload
+coverage. Reverify final source before publishing. The first v1.5.0 tag attempt did
+not publish; any tag correction must first confirm no public/draft release exists
+and use the exact prior tag identity to protect concurrent changes.
 
 Cross-platform archive parity check confirmed identical Git tar bytes but different
 native gzip encodings. Compare decompressed source bytes in the merger while still
