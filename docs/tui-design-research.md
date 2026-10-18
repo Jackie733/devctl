@@ -1,6 +1,6 @@
 # TUI refinement research and proposal
 
-Date: 2026-10-18. Status: initial visual refinement included in version 1.6.0; real-platform user acceptance remains outstanding. Scope: [U01](requirements.md#initial-scope-and-acceptance), M5 in the
+Date: 2026-10-18. Status: initial visual refinement included in version 1.6.1; real-platform user acceptance remains outstanding. Scope: [U01](requirements.md#initial-scope-and-acceptance), M5 in the
 [roadmap](roadmap.md), with existing L01/L03 log behavior and A01 onboarding.
 This document records design rationale and candidate specifications. Approved
 interaction rules belong in [interaction.md](interaction.md); mechanisms belong in
@@ -43,7 +43,7 @@ Improvement opportunities inferred from the rendering rules (not user-study find
 ## Implementation status
 
 The user authorized implementation and explicitly rejected the white state flash.
-Version 1.6.0 removes that effect and its timer entirely. It adds coherent dark,
+Version 1.6.1 removes that effect and its timer entirely. It adds coherent dark,
 light and terminal palettes, stable project selection across focus changes, complete
 contextual footer actions, reduced-motion waiting symbols, ASCII status symbols and
 monochrome selection/search emphasis. See the current

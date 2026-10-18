@@ -3,7 +3,7 @@
 User-facing changes are grouped by released version. Download artifacts from
 [GitHub Releases](https://github.com/Jackie733/devctl/releases).
 
-## 1.6.0 — 2026-10-18
+## 1.6.1 — 2026-10-18
 
 - Remove reverse-video state flashes during start/stop. Keep selected project
   backgrounds stable when focus moves to logs; preserve status words and colors.

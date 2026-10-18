@@ -1,6 +1,6 @@
 # Installation and updates
 
-Current public release: **1.6.0**, for Linux x86_64 including WSL2, macOS 14+
+Current public release: **1.6.1**, for Linux x86_64 including WSL2, macOS 14+
 Apple Silicon. Intel Mac is not supported. Use the [WSL guide](wsl.md) for Windows
 integration. Releases are public and do not require GitHub authentication.
 Historical 1.4.0 attachments are Linux-only. Native Windows is not supported.
@@ -26,27 +26,27 @@ Download the program, external installer, and checksums into a new version-speci
 directory. This uses fixed release URLs rather than the GitHub REST API:
 
 ```sh
-mkdir -p "$HOME/Downloads/devctl-v1.6.0"
-cd "$HOME/Downloads/devctl-v1.6.0"
+mkdir -p "$HOME/Downloads/devctl-v1.6.1"
+cd "$HOME/Downloads/devctl-v1.6.1"
 curl --disable --fail --fail-early --location \
   --proto '=https' --proto-redir '=https' \
   --connect-timeout 10 --max-time 180 --remote-name-all \
-  'https://github.com/Jackie733/devctl/releases/download/v1.6.0/devctl-v1.6.0-x86_64-unknown-linux-musl' \
-  'https://github.com/Jackie733/devctl/releases/download/v1.6.0/devctl-update' \
-  'https://github.com/Jackie733/devctl/releases/download/v1.6.0/SHA256SUMS'
+  'https://github.com/Jackie733/devctl/releases/download/v1.6.1/devctl-v1.6.1-x86_64-unknown-linux-musl' \
+  'https://github.com/Jackie733/devctl/releases/download/v1.6.1/devctl-update' \
+  'https://github.com/Jackie733/devctl/releases/download/v1.6.1/SHA256SUMS'
 sha256sum --check --ignore-missing SHA256SUMS
 ```
 
 Continue only when download and verification succeed. `--ignore-missing` skips the
 source archive and `update.json` if you did not download them. You can also download
-the same files from the [release page](https://github.com/Jackie733/devctl/releases/tag/v1.6.0).
+the same files from the [release page](https://github.com/Jackie733/devctl/releases/tag/v1.6.1).
 
 For an existing installation, first [shut down active workspaces](#before-switching-versions)
 and leave their TUIs. Then install:
 
 ```sh
-binary_sha=$(awk '$2 == "devctl-v1.6.0-x86_64-unknown-linux-musl" { print $1 }' SHA256SUMS)
-bash ./devctl-update ./devctl-v1.6.0-x86_64-unknown-linux-musl "$binary_sha"
+binary_sha=$(awk '$2 == "devctl-v1.6.1-x86_64-unknown-linux-musl" { print $1 }' SHA256SUMS)
+bash ./devctl-update ./devctl-v1.6.1-x86_64-unknown-linux-musl "$binary_sha"
 export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
 hash -r
 command -v devctl
@@ -54,7 +54,7 @@ devctl --version
 ```
 
 In Zsh use `rehash` instead of `hash -r`. The result should be
-`~/.local/bin/devctl` and `devctl 1.6.0`. The installer preserves an existing
+`~/.local/bin/devctl` and `devctl 1.6.1`. The installer preserves an existing
 program as `~/.local/bin/devctl.previous`; a first installation has no backup.
 Installing identical bytes again preserves the useful previous version.
 
@@ -65,22 +65,22 @@ configuration; installation does not create or replace it.
 
 ## macOS
 
-Download the native 1.6.0 program, installer and checksums into a new directory.
+Download the native 1.6.1 program, installer and checksums into a new directory.
 Use `aarch64-apple-darwin` for Apple Silicon; no Intel Mac artifact is published:
 
 ```sh
-mkdir -p "$HOME/Downloads/devctl-v1.6.0"
-cd "$HOME/Downloads/devctl-v1.6.0"
+mkdir -p "$HOME/Downloads/devctl-v1.6.1"
+cd "$HOME/Downloads/devctl-v1.6.1"
 devctl_target=aarch64-apple-darwin
 curl --disable --fail --fail-early --location \
   --proto '=https' --proto-redir '=https' \
   --connect-timeout 10 --max-time 180 --remote-name-all \
-  "https://github.com/Jackie733/devctl/releases/download/v1.6.0/devctl-v1.6.0-$devctl_target" \
-  'https://github.com/Jackie733/devctl/releases/download/v1.6.0/devctl-update' \
-  'https://github.com/Jackie733/devctl/releases/download/v1.6.0/SHA256SUMS'
+  "https://github.com/Jackie733/devctl/releases/download/v1.6.1/devctl-v1.6.1-$devctl_target" \
+  'https://github.com/Jackie733/devctl/releases/download/v1.6.1/devctl-update' \
+  'https://github.com/Jackie733/devctl/releases/download/v1.6.1/SHA256SUMS'
 shasum -a 256 --check --ignore-missing SHA256SUMS
 # For an existing installation, complete the shutdown step below first.
-devctl_binary="devctl-v1.6.0-$devctl_target"
+devctl_binary="devctl-v1.6.1-$devctl_target"
 devctl_sha=$(awk -v name="$devctl_binary" '$2 == name { print $1 }' SHA256SUMS)
 bash ./devctl-update "./$devctl_binary" "$devctl_sha"
 export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
@@ -93,7 +93,7 @@ Continue only after checksum verification succeeds. The same shutdown, backup an
 rollback rules apply on both systems. Do not substitute a Linux artifact. Local Mac
 copying uses pbcopy; over SSH it uses the displaying terminal's OSC 52 support.
 
-For a source build, use a checkout of v1.6.0. Source builds require Rust
+For a source build, use a checkout of v1.6.1. Source builds require Rust
 and Apple's Command Line Tools (`xcode-select --install` if absent); development
 checks also require Python 3. The deployment baseline is macOS 14. Local acceptance
 was performed on Apple Silicon/macOS 26.5.1; see [current evidence](tasks.md) for
@@ -125,7 +125,7 @@ fit the OS Unix-socket limit (104 bytes on macOS). A deeply nested checkout or t
 long default macOS temporary directory can exceed it; moving the configuration
 changes workspace/log identity, so shut down the old workspace first.
 
-The 1.6.0 manifest contains the Apple Silicon Mac target, so public `update --check` and `update`
+The 1.6.1 manifest contains the Apple Silicon Mac target, so public `update --check` and `update`
 select the native artifact. The historical 1.4.0 manifest has no Mac asset.
 
 ## Before switching versions
@@ -155,9 +155,9 @@ devctl update
 devctl --version
 ```
 
-To test the real **1.5.0 → 1.6.0** upgrade, check that your initial version is 1.5.0,
+To test the real **1.5.0 → 1.6.1** upgrade, check that your initial version is 1.5.0,
 check for an available update, complete the shutdown step, run `devctl update`, and
-confirm version 1.6.0. The old binary should be retained as `devctl.previous`.
+confirm version 1.6.1. The old binary should be retained as `devctl.previous`.
 A subsequent check should report that the running version is current. Terminal
 progress is provided by clients 1.3.0 and later; the initial upgrade from 1.2.2
 still uses the older client's output.
@@ -165,8 +165,8 @@ still uses the older client's output.
 A specific stable release can be checked or installed explicitly:
 
 ```sh
-devctl update --check --version 1.6.0
-devctl update --version 1.6.0
+devctl update --check --version 1.6.1
+devctl update --version 1.6.1
 ```
 
 Explicit selection permits same-version installation and downgrades. The selected
@@ -196,7 +196,7 @@ If the restored client has no update command or still uses the old API, restore 
 new program using the verified installer you downloaded earlier:
 
 ```sh
-bash "$HOME/Downloads/devctl-v1.6.0/devctl-update" --rollback
+bash "$HOME/Downloads/devctl-v1.6.1/devctl-update" --rollback
 hash -r
 devctl --version
 ```
@@ -215,7 +215,7 @@ sudo apt update
 sudo apt install -y build-essential curl git python3 zsh
 git clone https://github.com/Jackie733/devctl.git
 cd devctl
-git switch --detach v1.6.0
+git switch --detach v1.6.1
 cargo build --release --locked
 ./target/release/devctl --version
 ```

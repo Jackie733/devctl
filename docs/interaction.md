@@ -175,7 +175,7 @@ text, including clipboard caveats, remains in help until replaced. Start accepta
 is not treated as confirmed startup. Failures and unknown completion do not expire;
 connection, service, and log-loss diagnostics remain visible independently.
 
-Version 1.6.0 adds these appearance options (read once at TUI startup):
+Version 1.6.1 adds these appearance options (read once at TUI startup):
 
 | Environment variable | Values and behavior |
 | --- | --- |

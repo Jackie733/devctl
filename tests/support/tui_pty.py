@@ -292,9 +292,17 @@ class Workspace:
         if success: assert result.returncode == 0, result.stderr.decode()
         return result
 
+    def pump_clients(self):
+        # Keep acting as a terminal while polling CLI state. A full PTY output
+        # queue otherwise blocks a redraw before the client can read control keys.
+        for client in self.clients:
+            if client.master is not None and client.process.poll() is None:
+                client.pump(.01)
+
     def states(self, **expected):
         deadline = time.monotonic() + 10
         while True:
+            self.pump_clients()
             result = self.cli('status').stdout.decode()
             if all(f'{service}: {state}' in result for service, state in expected.items()): return
             assert time.monotonic() < deadline, (expected, result)
@@ -307,6 +315,7 @@ class Workspace:
     def wait_starts(self, service, count):
         deadline = time.monotonic() + 8
         while len(self.starts(service)) != count:
+            self.pump_clients()
             assert time.monotonic() < deadline, (service, self.starts(service))
             time.sleep(.02)
 
@@ -482,6 +491,15 @@ def high_output():
         ui.exit()
         assert time.monotonic() - start < 1.5, 'High output blocked leaving'
         w.states(web='Running')
+        # Exercise a redraw larger than the PTY queue. State polling must keep
+        # draining that queue so the queued stop key can actually be consumed.
+        again = Tui(w)
+        again.choose('web')
+        again.wait('web-line-')
+        again.resize(120, 200)
+        time.sleep(.25)
+        again.send(b'X')
+        w.states(web='Stopped', middle='Stopped', weapp='Stopped')
     finally: w.close()
 
 
