@@ -17,6 +17,7 @@ owned by [requirements.md](requirements.md); current work and evidence live in
 | Logging follow-up | 1.1.0 delivered history, persistence, pause, literal search, context and page/selection export | L01–L04 |
 | Public distribution | Public Releases, static artifacts, checksums, source identity and tested publication workflow | X03 |
 | Self-update | 1.2.0 introduced independent update/rollback; 1.2.1 switched to Release manifests | X03 |
+| TUI visual refinement | 1.6.0 adds coherent palettes, stable state/selection backgrounds, complete footer actions and motion/symbol/color fallbacks | U01 |
 | Native macOS | 1.5.0 adds native lifecycle, clipboard, installation/update/rollback and a Linux/Apple Silicon release pipeline; publication checks and platform acceptance remain distinct in tasks.md | X01, X03 |
 
 The initial MVP was accepted on 2026-10-15. Controlled tests establish coverage of

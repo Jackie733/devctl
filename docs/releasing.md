@@ -2,7 +2,7 @@
 
 Public distribution and self-update implement X03. The
 [release workflow](../.github/workflows/release.yml) builds Linux/WSL2 x86_64 and macOS Apple Silicon artifacts. Intel Mac is excluded.
-Release 1.5.0 provides both targets; historical 1.4.0 remains Linux-only. [tasks.md](tasks.md) records publication authorization, actual outcomes,
+Release 1.6.0 provides both targets; historical 1.4.0 remains Linux-only. [tasks.md](tasks.md) records publication authorization, actual outcomes,
 and pending real-environment acceptance.
 
 ## Prepare and trigger

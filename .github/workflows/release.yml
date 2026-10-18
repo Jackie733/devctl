@@ -82,7 +82,7 @@ jobs:
           version=$(./target/${{ matrix.target }}/release/devctl --version)
           python3 tests/support/release_artifact.py ./target/${{ matrix.target }}/release/devctl "${version#devctl }"
           python3 tests/support/package_release.py ./target/${{ matrix.target }}/release/devctl
-          for scenario in lifecycle reconnect slow high discovery navigation copying windows-copying mac-copying history disk-history; do
+          for scenario in appearance lifecycle reconnect slow high discovery navigation copying windows-copying mac-copying history disk-history; do
             python3 tests/support/tui_pty.py ./target/${{ matrix.target }}/release/devctl "$scenario"
           done
       - name: Package the exact source commit

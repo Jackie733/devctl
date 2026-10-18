@@ -37,7 +37,7 @@ versions, tool bindings or dependency checks are required. See
 
 ## Platform support
 
-Release **1.5.0** provides native programs for **Linux x86_64** (including **WSL2**),
+Release **1.6.0** provides native programs for **Linux x86_64** (including **WSL2**),
 **macOS 14+ Apple Silicon**. The Linux musl program needs
 neither Rust nor a particular glibc version. Intel Mac and native Windows are not supported.
 See the [installation guide](docs/install.md) for the matching download.
@@ -152,7 +152,7 @@ All workspace commands accept `--config PATH`. `update`, `--help`, and `--versio
 do not need workspace configuration. For foreground operation, use
 `devctl run web` or `devctl run --all`; Ctrl-C cleans up the selected services.
 
-Current source includes an unreleased [visual refinement](docs/tui-design-research.md):
+Version 1.6.0 adds a [visual refinement](docs/tui-design-research.md):
 coherent dark/light/terminal palettes, stable selection without state flashes,
 complete contextual hints and motion/symbol fallbacks. See
 [appearance options](docs/interaction.md#layout-help-and-confirmation), including

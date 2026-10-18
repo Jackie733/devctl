@@ -119,7 +119,7 @@ simplifying documentation must not silently cancel it.
 | L01, L02 | Paging, in-client reading restoration, pause, literal search and export | Delivered in 1.1.0; target WSL experience pending; no cross-exit bookmarks |
 | L04 | Persistent logs, rotation, expiry, cross-supervisor history | Delivered in 1.1.0; target WSL experience pending |
 | W04 | Workspace aliases/listing and profiles | Candidate |
-| D04, D05 | HTTP probes, one-shot tasks, sustained health checks, cascaded control | Candidate |
+| D04, D05 | HTTP probes, one-shot tasks, sustained health checks, cascaded control | Candidate; standalone startup-state refinement explicitly deferred on 2026-10-18 |
 | U01, P07 | Multiple services per project and aggregate workspace/project/service UI | Candidate; current one-command-per-project scope remains |
 | U02 | Expanded non-TUI foreground presentation | Candidate; existing foreground run and control CLI remain available |
 | X01 | Native macOS operation | Delivered in 1.5.0; native install/update/rollback and real bogu verification; separate platform/user acceptance evidence in tasks.md |

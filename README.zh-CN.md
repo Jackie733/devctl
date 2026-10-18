@@ -19,11 +19,11 @@
 
 1.5.0 支持在 TUI 按 **a** 添加项目：粘贴目录，选择 npm/pnpm 项目已有脚本，或填写平时使用的命令，确认后保存。首次使用也不必手写配置，保存后项目保持停止。**A** 改为启动默认组合；命令行 `add`、`import` 仍可使用。无需选择环境版本，详见[添加项目](docs/interaction.md#adding-projects)。
 
-当前源码已完成首轮 [TUI 优化](docs/tui-design-research.md)，尚未发布：去掉启停状态的白闪，统一深浅配色与弹窗，切换面板仍保留选中项目，窄窗口按完整操作项显示提示。默认使用深色；`DEVCTL_TUI_THEME=light devctl` 使用浅色，`terminal` 跟随终端。另有减少动画、普通字符图标和无彩色选项，详见[界面设置](docs/interaction.md#layout-help-and-confirmation)。
+1.6.0 提供首轮 [TUI 优化](docs/tui-design-research.md)：去掉启停状态的白闪，统一深浅配色与弹窗，切换面板仍保留选中项目，窄窗口按完整操作项显示提示。默认使用深色；`DEVCTL_TUI_THEME=light devctl` 使用浅色，`terminal` 跟随终端。另有减少动画、普通字符图标和无彩色选项，详见[界面设置](docs/interaction.md#layout-help-and-confirmation)。
 
 ## 平台支持
 
-**1.5.0** 提供 **Linux x86_64（含 Windows WSL2）**、**macOS 14 及以上版本的 Apple 芯片** 程序。Linux 版本使用 musl 静态构建，无需安装 Rust，也不依赖特定 glibc 版本。请按[安装指南](docs/install.md)下载对应平台的程序；不支持 Intel Mac 和 Windows 原生运行。
+**1.6.0** 提供 **Linux x86_64（含 Windows WSL2）**、**macOS 14 及以上版本的 Apple 芯片** 程序。Linux 版本使用 musl 静态构建，无需安装 Rust，也不依赖特定 glibc 版本。请按[安装指南](docs/install.md)下载对应平台的程序；不支持 Intel Mac 和 Windows 原生运行。
 
 开发命令需要能够非交互运行。目前支持依赖校验与计划展示，尚未实现运行时依赖编排、就绪探针、自动重启或机器重启后的恢复。已交付和候选功能的区别见[路线图](docs/roadmap.md)。
 

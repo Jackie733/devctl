@@ -3,7 +3,7 @@
 User-facing changes are grouped by released version. Download artifacts from
 [GitHub Releases](https://github.com/Jackie733/devctl/releases).
 
-## Unreleased
+## 1.6.0 — 2026-10-18
 
 - Remove reverse-video state flashes during start/stop. Keep selected project
   backgrounds stable when focus moves to logs; preserve status words and colors.
@@ -11,6 +11,8 @@ User-facing changes are grouped by released version. Download artifacts from
   waiting indicators, plain status symbols and nonempty `NO_COLOR` support.
 - Fit complete contextual footer actions instead of clipping labels; emphasize
   current search matches with underline while preserving copied log evidence.
+- Preserve process-state semantics: Running means the process is alive. Application
+  startup confirmation remains deferred and is not part of this release.
 
 ## 1.5.0 — 2026-10-17
 
