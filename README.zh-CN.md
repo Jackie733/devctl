@@ -19,7 +19,7 @@
 
 1.5.0 支持在 TUI 按 **a** 添加项目：粘贴目录，选择 npm/pnpm 项目已有脚本，或填写平时使用的命令，确认后保存。首次使用也不必手写配置，保存后项目保持停止。**A** 改为启动默认组合；命令行 `add`、`import` 仍可使用。无需选择环境版本，详见[添加项目](docs/interaction.md#adding-projects)。
 
-新一轮 TUI 优化已完成[调研与方案](docs/tui-design-research.md)，尚未实施：建议统一深浅配色、焦点与状态图标，精简快捷键提示，并用克制的局部动画反馈操作；保留现有操作习惯与普通字体兼容性。
+当前源码已完成首轮 [TUI 优化](docs/tui-design-research.md)，尚未发布：去掉启停状态的白闪，统一深浅配色与弹窗，切换面板仍保留选中项目，窄窗口按完整操作项显示提示。默认使用深色；`DEVCTL_TUI_THEME=light devctl` 使用浅色，`terminal` 跟随终端。另有减少动画、普通字符图标和无彩色选项，详见[界面设置](docs/interaction.md#layout-help-and-confirmation)。
 
 ## 平台支持
 

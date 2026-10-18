@@ -1,4 +1,5 @@
 mod app;
+mod appearance;
 mod onboarding;
 mod terminal;
 mod view;
@@ -378,6 +379,7 @@ fn handle_key(app: &mut App, key: KeyEvent, area: ratatui::layout::Rect) -> Acti
 }
 
 pub async fn run(path: &Path) -> Result<(), String> {
+    let appearance = appearance::Appearance::from_env()?;
     let mut interrupt = signal(SignalKind::interrupt()).map_err(|error| error.to_string())?;
     let mut terminate = signal(SignalKind::terminate()).map_err(|error| error.to_string())?;
     let mut hangup = signal(SignalKind::hangup()).map_err(|error| error.to_string())?;
@@ -397,6 +399,7 @@ pub async fn run(path: &Path) -> Result<(), String> {
         let mut terminal = Terminal::new(CrosstermBackend::new(stdout())).map_err(|error| error.to_string())?;
         let mut events = EventStream::new();
         let mut app = App::new();
+        app.appearance = appearance;
         if !has_config {
             app.feedback = "No workspace yet. Press a to add your first project.".into();
             app.connection_error = Some("Add a project to create the configuration.".into());

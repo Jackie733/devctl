@@ -152,9 +152,11 @@ All workspace commands accept `--config PATH`. `update`, `--help`, and `--versio
 do not need workspace configuration. For foreground operation, use
 `devctl run web` or `devctl run --all`; Ctrl-C cleans up the selected services.
 
-The next visual refinement is [researched and proposed](docs/tui-design-research.md),
-not implemented: coherent dark/light/terminal colors, clearer focus and state symbols,
-compact contextual hints, and restrained motion with compatibility fallbacks.
+Current source includes an unreleased [visual refinement](docs/tui-design-research.md):
+coherent dark/light/terminal palettes, stable selection without state flashes,
+complete contextual hints and motion/symbol fallbacks. See
+[appearance options](docs/interaction.md#layout-help-and-confirmation), including
+`DEVCTL_TUI_THEME=light devctl` for light terminals.
 
 ## TUI shortcuts
 

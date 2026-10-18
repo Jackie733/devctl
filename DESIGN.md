@@ -200,15 +200,20 @@ Control completion invalidates earlier queries and requests new state; it does n
 pretend its feedback is a fresh status snapshot. Connection, service failure, and
 unknown operation completion retain separate diagnostics.
 
-App owns monotonic presentation clocks for spinner frames, per-service state
-highlights, and successful stop/copy feedback. The existing draw tick advances
-spinners at most every 100 ms while busy and invalidates the view once when a
-highlight or feedback expires; idle presentation does not request redraws. Only
-same-workspace connected snapshots can create state highlights. Disconnect and
-workspace replacement clear them. Feedback expiry hides only the matching success
-text in the main view, retaining the full message in help. These clocks never mutate
-service snapshots, request generations, or log anchors. No animation dependency is
-needed for these bounded effects.
+App owns monotonic presentation clocks for spinner frames and successful stop/copy
+feedback. The existing draw tick advances spinners at most every 100 ms while busy
+unless reduced motion is enabled, and invalidates the view once when feedback
+expires. State changes never schedule a flash or reverse-video effect; idle
+presentation does not request redraws. Feedback expiry hides only the matching
+success text in the main view, retaining the full message in help. These clocks never
+mutate service snapshots, request generations, or log anchors.
+
+Appearance options are validated once before terminal entry and retained per client.
+The view uses a bounded named-color vocabulary; a final buffer pass resolves foreground
+and background roles to dark, light or terminal palettes for the whole frame including
+overlays. It does not parse or alter log text. Monochrome rendering retains selection
+and current-match emphasis with underline. It adds no timers, terminal queries or
+runtime dependencies. The option contract is in [interaction.md](docs/interaction.md#layout-help-and-confirmation).
 
 Focus does not change project selection, generations, or log cursor. Input precedence
 keeps leaving, size constraints, confirmation, help, selection, search, and main

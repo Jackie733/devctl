@@ -161,17 +161,34 @@ Unconfirmed cleanup and unknown control completion retain their own diagnostics.
 Service states pair text with symbols: `○ Stopped`, `● Running`, `× Failed`, and
 `? Unknown`; `Starting`/`Stopping` use a spinner. No Nerd Font is required. The
 focused panel has a cyan, bold title; `▸` marks the selected project independently
-of focus, and selection preserves readable state colors. A confirmed transition
-to Running or Stopped briefly highlights the state for 300 ms. Running still means
-process alive, not application readiness.
+of focus. Selection keeps its background when focus moves to logs and preserves
+readable state colors. State transitions update the symbol and label without
+flashing or reversing the background. Running still means process alive, not
+application readiness.
 
 Spinners advance while connecting, awaiting a control or clipboard result, loading
 logs, or searching. `FOLLOW`, `READ`, and `V-LINE` use distinct emphasis without
-animating log text. Shortcut keys are highlighted within the existing footer.
+animating log text. Shortcut keys use the focus accent; the footer fits complete
+actions in priority order and reserves help/leave access at every usable size.
 Successful stop/copy feedback leaves the bottom row after two seconds; its full
 text, including clipboard caveats, remains in help until replaced. Start acceptance
 is not treated as confirmed startup. Failures and unknown completion do not expire;
 connection, service, and log-loss diagnostics remain visible independently.
+
+Current source adds these appearance options (unreleased; read once at TUI startup):
+
+| Environment variable | Values and behavior |
+| --- | --- |
+| `DEVCTL_TUI_THEME` | `dark` (default), `light`, `terminal`; explicit selection, no background detection |
+| `DEVCTL_TUI_REDUCED_MOTION` | `1` keeps waiting text and a static `~`; `0`/unset enables waiting spinners |
+| `DEVCTL_TUI_ASCII` | `1` uses plain status/selection symbols; `0`/unset uses Unicode; log text and pane borders remain unchanged |
+| `NO_COLOR` | Any nonempty value removes TUI foreground/background colors; selection/search keep text and underline emphasis |
+
+For example, `DEVCTL_TUI_THEME=light devctl` selects the light palette.
+Dark/light themes style the main view and dialogs consistently. Terminal mode
+inherits the terminal background and uses its ANSI palette. Unknown theme names or
+invalid `0`/`1` options fail before entering terminal mode or connecting a workspace.
+Theme/symbol/motion choices do not change service behavior or copied log contents.
 
 The bottom is always two rows: feedback and relevant shortcuts. Full IDs, errors,
 saving paths, and operation details are available in scrollable help. Logs do not

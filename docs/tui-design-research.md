@@ -1,7 +1,7 @@
 # TUI refinement research and proposal
 
-Date: 2026-10-18. Status: research complete; design proposed, not implemented or
-user-accepted. Scope: [U01](requirements.md#initial-scope-and-acceptance), M5 in the
+Date: 2026-10-18. Status: initial visual refinement implemented in current source
+(unreleased); real-platform user acceptance remains outstanding. Scope: [U01](requirements.md#initial-scope-and-acceptance), M5 in the
 [roadmap](roadmap.md), with existing L01/L03 log behavior and A01 onboarding.
 This document records design rationale and candidate specifications. Approved
 interaction rules belong in [interaction.md](interaction.md); mechanisms belong in
@@ -15,7 +15,7 @@ behavior is checked, primary third-party references are compared, a concrete pal
 icon and motion proposal is specified, and delivery/verification boundaries are clear.
 Implementation and real WSL/macOS visual acceptance are separate work.
 
-## Current baseline
+## Baseline before this refinement
 
 Source inspection: `src/tui/view.rs`, `app.rs`, `mod.rs`, and existing interaction rules.
 The current implementation already provides:
@@ -40,6 +40,20 @@ Improvement opportunities inferred from the rendering rules (not user-study find
 - Long contextual shortcut strings can be clipped. The global help/leave area already
   has reserved space; improve contextual prioritization rather than replacing it.
 - Existing symbols and restrained motion are a good foundation, not missing features.
+
+## Implementation status
+
+The user authorized implementation and explicitly rejected the white state flash.
+Current source removes that effect and its timer entirely. It adds coherent dark,
+light and terminal palettes, stable project selection across focus changes, complete
+contextual footer actions, reduced-motion waiting symbols, ASCII status symbols and
+monochrome selection/search emphasis. See the current
+[interaction contract](interaction.md#layout-help-and-confirmation) for options.
+
+The specification below records the researched direction; implemented contracts take
+precedence. Delaying spinners by 150 ms, compacting log metadata and AG01 integration
+remain later work. Ordinary waiting retains its existing 100 ms animation cadence.
+No comparative CPU benchmark or physical WSL/macOS glyph acceptance is claimed.
 
 ## Reference products
 
@@ -140,7 +154,7 @@ Unicode is a compatibility target, not a guarantee across every installed font.
 | --- | --- | --- |
 | Immediate key action | Update focus/selection immediately | No slide, spring, fade or animated scrolling |
 | Background request | Immediate text acknowledgement; spinner if still pending after ~150 ms | Roughly 100 ms per frame; fixed-width slot |
-| Confirmed state change | Brief local bold/tint emphasis for 250–300 ms | Avoid repeated reverse-video flashes or full-row blinking |
+| Confirmed state change | Update status symbol and label; preserve background | User rejected transition flashes; no temporary emphasis |
 | Success | Check mark + action result for 2 seconds | Persistent failures always outrank success |
 | Failure / disconnect | Stable text and symbol | Never vanish on a success timer or pulse indefinitely |
 | Reduced motion | Static busy symbol + state text; no transition emphasis | Preserve acknowledgements and final results |
@@ -178,7 +192,7 @@ Acceptance scenarios for implementation:
 - Reuse existing TUI unit and PTY tests; add only behavior gaps. Functional delivery
   must also pass formatting, clippy and impact-appropriate integration tests.
 
-Research validation: 70 current TUI unit tests and the existing navigation PTY scenario
+Initial research validation: 70 baseline TUI unit tests and the existing navigation PTY scenario
 passed; wide/compact text frames were inspected. At 60×18 the footer visibly truncated
 `a add` to `a ad`, supporting whole-item hint prioritization. These checks establish the current
 baseline, not the proposed design's appearance or user acceptance. No pixel screenshot,

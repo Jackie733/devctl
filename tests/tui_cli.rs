@@ -117,3 +117,8 @@ fn add_dialog_hot_adds_without_restarting_services_or_losing_logs() {
 fn add_dialog_completes_directory_paths_and_cycles_candidates_in_a_real_terminal() {
     add_scenario("completion");
 }
+
+#[test]
+fn tui_themes_symbols_and_reduced_motion_keep_controls_and_reading_usable() {
+    scenario("appearance");
+}

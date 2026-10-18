@@ -76,9 +76,19 @@ class Screen:
             elif character >= ' ':
                 width = 2 if unicodedata.east_asian_width(character) in ('W', 'F') else 1
                 if self.x < self.width and self.y < self.height:
-                    self.rows[self.y][self.x] = character
+                    row = self.rows[self.y]
+                    # Overwriting either half of a wide glyph clears its other
+                    # half, as a real terminal does. Incremental redraws may
+                    # replace Chinese path characters with ordinary spaces.
+                    if row[self.x] == '' and self.x > 0:
+                        row[self.x - 1] = ' '
+                    if self.x + 1 < self.width and row[self.x + 1] == '':
+                        row[self.x + 1] = ' '
+                    if width == 2 and self.x + 2 < self.width and row[self.x + 2] == '':
+                        row[self.x + 2] = ' '
+                    row[self.x] = character
                     if width == 2 and self.x + 1 < self.width:
-                        self.rows[self.y][self.x + 1] = ''
+                        row[self.x + 1] = ''
                 self.x += width
 
     def text(self):
@@ -86,7 +96,7 @@ class Screen:
 
 
 class Tui:
-    def __init__(self, workspace, discover=False, windows_clipboard=False, explicit_tui=False, mac_clipboard=False, wait_for="Connected"):
+    def __init__(self, workspace, discover=False, windows_clipboard=False, explicit_tui=False, mac_clipboard=False, wait_for="Connected", appearance=None):
         self.workspace = workspace
         self.master, self.slave = pty.openpty()
         self.screen = Screen()
@@ -97,6 +107,9 @@ class Tui:
         if explicit_tui: args.append('tui')
         environment = os.environ.copy()
         # Never write to the real host clipboard, even when the suite runs in WSL.
+        for key in ['DEVCTL_TUI_THEME', 'DEVCTL_TUI_ASCII', 'DEVCTL_TUI_REDUCED_MOTION', 'NO_COLOR']:
+            environment.pop(key, None)
+        environment.update(appearance or {})
         environment['SSH_CONNECTION'] = 'devctl-pty-test'
         environment['XDG_STATE_HOME'] = str(workspace.root / 'state')
         if windows_clipboard:
@@ -470,6 +483,53 @@ def high_output():
         assert time.monotonic() - start < 1.5, 'High output blocked leaving'
         w.states(web='Running')
     finally: w.close()
+
+
+def appearance():
+    # A wide glyph must not leave a hidden continuation when overwritten.
+    screen = Screen(8, 2)
+    screen.feed('中a'.encode())
+    screen.feed(b'\x1b[1;1Hx')
+    assert screen.text().splitlines()[0].startswith('x a')
+    screen.feed('\x1b[1;1H中'.encode())
+    screen.feed(b'\x1b[1;2Hy')
+    assert screen.text().splitlines()[0].startswith(' ya')
+    for theme in ['dark', 'light', 'terminal', 'mono']:
+        w = Workspace()
+        try:
+            options = {'DEVCTL_TUI_THEME': 'terminal' if theme == 'mono' else theme}
+            if theme == 'mono':
+                options.update(NO_COLOR='1', DEVCTL_TUI_ASCII='1', DEVCTL_TUI_REDUCED_MOTION='1')
+            ui = Tui(w, appearance=options)
+            ui.choose('web')
+            ui.wait('- Stopped' if theme == 'mono' else '○ Stopped')
+            ui.send(b's')
+            ui.wait('* Running' if theme == 'mono' else '● Running')
+            ui.wait('web-line-')
+            ui.send(b'0/web-line-\r')
+            ui.wait('Match seq=')
+            ui.send(b'v')
+            ui.wait('V-LINE')
+            ui.send(b'\x1b')
+            ui.wait(lambda text: 'V-LINE' not in text)
+            ui.send(b'?')
+            ui.wait('CURRENT PANEL')
+            ui.send(b'\x1b')
+            ui.wait(lambda text: ' Help ' not in text)
+            ui.resize(60,18)
+            ui.wait('q leave')
+            ui.send(b'1')
+            ui.wait('s/x start/stop | Enter logs | a add')
+            ui.send(b'x')
+            ui.wait('- Stopped' if theme == 'mono' else '○ Stopped')
+            assert b'\x1b[7m' not in ui.raw, 'State changes must not invert colors'
+            if theme == 'mono':
+                assert b'38;2;' not in ui.raw and b'48;2;' not in ui.raw
+            elif theme in ['dark','light']:
+                assert b'38;2;' in ui.raw and b'48;2;' in ui.raw
+            ui.exit()
+        finally:
+            w.close()
 
 
 def navigation():
@@ -846,7 +906,7 @@ def config_discovery():
 
 
 if __name__ == '__main__':
-    {'lifecycle': lifecycle, 'reconnect': reconnect, 'slow': slow_stop_and_failure, 'high': high_output,
+    {'appearance': appearance, 'lifecycle': lifecycle, 'reconnect': reconnect, 'slow': slow_stop_and_failure, 'high': high_output,
      'discovery': config_discovery, 'navigation': navigation, 'copying': copying,
      'windows-copying': windows_copying, 'mac-copying': mac_copying, 'history': history, 'disk-history': disk_history}[sys.argv[2]]()
     print('PASS:', sys.argv[2])

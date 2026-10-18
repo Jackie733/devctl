@@ -593,10 +593,10 @@ impl LogWindow {
 }
 
 pub struct App {
+    pub appearance: super::appearance::Appearance,
     pub animation_frame: usize,
     animation_at: Instant,
     presentation_now: Instant,
-    highlights: BTreeMap<String, Instant>,
     success_feedback: Option<(String, Instant)>,
     pub copying: bool,
     bookmarks: BTreeMap<String, Bookmark>,
@@ -626,10 +626,10 @@ impl App {
     pub fn new() -> Self {
         let now = Instant::now();
         Self {
+            appearance: super::appearance::Appearance::default(),
             animation_frame: 0,
             animation_at: now,
             presentation_now: now,
-            highlights: BTreeMap::new(),
             success_feedback: None,
             copying: false,
             bookmarks: BTreeMap::new(),
@@ -682,14 +682,14 @@ impl App {
     // Presentation clocks never advance service state or the log reading position.
     pub fn tick(&mut self, now: Instant) -> bool {
         let mut changed = false;
-        if self.busy() && now.duration_since(self.animation_at) >= Duration::from_millis(100) {
-            self.animation_frame = (self.animation_frame + 1) % 10;
+        if !self.appearance.reduced_motion
+            && self.busy()
+            && now.duration_since(self.animation_at) >= Duration::from_millis(100)
+        {
+            self.animation_frame = self.animation_frame.wrapping_add(1);
             self.animation_at = now;
             changed = true;
         }
-        let count = self.highlights.len();
-        self.highlights.retain(|_, until| now < *until);
-        changed |= count != self.highlights.len();
         if let Some((text, until)) = &self.success_feedback {
             changed |= text == &self.feedback && self.presentation_now < *until && now >= *until;
         }
@@ -713,10 +713,6 @@ impl App {
         self.success_feedback
             .as_ref()
             .is_some_and(|(text, _)| text == &self.feedback)
-    }
-
-    pub fn highlighted(&self, id: &str) -> bool {
-        self.connected && self.highlights.contains_key(id)
     }
 
     pub fn focus(&mut self, focus: Focus) {
@@ -874,27 +870,6 @@ impl App {
             !self.connected || self.workspace_id.as_ref() != Some(&response.workspace_id);
         let changed = reconnected || self.services != response.services;
         if reconnected {
-            self.highlights.clear();
-        } else {
-            for (id, status) in &response.services {
-                if self
-                    .services
-                    .get(id)
-                    .is_some_and(|old| old.state != status.state)
-                    && matches!(
-                        status.state,
-                        crate::manager::ServiceState::Running
-                            | crate::manager::ServiceState::Stopped
-                    )
-                {
-                    self.highlights
-                        .insert(id.clone(), Instant::now() + Duration::from_millis(300));
-                }
-            }
-            self.highlights
-                .retain(|id, _| response.services.contains_key(id));
-        }
-        if reconnected {
             if self
                 .workspace_id
                 .as_ref()
@@ -932,7 +907,6 @@ impl App {
     }
 
     pub fn disconnect(&mut self, message: String) {
-        self.highlights.clear();
         self.remember_position();
         self.connected = false;
         self.epoch += 1;
@@ -1393,28 +1367,20 @@ mod tests {
     }
 
     #[test]
-    fn only_confirmed_state_changes_flash_and_reconnection_clears_highlights() {
+    fn reduced_motion_preserves_busy_and_success_feedback_without_ticks() {
         let mut app = App::new();
-        let response = |state| {
-            let mut response = status("one");
-            response.services.get_mut("a").unwrap().state = state;
-            response
-        };
-        app.apply_status(response(ServiceState::Running));
+        app.appearance.reduced_motion = true;
+        app.apply_status(status("one"));
         app.apply_logs(Batch::default());
-        assert!(!app.highlighted("a"));
-        app.apply_status(response(ServiceState::Stopped));
-        assert!(app.highlighted("a"));
-        let until = app.highlights["a"];
-        assert!(!app.tick(until - Duration::from_millis(1)));
-        assert!(app.tick(until));
-        assert!(!app.highlighted("a"));
-        app.apply_status(response(ServiceState::Running));
-        assert!(app.highlighted("a"));
-        app.disconnect("lost".into());
-        assert!(!app.highlighted("a"));
-        app.apply_status(response(ServiceState::Running));
-        assert!(!app.highlighted("a"));
+        app.begin(Operation::Start("a".into()));
+        assert!(app.busy());
+        let now = Instant::now();
+        assert!(!app.tick(now + Duration::from_secs(1)));
+        assert_eq!(app.animation_frame, 0);
+        assert!(app.feedback_visible());
+        app.success("Saved.".into());
+        assert!(app.tick(now + Duration::from_secs(3)));
+        assert!(!app.feedback_visible());
     }
 
     #[test]

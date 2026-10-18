@@ -54,7 +54,11 @@ fn log_body(
             } else {
                 Color::Yellow
             })
-            .add_modifier(Modifier::BOLD)
+            .add_modifier(if current {
+                Modifier::BOLD | Modifier::UNDERLINED
+            } else {
+                Modifier::BOLD
+            })
     };
     let mut spans = Vec::new();
     let mut end = 0;
@@ -302,7 +306,7 @@ fn status_line(app: &App) -> Line<'static> {
             text.push_str(spinner(app));
             text.push(' ');
         } else if app.feedback_succeeded() {
-            text.push_str("✓ ");
+            text.push_str(if app.appearance.ascii { "OK " } else { "✓ " });
         }
         text.push_str(&clean(&app.feedback));
     }
@@ -317,7 +321,13 @@ fn status_line(app: &App) -> Line<'static> {
 }
 
 fn spinner(app: &App) -> &'static str {
-    ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"][app.animation_frame]
+    if app.appearance.reduced_motion {
+        return "~";
+    }
+    if app.appearance.ascii {
+        return ["|", "/", "-", "\\"][app.animation_frame % 4];
+    }
+    ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"][app.animation_frame % 10]
 }
 
 fn state_icon(app: &App, id: &str) -> &'static str {
@@ -325,10 +335,28 @@ fn state_icon(app: &App, id: &str) -> &'static str {
         return "?";
     }
     match app.services[id].state {
-        ServiceState::Stopped => "○",
-        ServiceState::Running => "●",
+        ServiceState::Stopped => {
+            if app.appearance.ascii {
+                "-"
+            } else {
+                "○"
+            }
+        }
+        ServiceState::Running => {
+            if app.appearance.ascii {
+                "*"
+            } else {
+                "●"
+            }
+        }
         ServiceState::Starting | ServiceState::Stopping => spinner(app),
-        ServiceState::Failed => "×",
+        ServiceState::Failed => {
+            if app.appearance.ascii {
+                "x"
+            } else {
+                "×"
+            }
+        }
     }
 }
 
@@ -358,7 +386,7 @@ fn shortcuts(text: String) -> Line<'static> {
                         | "q"
                 ) {
                     Style::default()
-                        .fg(Color::Yellow)
+                        .fg(Color::Cyan)
                         .add_modifier(Modifier::BOLD)
                 } else {
                     Style::default()
@@ -367,6 +395,45 @@ fn shortcuts(text: String) -> Line<'static> {
             })
             .collect::<Vec<_>>(),
     )
+}
+
+// Fit whole actions in priority order; never display a clipped key or label.
+fn footer(app: &App, width: u16) -> Line<'static> {
+    let items: &[&str] = if app.goto_top {
+        &["g top", "Esc cancel"]
+    } else if app.logs.selection.is_some() {
+        &["y copy", "Esc", "j/k extend"]
+    } else if app.focus == Focus::Projects {
+        &[
+            "s/x start/stop",
+            "Enter logs",
+            "a add",
+            "j/k select",
+            "A default",
+            "X stop ALL",
+            "Q end",
+        ]
+    } else if app.search_input.is_some() {
+        &["Enter search", "Esc cancel"]
+    } else if app.logs.search.is_some() {
+        &["n/N match", "Esc clear", "G follow", "/ search"]
+    } else {
+        &["/ search", "v select", "G follow", "p pause", "j/k move"]
+    };
+    let mut text = String::new();
+    for item in items {
+        let candidate = if text.is_empty() {
+            item.to_string()
+        } else {
+            format!("{text} | {item}")
+        };
+        // One blank cell separates contextual actions from the reserved global help.
+        if Line::from(candidate.as_str()).width() >= usize::from(width) {
+            break;
+        }
+        text = candidate;
+    }
+    shortcuts(text)
 }
 
 pub fn layout(area: Rect, app: &App) -> ScreenLayout {
@@ -421,7 +488,11 @@ fn log_notice(app: &App) -> (&'static str, &'static str, Color) {
         return ("NO PROJECT", "Choose a project.", Color::DarkGray);
     };
     match status.state {
-        ServiceState::Stopped => ("STOPPED", "Retained logs; process stopped.", Color::Yellow),
+        ServiceState::Stopped => (
+            "STOPPED",
+            "Retained logs; process stopped.",
+            Color::DarkGray,
+        ),
         ServiceState::Starting => (
             "STARTING",
             "Waiting for process state; earlier logs may remain.",
@@ -487,6 +558,11 @@ fn panel(title: String, active: bool) -> Block<'static> {
 }
 
 pub fn render(frame: &mut Frame, app: &App) {
+    render_content(frame, app);
+    app.appearance.apply(frame.buffer_mut());
+}
+
+fn render_content(frame: &mut Frame, app: &App) {
     let area = frame.area();
     let connection = if app.connected {
         "Connected"
@@ -507,7 +583,7 @@ pub fn render(frame: &mut Frame, app: &App) {
         .take(8)
         .collect();
     let connection_icon = if app.connected {
-        "●"
+        if app.appearance.ascii { "*" } else { "●" }
     } else if app.connection_error.is_none() && app.workspace_id.is_none() {
         spinner(app)
     } else {
@@ -544,32 +620,12 @@ pub fn render(frame: &mut Frame, app: &App) {
     }
     // Full diagnostics stay in Help; the main view reserves exactly two bottom rows.
     frame.render_widget(Paragraph::new(status_line(app)), screen.details);
-    let context = if app.goto_top {
-        "g ... | g top | Esc cancel".into()
-    } else if app.logs.selection.is_some() && area.width < 60 {
-        "v j/k y copy Esc".into()
-    } else if app.logs.selection.is_some() {
-        "V-LINE | j/k extend | y copy | Esc cancel".into()
-    } else if app.focus == Focus::Projects {
-        let id = clean(app.selected.as_deref().unwrap_or("(none)"));
-        if area.width < 60 {
-            format!("s/x {id} j/k Enter")
-        } else {
-            format!("s/x {id} | j/k select | Enter logs | a add | A default | X stop ALL | Q end")
-        }
-    } else if let Some(search) = &app.logs.search {
-        format!(
-            "/{} | n/N match | Esc clear | G follow",
-            clean(&search.text)
-        )
-    } else if area.width < 60 {
-        "j/k v p G Esc".into()
-    } else {
-        "/ search | n/N match | v select | p pause | G follow".into()
-    };
     let [context_area, global] =
         Layout::horizontal([Constraint::Min(0), Constraint::Length(17)]).areas(screen.footer);
-    frame.render_widget(Paragraph::new(shortcuts(context)), context_area);
+    frame.render_widget(
+        Paragraph::new(footer(app, context_area.width)),
+        context_area,
+    );
     frame.render_widget(Paragraph::new(shortcuts("? help | q leave".into())), global);
     overlay(frame, app);
 }
@@ -600,21 +656,19 @@ fn projects_view(frame: &mut Frame, area: Rect, app: &App, show_details: bool) {
     let rows = app.services.keys().skip(start).take(height).map(|id| {
         let (status, color) = state(app, id);
         let selected = Some(id) == app.selected.as_ref();
-        let status_style = Style::default()
-            .fg(if selected && active && color == Color::DarkGray {
-                Color::Gray
-            } else {
-                color
-            })
-            .add_modifier(if app.highlighted(id) {
-                Modifier::BOLD | Modifier::REVERSED
-            } else {
-                Modifier::empty()
-            });
+        let status_style = Style::default().fg(if selected && color == Color::DarkGray {
+            Color::Gray
+        } else {
+            color
+        });
         Row::new(vec![
             Cell::from(format!(
                 "{}{}",
-                if selected { "▸ " } else { "  " },
+                if selected {
+                    if app.appearance.ascii { "> " } else { "▸ " }
+                } else {
+                    "  "
+                },
                 clean(id)
             )),
             Cell::from(Line::styled(
@@ -622,7 +676,7 @@ fn projects_view(frame: &mut Frame, area: Rect, app: &App, show_details: bool) {
                 status_style,
             )),
         ])
-        .style(if selected && active {
+        .style(if selected {
             Style::default()
                 .bg(Color::DarkGray)
                 .add_modifier(Modifier::BOLD)
@@ -961,7 +1015,7 @@ fn modal_backdrop(frame: &mut Frame, area: Rect) {
         screen,
         Style::default()
             .fg(Color::DarkGray)
-            .bg(Color::Black)
+            .bg(Color::Reset)
             .remove_modifier(Modifier::all()),
     );
     let gutter = Rect::new(
@@ -1107,6 +1161,11 @@ fn help_lines(app: &App) -> Vec<Line<'static>> {
         note("Local WSL: clip.exe; local Mac: pbcopy; elsewhere/SSH: OSC 52."),
         note("Check copy feedback and paste to verify. Failures keep selection."),
         note("Selected logs stay anchored; eviction cancels selection."),
+        Line::default(),
+        heading("APPEARANCE"),
+        note("DEVCTL_TUI_THEME=dark|light|terminal (default: dark)"),
+        note("DEVCTL_TUI_REDUCED_MOTION=1: static waiting indicators"),
+        note("DEVCTL_TUI_ASCII=1: plain status symbols; NO_COLOR=1: monochrome"),
         Line::default(),
         heading("LEAVING"),
         help_action("q / Ctrl-C", "Leave interface; services keep running"),
@@ -1326,9 +1385,11 @@ mod tests {
             .buffer()
             .content()
             .iter()
-            .find(|cell| cell.symbol() == "●" && cell.bg == Color::DarkGray)
+            .find(|cell| {
+                cell.symbol() == "●" && cell.bg == app.appearance.background(Color::DarkGray)
+            })
             .unwrap();
-        assert_eq!(running.fg, Color::Green);
+        assert_eq!(running.fg, app.appearance.foreground(Color::Green));
         app.select(1);
         terminal.draw(|frame| render(frame, &app)).unwrap();
         let stopped = terminal
@@ -1512,9 +1573,18 @@ mod tests {
         terminal.draw(|frame| render(frame, &app)).unwrap();
         let log_area = layout(Rect::new(0, 0, 120, 30), &app).logs;
         let buffer = terminal.backend().buffer();
-        assert_eq!(buffer[(log_area.x + 1, log_area.y + 2)].bg, Color::DarkGray);
-        assert_eq!(buffer[(log_area.x + 1, log_area.y + 3)].bg, Color::Blue);
-        assert_ne!(buffer[(log_area.x + 1, log_area.y + 4)].bg, Color::Blue);
+        assert_eq!(
+            buffer[(log_area.x + 1, log_area.y + 2)].bg,
+            app.appearance.background(Color::DarkGray)
+        );
+        assert_eq!(
+            buffer[(log_area.x + 1, log_area.y + 3)].bg,
+            app.appearance.background(Color::Blue)
+        );
+        assert_ne!(
+            buffer[(log_area.x + 1, log_area.y + 4)].bg,
+            app.appearance.background(Color::Blue)
+        );
         let narrow = draw(&app, 36, 10);
         assert!(narrow.contains("V-LINE") && narrow.contains("y copy") && narrow.contains("Esc"));
     }
@@ -1789,22 +1859,25 @@ mod tests {
                 assert_eq!(
                     buffer[(area.x, area.y)].fg,
                     if confirm {
-                        Color::LightRed
+                        app.appearance.foreground(Color::LightRed)
                     } else {
-                        Color::Cyan
+                        app.appearance.foreground(Color::Cyan)
                     }
                 );
                 for y in area.y - 1..=area.bottom() {
                     for x in area.x - 1..=area.right() {
                         let cell = &buffer[(x, y)];
-                        assert_eq!(cell.bg, Color::Black);
+                        assert_eq!(cell.bg, app.appearance.background(Color::Black));
                         if !area.contains((x, y).into()) {
                             assert_eq!(cell.symbol(), " ");
                         }
                     }
                 }
                 // Outside the gutter, original text remains as a subdued backdrop.
-                assert_eq!(buffer[(0, 0)].fg, Color::DarkGray);
+                assert_eq!(
+                    buffer[(0, 0)].fg,
+                    app.appearance.foreground(Color::DarkGray)
+                );
                 let text: String = (area.y..area.bottom())
                     .flat_map(|y| (area.x..area.right()).map(move |x| buffer[(x, y)].symbol()))
                     .collect();
@@ -1831,7 +1904,7 @@ mod tests {
                 .buffer()
                 .content
                 .iter()
-                .any(|cell| cell.bg == Color::LightYellow)
+                .any(|cell| cell.bg == app.appearance.background(Color::LightYellow))
         );
         assert!(draw(&app, 120, 30).contains("BACKGROUND"));
     }
@@ -1909,10 +1982,19 @@ mod tests {
         terminal.draw(|f| render(f, &app)).unwrap();
         let cells = &terminal.backend().buffer().content;
         assert_eq!(
-            cells.iter().filter(|c| c.bg == Color::LightYellow).count(),
+            cells
+                .iter()
+                .filter(|c| c.bg == app.appearance.background(Color::LightYellow))
+                .count(),
             12
         );
-        assert_eq!(cells.iter().filter(|c| c.bg == Color::Yellow).count(), 6);
+        assert_eq!(
+            cells
+                .iter()
+                .filter(|c| c.bg == app.appearance.background(Color::Yellow))
+                .count(),
+            6
+        );
         let text = draw(&app, 120, 30);
         assert!(
             text.contains("context-19")
@@ -1925,8 +2007,8 @@ mod tests {
         assert_eq!(
             cells
                 .iter()
-                .filter(|c| c.bg == Color::Blue
-                    && c.fg == Color::Yellow
+                .filter(|c| c.bg == app.appearance.background(Color::Blue)
+                    && c.fg == app.appearance.foreground(Color::Yellow)
                     && c.modifier.contains(Modifier::UNDERLINED))
                 .count(),
             12
@@ -1935,14 +2017,11 @@ mod tests {
         app.logs.selection = None;
         app.logs.clear_search();
         terminal.draw(|f| render(f, &app)).unwrap();
-        assert!(
-            !terminal
-                .backend()
-                .buffer()
-                .content
-                .iter()
-                .any(|c| matches!(c.bg, Color::Yellow | Color::LightYellow))
-        );
+        assert!(!terminal.backend().buffer().content.iter().any(|c| {
+            [Color::Yellow, Color::LightYellow]
+                .map(|color| app.appearance.background(color))
+                .contains(&c.bg)
+        }));
         app.search_input = Some("needle".into());
         terminal.draw(|f| render(f, &app)).unwrap();
         assert_eq!(
@@ -1951,7 +2030,7 @@ mod tests {
                 .buffer()
                 .content
                 .iter()
-                .filter(|c| c.bg == Color::Yellow)
+                .filter(|c| c.bg == app.appearance.background(Color::Yellow))
                 .count(),
             18
         );
@@ -1977,5 +2056,123 @@ mod tests {
             spans.iter().map(|s| s.content.as_ref()).collect::<String>(),
             "pre    needle"
         );
+    }
+    #[test]
+    fn state_changes_never_invert_or_flash_the_selected_background() {
+        let mut app = searched_app();
+        app.focus(Focus::Projects);
+        let mut terminal = Terminal::new(TestBackend::new(120, 30)).unwrap();
+        for state in [
+            ServiceState::Starting,
+            ServiceState::Running,
+            ServiceState::Stopping,
+            ServiceState::Stopped,
+            ServiceState::Failed,
+        ] {
+            let mut services = app.services.clone();
+            services.get_mut("web").unwrap().state = state;
+            app.apply_status(Response {
+                workspace_id: "one".into(),
+                services,
+                ..Response::default()
+            });
+            for millis in [0, 100, 300, 500] {
+                app.tick(std::time::Instant::now() + std::time::Duration::from_millis(millis));
+                terminal.draw(|frame| render(frame, &app)).unwrap();
+                let row = terminal.backend().buffer();
+                for x in 1..31 {
+                    let cell = &row[(x, 2)];
+                    assert_eq!(cell.bg, app.appearance.background(Color::DarkGray));
+                    assert!(!cell.modifier.intersects(
+                        Modifier::REVERSED | Modifier::SLOW_BLINK | Modifier::RAPID_BLINK
+                    ));
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn footer_fits_complete_actions_and_preserves_global_help() {
+        let mut app = searched_app();
+        for focus in [Focus::Projects, Focus::Logs] {
+            app.focus(focus);
+            for (width, height) in [(120, 30), (80, 24), (60, 18), (36, 10)] {
+                let text = draw(&app, width, height);
+                assert!(text.contains("? help | q leave"));
+                let line = footer(&app, width - 17).to_string();
+                assert!(line.len() < usize::from(width - 17));
+                assert!(!line.ends_with(" |"));
+                if focus == Focus::Projects && width == 60 {
+                    assert!(line.contains("a add"));
+                }
+            }
+        }
+        app.logs.begin_selection(20);
+        assert_eq!(footer(&app, 19).to_string(), "y copy | Esc");
+    }
+
+    #[test]
+    fn themes_keep_content_readable_and_fallbacks_preserve_text_and_selection() {
+        use super::super::appearance::Theme;
+        fn luminance(color: Color) -> f64 {
+            let Color::Rgb(r, g, b) = color else {
+                panic!("Expected resolved color")
+            };
+            let channel = |v: u8| {
+                let n = f64::from(v) / 255.0;
+                if n <= 0.04045 {
+                    n / 12.92
+                } else {
+                    ((n + 0.055) / 1.055).powf(2.4)
+                }
+            };
+            0.2126 * channel(r) + 0.7152 * channel(g) + 0.0722 * channel(b)
+        }
+        let mut app = searched_app();
+        app.logs.begin_selection(20);
+        let mut terminal = Terminal::new(TestBackend::new(120, 30)).unwrap();
+        for theme in [Theme::Dark, Theme::Light] {
+            app.appearance.theme = theme;
+            for help in [false, true] {
+                app.help = help;
+                terminal.draw(|frame| render(frame, &app)).unwrap();
+                for cell in &terminal.backend().buffer().content {
+                    if cell.symbol().trim().is_empty() {
+                        continue;
+                    }
+                    let (fg, bg) = (luminance(cell.fg), luminance(cell.bg));
+                    let ratio = (fg.max(bg) + 0.05) / (fg.min(bg) + 0.05);
+                    assert!(ratio >= 4.5, "{theme:?} {:?}: {ratio}", cell);
+                }
+            }
+        }
+        app.help = false;
+        app.appearance.theme = Theme::Terminal;
+        assert!(draw(&app, 120, 30).contains("needle"));
+        app.appearance.no_color = true;
+        app.appearance.ascii = true;
+        app.appearance.reduced_motion = true;
+        let mut terminal = Terminal::new(TestBackend::new(120, 30)).unwrap();
+        terminal.draw(|frame| render(frame, &app)).unwrap();
+        for cell in &terminal.backend().buffer().content {
+            assert!(
+                cell.symbol().trim().is_empty()
+                    || (cell.fg == Color::Reset && cell.bg == Color::Reset),
+                "{cell:?}"
+            );
+        }
+        assert!(
+            terminal
+                .backend()
+                .buffer()
+                .content
+                .iter()
+                .any(|cell| cell.modifier.contains(Modifier::UNDERLINED))
+        );
+        assert_eq!(app.logs.selected_text().unwrap().0, "前 needle 中 needle\n");
+        app.logs.selection = None;
+        app.focus(Focus::Projects);
+        let text = draw(&app, 120, 30);
+        assert!(text.contains("> web") && text.contains("- Stopped"));
     }
 }

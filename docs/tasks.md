@@ -3,25 +3,44 @@
 Keep current work and necessary handoff here; Git retains history. Collaboration
 rules are in [AGENTS.md](../AGENTS.md).
 
-## Completed: U01 / M5 TUI research and refinement proposal
+## Completed: U01 / M5 first TUI visual refinement (unreleased)
 
-Requested on 2026-10-18: research third-party TUI products before proposing UI,
-motion, icon and palette improvements. [Research and proposal](tui-design-research.md)
-records the existing baseline, five reference groups, concrete visual rules, staged
-work and acceptance scenarios. No runtime code or dependency changed.
+Requested on 2026-10-18 after [research](tui-design-research.md): remove the white
+start/stop state flash and implement the recommended visual direction.
+
+- Removed reverse-video state emphasis and its expiry timer entirely. Selection
+  backgrounds remain stable through state changes and focus switches.
+- Added coherent dark/light/terminal palettes, shared dialog styling, quieter stopped
+  notices, complete contextual footer actions, and current-search underline.
+- Added reduced motion, ASCII status symbols and nonempty `NO_COLOR` support; options
+  are documented in the [interaction contract](interaction.md#layout-help-and-confirmation).
+- Existing keyboard scopes, log metadata/copy contents and service lifecycle remain.
+  No new runtime dependency, release or installed-binary replacement was made.
+- Fixed the PTY screen interpreter's handling of overwriting either half of a wide
+  character; verified quoted Chinese/spaced directory completion without weakening
+  its assertions. Added four-mode interactive appearance coverage.
 
 ### Validation
 
-- `cargo test tui:: -- --quiet`: 70 unit tests passed; other suites filtered out.
-- `cargo build --quiet`: passed.
-- `python3 tests/support/tui_pty.py target/debug/devctl navigation`: passed.
-- Inspected isolated current-version 120×30 and 60×18 terminal text frames.
-- `git diff --check`: passed.
-- `python3 /tmp/devctl-doc-check.py /Users/chuliu/Documents/Code/devctl`: passed;
-  17 Markdown documents, 168 local links/anchors, zero errors.
-- No new UI was implemented. Proposed appearance/motion, physical terminal glyphs,
-  performance and real WSL/macOS user acceptance remain unverified. No visual screenshot
-  audit or third-party runtime benchmark is claimed.
+- `cargo test --all-targets -- --quiet`: all 315 tests passed (186 unit + 129 integration).
+- After final visual adjustments, `cargo test tui:: -- --quiet`: 74 passed;
+  `cargo test --test tui_cli -- --quiet`: all 18 passed, including appearance,
+  lifecycle/failure/reconnect, search/copy/history, onboarding and resize scenarios.
+- `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings`: passed.
+- `python3 tests/support/tui_add_pty.py target/debug/devctl completion`: passed;
+  `python3 tests/support/tui_pty.py target/debug/devctl appearance`: passed.
+- Rendering checks cover stable start/stop backgrounds at multiple times, complete
+  actions at 120×30 / 80×24 / 60×18 / 36×10, dark/light text contrast of at least
+  4.5:1 for the exercised search/selection/help screens, and monochrome emphasis.
+- Inspected rasterized TUI test-buffer previews for layout/palette coherence. These
+  are buffer previews, not native-terminal screenshots or font acceptance evidence.
+- `git diff --check` and the local Markdown link/fence checker passed. No temporary
+  capture code or generated previews are included in the commit.
+
+Unverified: physical macOS/WSL terminal font/rendering acceptance, comparative CPU
+measurements. Spinner-onset delay, compact log prefixes and AG01 remain later work.
+Published v1.5.0 artifacts and the installed program were not replaced; these source
+changes require a new release before distribution.
 
 ### Preserved handoff
 
@@ -50,8 +69,8 @@ unverified. This U01 proposal neither implements nor cancels that workflow.
 
 ## Next steps
 
-1. Review the U01 visual proposal before implementation; prioritize coherent colors,
-   focus, status and contextual hints, then motion and compatibility.
+1. Validate the first U01 refinement in the user's actual macOS/WSL terminals before
+   release; tune palette/motion from that evidence. Keep metadata compaction separate.
 2. When implementation is authorized, begin AG1.1 engine feasibility against the
    documented data boundary, then implement and accept the complete AG1 TUI workflow.
    Do not substitute an export-only release or silently broaden engine access.

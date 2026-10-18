@@ -3,6 +3,15 @@
 User-facing changes are grouped by released version. Download artifacts from
 [GitHub Releases](https://github.com/Jackie733/devctl/releases).
 
+## Unreleased
+
+- Remove reverse-video state flashes during start/stop. Keep selected project
+  backgrounds stable when focus moves to logs; preserve status words and colors.
+- Add coherent dark/light/terminal TUI palettes, matching dialogs, reduced-motion
+  waiting indicators, plain status symbols and nonempty `NO_COLOR` support.
+- Fit complete contextual footer actions instead of clipping labels; emphasize
+  current search matches with underline while preserving copied log evidence.
+
 ## 1.5.0 — 2026-10-17
 
 - Add Tab directory completion to the TUI project-path input, with shared-prefix

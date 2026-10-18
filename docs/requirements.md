@@ -50,6 +50,7 @@ Terminal/WSL clipboard behavior refine U01/L01 without expanding platform guaran
 The confirmed U01 visual refinement adds state symbols, distinct focus/selection,
 emphasized shortcuts and log modes, and bounded waiting/completion feedback.
 Acceptance checks that state remains identifiable when selected or disconnected,
+state changes preserve stable backgrounds without reverse-video flashes,
 animations preserve log reading positions, and failures remain visible after ordinary
 success feedback expires. Actual WSL appearance remains a user acceptance step.
 
