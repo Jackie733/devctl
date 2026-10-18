@@ -3,7 +3,7 @@
 Keep current work and necessary handoff here; Git retains history. Collaboration
 rules are in [AGENTS.md](../AGENTS.md).
 
-## In progress: accurate startup indication (U01; readiness scope assessment)
+## Assessed: accurate startup indication (U01; readiness scope pending)
 
 Requested on 2026-10-18: keep a loading spinner while a project actually starts,
 then distinguish startup success from failure. Existing D01–D05 readiness candidates
@@ -17,13 +17,16 @@ activate dependency orchestration or continuous health monitoring.
 - An isolated installed-binary fixture waited 1.2 seconds and exited with code 1
   without becoming ready. Observed Running → Failed, then clean shutdown. No real
   project was started or changed.
-- Asked which positive startup signal to use: an accessible application URL,
-  explicit success log, or a per-project choice. The signal and timeout semantics
-  need to be settled before implementation; a fixed delay or generic error-word
-  detector cannot establish readiness.
-- Proposed direction: loading until a configured startup check succeeds; distinguish
-  unverified readiness from confirmed startup, process exit and check timeout.
-  No runtime/configuration or installed-program changes have been made for this request.
+- The user asked about mainstream practice and complexity before choosing a signal.
+  [Comparison and scoped recommendation](tui-design-research.md#follow-up-startup-state-and-complexity)
+  now covers official Supervisor, Compose, Kubernetes and PM2 behavior.
+- Recommendation: distinguish process stability from optional application startup
+  confirmation; avoid language/framework adapters and generic error-word detection.
+  A short observation interval may improve process feedback but cannot prove readiness.
+  The first supported check, observation interval and timeout semantics remain pending.
+- No runtime/configuration or installed-program changes were made for this request.
+  `git diff --check` and the Markdown link/fence checker passed. No Rust changes
+  require another Rust-suite run for this research-only follow-up.
 
 ## Completed: U01 / M5 visual refinement and local installation (unreleased)
 

@@ -197,3 +197,48 @@ passed; wide/compact text frames were inspected. At 60×18 the footer visibly tr
 `a add` to `a ad`, supporting whole-item hint prioritization. These checks establish the current
 baseline, not the proposed design's appearance or user acceptance. No pixel screenshot,
 new theme rendering, third-party runtime comparison or actual WSL visual test was done.
+
+
+## Follow-up: startup state and complexity
+
+Investigated on 2026-10-18 after the user observed immediate Running followed by a
+startup failure, then asked how mainstream tools handle readiness without growing
+language-specific complexity. These are comparisons and recommendations, not an
+implemented or accepted readiness contract.
+
+| Official source | Mechanism | What it establishes |
+| --- | --- | --- |
+| [Supervisor](https://supervisord.org/configuration.html#program-x-section-settings) | `startsecs`: STARTING until a process survives the interval (default one second) | Process startup stability; not application readiness |
+| [Docker Compose](https://docs.docker.com/compose/how-tos/startup-order/) | Default startup waits for running; explicit `healthcheck` and `service_healthy` can gate dependencies | Running and ready are separate; project supplies a meaningful check |
+| [Kubernetes](https://kubernetes.io/docs/concepts/workloads/pods/probes/) | Configured startup/readiness/liveness checks via HTTP, TCP, commands or gRPC | Distinct checks have distinct meanings and lifecycle effects |
+| [PM2](https://pm2.keymetrics.io/docs/usage/signals-clean-restart/) | Optional `wait_ready` with an application ready message; also documents a Node HTTP listen hook | Application cooperation or runtime-specific integration supplies readiness information |
+
+Design inference: complexity grows most when devctl tries to infer every framework's
+log messages and lifecycle. A small set of explicit, language-independent checks
+bounds the implementation, although selecting the right check remains per-project
+work. A TCP connection proves only that something accepts a connection; an HTTP
+response proves only the specified endpoint condition. Neither guarantees every
+feature works or that the application will not fail later.
+
+Recommended staged scope:
+
+- Optional small first improvement: a short process-start observation interval with
+  a spinner, then Running if the process survives. Label this as process state;
+  do not call it readiness or claim it catches all delayed startup failures. The
+  interval value and whether to adopt this behavior remain unconfirmed.
+- For projects needing explicit readiness, provide an optional startup confirmation
+  independent of implementation language. Web/API projects can use a designated
+  application URL; other projects may need an explicit success log. Choose the
+  smallest supported mechanism from confirmed real project needs before coding.
+- Waiting for configured evidence shows a spinner; evidence success establishes
+  startup confirmation. Process exit and check timeout remain distinct outcomes.
+  Without a configured check, show that application readiness was not verified;
+  do not keep an indefinite readiness spinner or fabricate success.
+- Keep continuous health monitoring, automatic restart, dependency ordering and
+  framework adapters outside this immediate UI refinement. Historical candidate
+  scope is preserved for later assessment, not cancelled.
+
+Current-code verification: a local isolated application that only printed a preparing
+message, waited 1.2 seconds and exited with code 1 was observed as Running → Failed.
+Cleanup succeeded. This reproduces the user's symptom and confirms the spawn/readiness
+boundary; no real project or installed binary was changed by this investigation.
