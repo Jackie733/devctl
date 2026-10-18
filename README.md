@@ -152,6 +152,10 @@ All workspace commands accept `--config PATH`. `update`, `--help`, and `--versio
 do not need workspace configuration. For foreground operation, use
 `devctl run web` or `devctl run --all`; Ctrl-C cleans up the selected services.
 
+The next visual refinement is [researched and proposed](docs/tui-design-research.md),
+not implemented: coherent dark/light/terminal colors, clearer focus and state symbols,
+compact contextual hints, and restrained motion with compatibility fallbacks.
+
 ## TUI shortcuts
 
 | Keys | Action |

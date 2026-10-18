@@ -3,46 +3,32 @@
 Keep current work and necessary handoff here; Git retains history. Collaboration
 rules are in [AGENTS.md](../AGENTS.md).
 
-## Completed: AG01 integrated TUI architecture revision
+## Completed: U01 / M5 TUI research and refinement proposal
 
-Requested on 2026-10-18. The user confirmed analysis, follow-up questions and results
-inside devctl. This replaces the earlier export-first recommendation, not the
-published runtime. Agent implementation remains proposed under
-[AG01](requirements.md#agent-assisted-troubleshooting-ag01).
-
-- [Interaction](interaction.md#agent-assisted-troubleshooting-proposed) now defines
-  error hints, local preparation, wide/compact screen sketches, focus/keys, follow-up,
-  evidence navigation, scope requests, cancellation and freshness feedback.
-- [DESIGN](../DESIGN.md#agent-assisted-troubleshooting-proposed) defines identities,
-  read boundaries, budgets, lifecycle and a conditional engine choice. Engine-native
-  tool isolation is an unresolved feasibility gate, not a claimed capability.
-- [Research](agent-research.md) revises the comparison using the confirmed experience;
-  [roadmap](roadmap.md#ag01-proposed-delivery-gates) treats the first delivery as one
-  complete workflow with internal engineering gates. README summaries agree.
-- Documentation ownership remains unchanged. No runtime code, dependencies, model
-  calls, automatic repair or release artifacts were added.
+Requested on 2026-10-18: research third-party TUI products before proposing UI,
+motion, icon and palette improvements. [Research and proposal](tui-design-research.md)
+records the existing baseline, five reference groups, concrete visual rules, staged
+work and acceptance scenarios. No runtime code or dependency changed.
 
 ### Validation
 
-- `git diff --check`: passed after removing trailing blank lines.
+- `cargo test tui:: -- --quiet`: 70 unit tests passed; other suites filtered out.
+- `cargo build --quiet`: passed.
+- `python3 tests/support/tui_pty.py target/debug/devctl navigation`: passed.
+- Inspected isolated current-version 120×30 and 60×18 terminal text frames.
+- `git diff --check`: passed.
 - `python3 /tmp/devctl-doc-check.py /Users/chuliu/Documents/Code/devctl`: passed;
-  16 Markdown documents and 165 local links/anchors, with closed code fences.
-- Reviewed keyboard precedence against `src/tui/mod.rs`, layout against the current
-  TUI, and historical-session scope against the existing interaction contract.
-  Corrected the proposal to identify the historical-session selector as new UI.
-- Measured all four ASCII screen sketches: widths 65/64/78/40 columns, within
-  their illustrative 80/80/120/50-column layouts. This is not interactive UI testing.
-- `codex --version`: 0.145.0. `codex app-server --help` and experimental JSON-schema
-  generation passed; inspected thread/turn, interruption and dynamic-tool shapes.
-  No engine server, authentication or model turn was run.
-- Prior isolated two-service fixture established reusable state/log/history paths,
-  missing loaded command/cwd response fields and raw fixture-secret exposure.
-  Receipt: `/private/tmp/dv-ag-lyd09_i1`; this revision did not rerun that runtime test.
-- No Rust behavior changed; a Rust-suite rerun is not needed for this documentation task.
+  17 Markdown documents, 168 local links/anchors, zero errors.
+- No new UI was implemented. Proposed appearance/motion, physical terminal glyphs,
+  performance and real WSL/macOS user acceptance remain unverified. No visual screenshot
+  audit or third-party runtime benchmark is claimed.
 
-Unverified: actual engine isolation, TUI implementation/usability, masking, diagnosis
-quality, costs/performance and real Mac/WSL integration. Screen sketches are proposed
-layouts, not screenshots of working features.
+### Preserved handoff
+
+The [AG01 integrated proposal](agent-research.md) remains proposed. Its interaction,
+architecture and delivery gates remain in the owning documents. Engine isolation,
+masking, diagnosis quality, costs/performance and real Mac/WSL integration are still
+unverified. This U01 proposal neither implements nor cancels that workflow.
 
 ## Published baseline and outstanding acceptance
 
@@ -64,9 +50,11 @@ layouts, not screenshots of working features.
 
 ## Next steps
 
-1. When implementation is authorized, begin AG1.1 engine feasibility against the
+1. Review the U01 visual proposal before implementation; prioritize coherent colors,
+   focus, status and contextual hints, then motion and compatibility.
+2. When implementation is authorized, begin AG1.1 engine feasibility against the
    documented data boundary, then implement and accept the complete AG1 TUI workflow.
    Do not substitute an export-only release or silently broaden engine access.
-2. Continue outstanding real-project/platform acceptance in [roadmap](roadmap.md)
+3. Continue outstanding real-project/platform acceptance in [roadmap](roadmap.md)
    and [WSL verification](wsl.md). A03 infrastructure control remains pending assessment.
-3. Preserve published v1.5.0 tag/artifacts; runtime changes require a new version.
+4. Preserve published v1.5.0 tag/artifacts; runtime changes require a new version.

@@ -19,6 +19,8 @@
 
 1.5.0 支持在 TUI 按 **a** 添加项目：粘贴目录，选择 npm/pnpm 项目已有脚本，或填写平时使用的命令，确认后保存。首次使用也不必手写配置，保存后项目保持停止。**A** 改为启动默认组合；命令行 `add`、`import` 仍可使用。无需选择环境版本，详见[添加项目](docs/interaction.md#adding-projects)。
 
+新一轮 TUI 优化已完成[调研与方案](docs/tui-design-research.md)，尚未实施：建议统一深浅配色、焦点与状态图标，精简快捷键提示，并用克制的局部动画反馈操作；保留现有操作习惯与普通字体兼容性。
+
 ## 平台支持
 
 **1.5.0** 提供 **Linux x86_64（含 Windows WSL2）**、**macOS 14 及以上版本的 Apple 芯片** 程序。Linux 版本使用 musl 静态构建，无需安装 Rust，也不依赖特定 glibc 版本。请按[安装指南](docs/install.md)下载对应平台的程序；不支持 Intel Mac 和 Windows 原生运行。
