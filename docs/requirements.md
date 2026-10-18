@@ -4,6 +4,22 @@ This document owns scope, priorities, and acceptance. See [usage](interaction.md
 for operations, [DESIGN.md](../DESIGN.md) for mechanisms, [roadmap](roadmap.md) for
 sequence, and [tasks.md](tasks.md) for current evidence.
 
+## Reading scope and status
+
+This document owns product scope and supported platforms. Other documents describe
+operations, mechanisms, sequencing or evidence, and refer here when repeating a
+rule is unnecessary. The English and Chinese READMEs summarize the same scope.
+
+- **Delivered** means implementation is available; publication and automated
+  checks do not establish acceptance of every target-platform workflow.
+- **Acceptance pending** identifies implemented workflows still needing real
+  project/platform verification or user acceptance.
+- **Candidate / pending assessment** preserves a proposal without scheduling or
+  authorizing implementation. Research/design authorization is distinct from
+  authorization to implement or release a feature.
+- **Removed from core** records an explicit scope decision. It does not silently
+  cancel other historical candidates.
+
 ## Confirmed scenario
 
 Manage independent development projects from one terminal:
@@ -209,7 +225,7 @@ without cloning source or installing Rust for routine updates.
 - Clearly separate file replacement from already-running supervisors. Initially users
   explicitly shut down each workspace before switching versions. Automatic discovery
   or restart of all workspaces requires separate assessment.
-- Install native Linux x86_64 musl or macOS arm64/x86_64 programs in `~/.local/bin`.
+- Install programs for the [supported platforms](#confirmed-scenario) in `~/.local/bin`.
   Historical Linux-only release availability is documented in the installation
   guide. Hashes trust the same public HTTPS source. Private authentication,
   package-manager distribution, other platforms and publication authorization

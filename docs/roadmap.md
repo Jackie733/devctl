@@ -21,8 +21,9 @@ owned by [requirements.md](requirements.md); current work and evidence live in
 
 The initial MVP was accepted on 2026-10-15. Controlled tests establish coverage of
 subsequent work, not final acceptance of those changes in every target environment.
-The 1.2.2 documentation/license release provides the next real version for testing
-1.2.1 → 1.2.2 updates without inventing additional runtime features.
+The historical 1.2.2 documentation/license release provided a distinct version for
+testing 1.2.1 → 1.2.2 updates. Current outstanding acceptance is listed below;
+that historical test opportunity is not evidence of a completed upgrade workflow.
 
 ## Next steps
 

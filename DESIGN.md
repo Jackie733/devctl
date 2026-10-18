@@ -21,7 +21,9 @@ flowchart LR
     A --> S
 ```
 
-Keep one Cargo package. Configuration becomes read-only after loading. Projects
+Keep one Cargo package. Loaded declarations remain stable except for the reviewed
+[append-only project addition](#tui-project-addition); external edits and replacement
+or removal of existing declarations require reopening the workspace. Projects
 identify directories; services define argument arrays. The supported interactive
 workspace has one service per project. The supervisor owns the Manager, service
 states, stop senders, and task handles. Each process task exclusively owns its Child
@@ -444,7 +446,7 @@ The per-version `update.json` attachment uses this schema:
 | `assets[].sha256` | 64 hexadecimal SHA-256 digits |
 
 Each native packager generates a manifest from its tested binary. Publication
-merges exactly three distinct native targets after checking each checksum/size and
+merges both distinct supported native targets after checking each checksum/size and
 requiring identical source archives, installers and build-commit notes. All attachments upload
 to a draft before publication as Latest. Tag, package, candidate, and manifest
 versions must agree. After resolving latest once, construct a fixed version URL

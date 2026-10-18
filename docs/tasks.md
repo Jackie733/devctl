@@ -3,6 +3,17 @@
 Keep current work and necessary handoff here; Git retains history. Collaboration
 rules are in [AGENTS.md](../AGENTS.md).
 
+## Current: documentation boundaries and Agent assessment (AG01 planning)
+
+Documentation boundary corrections cover the two supported platforms, append-only
+live additions and delivered/acceptance-pending/candidate/removed status definitions.
+Agent research and architecture planning were requested on 2026-10-18; implementation
+and publication have not been authorized by that planning request. Scope is owned by
+[requirements](requirements.md#reading-scope-and-status). Research/design and their
+validation are the next task step; existing platform acceptance below remains open.
+Boundary check: `git diff --check` passed; a Python local Markdown link/anchor check
+validated 131 links with no failures. No runtime behavior changed.
+
 ## Completed: publish v1.5.0 (X03; A01, W05, X01)
 
 Authorized and published on 2026-10-17. The user explicitly excluded Intel Mac:
