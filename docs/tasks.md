@@ -3,7 +3,7 @@
 Keep current work and necessary handoff here; Git retains history. Collaboration
 rules are in [AGENTS.md](../AGENTS.md).
 
-## Completed: U01 / M5 first TUI visual refinement (unreleased)
+## Completed: U01 / M5 visual refinement and local installation (unreleased)
 
 Requested on 2026-10-18 after [research](tui-design-research.md): remove the white
 start/stop state flash and implement the recommended visual direction.
@@ -15,7 +15,7 @@ start/stop state flash and implement the recommended visual direction.
 - Added reduced motion, ASCII status symbols and nonempty `NO_COLOR` support; options
   are documented in the [interaction contract](interaction.md#layout-help-and-confirmation).
 - Existing keyboard scopes, log metadata/copy contents and service lifecycle remain.
-  No new runtime dependency, release or installed-binary replacement was made.
+  No new runtime dependency or public release was made.
 - Fixed the PTY screen interpreter's handling of overwriting either half of a wide
   character; verified quoted Chinese/spaced directory completion without weakening
   its assertions. Added four-mode interactive appearance coverage.
@@ -39,8 +39,31 @@ start/stop state flash and implement the recommended visual direction.
 
 Unverified: physical macOS/WSL terminal font/rendering acceptance, comparative CPU
 measurements. Spinner-onset delay, compact log prefixes and AG01 remain later work.
-Published v1.5.0 artifacts and the installed program were not replaced; these source
-changes require a new release before distribution.
+Published v1.5.0 artifacts were not replaced; these source changes require a new
+release before public distribution.
+
+### Local installation
+
+The user explicitly requested replacing the installed program on 2026-10-18.
+Built source commit `12bb89f` with
+`MACOSX_DEPLOYMENT_TARGET=14.0 cargo build --release --locked`; build and strict Mac
+signature verification passed. The discovered workspace had no running services
+(two stopped and one prior failed startup). Normal shutdown confirmed cleanup;
+no old client/supervisor remained before replacement.
+
+The standard checksum-verifying installer replaced `~/.local/bin/devctl` and saved
+its prior bytes to `~/.local/bin/devctl.previous`. Installed bytes match the local
+release build, backup bytes match the previous installation, and the actual workspace
+configuration hash is unchanged. The local build still reports `devctl 1.5.0`; it is
+an unreleased development build, not the published v1.5.0 artifact.
+Installation receipt: `/tmp/devctl-tui-install-a7q1d8kb/receipt.json`.
+
+`python3 tests/support/tui_pty.py /Users/chuliu/.local/bin/devctl appearance`: passed
+against the installed program across dark/light/terminal and monochrome/ASCII/reduced
+motion modes. Strict signature verification and installed `--version` passed.
+Configuration remained unchanged and no test clients/supervisors remained. Actual terminal/font visual
+acceptance remains separate. Reopen `devctl` to create an idle workspace using the
+new program; no real project services were restarted during replacement.
 
 ### Preserved handoff
 
@@ -59,9 +82,9 @@ unverified. This U01 proposal neither implements nor cancels that workflow.
   installer/package/merge/native artifact checks. Anonymous downloads, manifests,
   isolated installation/rollback and configuration preservation passed. Detailed
   release receipts remain in Git; local download receipt: `/tmp/devctl-150-public-final-92qhu3gy`.
-- The previously verified local installed client was a 1.5.0 development build from
-  `9f75dfe`; this task did not inspect or replace that installation. To select exact
-  published bytes later, follow normal shutdown and `update --version 1.5.0`.
+- The local installed client now uses unreleased source commit `12bb89f`, as verified
+  above. To select exact published bytes later, follow normal shutdown and
+  `update --version 1.5.0`.
 - Daily-project onboarding/hot addition, actual WSL terminal/clipboard/log experience,
   real cross-version update/rollback and user acceptance remain distinct from hosted
   checks. Earlier Mac Bogu verification does not establish every workflow or physical
