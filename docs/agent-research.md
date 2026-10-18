@@ -8,36 +8,38 @@ This record explains the recommendation and evidence, not another source of runt
 
 ## Recommendation and rationale
 
-Keep devctl responsible for accurate local evidence and leave reasoning in an
-external assistant chosen by the user. Start with one selected-service packet
-that can be reviewed and handed off manually. Add local read-only MCP access only
-if follow-up retrieval is useful in real failures. Launching an assistant from
-devctl is an optional convenience after that, not the foundation.
+The user confirmed that analysis, follow-up questions and results should stay inside
+devctl. This supersedes the initial export-first recommendation: its technical
+sequencing omitted the complete product experience. Evidence preparation remains
+necessary infrastructure, but exporting a packet is not the first product milestone.
 
-The confirmed product already manages processes and logs. Its missing contribution
-to assisted diagnosis is trustworthy context: which attempt failed, what evidence
-survives, whether it is current, and what is safe to share. An embedded model does
-not solve those gaps. The packet also provides a useful fallback without an
-assistant login, model network access or a host-specific integration.
+Recommend a focused diagnosis workspace, with logs and analysis side by side on wide
+terminals and separate views on compact terminals. A user-triggered case carries
+stable service/attempt identity, explicit disclosure and linked evidence throughout
+its conversation. The terminal interaction is specified in
+[interaction](interaction.md#agent-assisted-troubleshooting-proposed).
 
-This is an architectural judgment, not a measured claim of better diagnosis,
-smaller binaries or lower cost. An assistant's own repository tools may be useful
-later, but the proposed first workflow needs no automatic source/environment scan.
+Evaluate one local engine adapter first, provisionally Codex app-server, for its
+conversation/event/interruption interface. Selection is conditional on proving that
+all evidence access can be restricted to the host broker. If native tools cannot be
+restricted, a direct API with host-owned tools is the alternative to assess. Keeping
+a general assistant's unrestricted tools would violate the proposed product boundary.
+This is a reasoned recommendation, not a measured quality, cost or compatibility claim.
 
 ## Options considered
 
-| Option | Fit and added responsibility | Assessment |
+| Option | Fit for the confirmed experience | Assessment |
 | --- | --- | --- |
-| Existing manual log copying | Works now; developer assembles state, time range and context separately | Baseline for comparison; no new integration required |
-| Reviewed local packet | One collection/reduction path; no model/auth/runtime dependency | Recommended AG1; can stand alone if it solves the workflow |
-| External assistant reads via local MCP | Reuses an existing assistant conversation/model; adds scoped tool transport and compatibility testing | Recommended conditional AG2; no permanent network server |
-| devctl invokes an external CLI | Keeps model/auth outside core; adds child lifecycle, host permissions, output parsing and version support | Optional after a real one-click use case; choose one host first |
-| Embedded model API and tool loop | Adds credentials, provider/network errors, model settings, spending controls, conversation/tool orchestration and release maintenance | Defer; not justified by current process/log scope |
-| Full embedded assistant client | Also adds threads, approvals, streamed events and chat UI | Defer; turns a service manager into another assistant frontend |
+| Manual copying / reviewed packet | Requires leaving devctl for conversation and results | Baseline or optional support artifact; insufficient as the first delivery |
+| Public read-only MCP server | Supplies evidence to another assistant UI; does not provide the required TUI conversation | Optional future consumer, not an architectural prerequisite |
+| One-shot CLI execution | Can stream a single answer, but follow-ups and cancellation need additional lifecycle work | Useful experiment; not the default conversation contract |
+| Local engine client interface | Supports turns, streamed messages and interruption while devctl owns the UI | First feasibility candidate; verify exact version and native-tool isolation |
+| Direct model API with narrow host tools | Gives devctl direct control over tool dispatch; adds authentication and turn-loop maintenance | Alternative if the engine cannot enforce the evidence boundary |
+| General embedded coding assistant | Adds unrestricted editing, execution, sessions, providers and plugins | Exceeds the diagnosis use case; unnecessary for the agreed TUI workflow |
 
-MCP exposes devctl evidence to an assistant; a CLI launcher asks an assistant to
-perform a task; a model API asks devctl to own the reasoning/tool loop. They solve
-different integration problems and are not interchangeable protocols.
+The UI requirement justifies a small conversation state model; it does not justify
+a general chat product, an Agent platform or automatic repair. An external engine
+process can perform reasoning while devctl owns the complete interaction.
 
 ## What official sources establish
 
@@ -49,11 +51,11 @@ particular diagnosis. Recheck versions and flags at an implementation gate.
 | --- | --- | --- |
 | [Codex non-interactive mode](https://learn.chatgpt.com/docs/non-interactive-mode) | `codex exec`, stdin context, JSONL events, schema-constrained final output and ephemeral sessions are documented | A CLI adapter can avoid terminal-screen automation; these features do not enforce a diagnosis-only tool set by themselves |
 | [Codex MCP integration](https://learn.chatgpt.com/docs/extend/mcp?surface=cli) | Local stdio servers and configured commands/arguments are supported | A local evidence adapter can be used by an existing Codex client without adding model APIs to devctl |
-| [Codex app-server](https://learn.chatgpt.com/docs/app-server) | A rich client interface covers authentication, conversations, approvals and events | Suitable for an embedded assistant frontend; unnecessary lifecycle/UI ownership for initial troubleshooting |
+| [Codex app-server](https://learn.chatgpt.com/docs/app-server) | A rich client interface covers authentication, conversations, approvals and events | Fits the confirmed integrated TUI; custom dynamic tools are experimental and do not disable built-in tools |
 | [Claude Code programmatic execution](https://code.claude.com/docs/en/headless) | Non-interactive execution and structured output are documented; tool auto-approval options are separate controls | A second possible host, not a reason to build a generic provider layer now; verify actual tool restriction semantics |
 | [MCP 2025-11-25 transports](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports) | Local stdio exchanges framed JSON-RPC messages through a client-launched child; stdout is protocol-only | Prefer the local transport; keep devctl's existing service IPC private behind an adapter |
 | [MCP 2025-11-25 tools](https://modelcontextprotocol.io/specification/2025-11-25/server/tools) | Tools have input/output schemas; handlers need access checks and input validation; annotations alone are not authoritative | A narrow tool list still needs enforced scope, limits and reduced outputs |
-| [Official Rust MCP SDK](https://github.com/modelcontextprotocol/rust-sdk) | A Rust implementation provides local stdio support with selectable transport features | Evaluate/pin minimal server/stdio features at AG2; avoid both a new Node/Python requirement and a hand-written protocol stack |
+| [Official Rust MCP SDK](https://github.com/modelcontextprotocol/rust-sdk) | A Rust implementation provides local stdio support with selectable transport features | Relevant only if a future external MCP consumer is justified; not needed for the proposed first workflow |
 | [OpenAI function calling](https://developers.openai.com/api/docs/guides/function-calling) | The application executes requested tools and feeds results back in a multi-step interaction | Direct API integration transfers orchestration responsibility to devctl; it is not merely an HTTP call |
 | [Anthropic: Building effective agents](https://www.anthropic.com/engineering/building-effective-agents) | The architectural guidance distinguishes fixed workflows from agent-directed loops and recommends starting simply | Supports evaluating a bounded evidence workflow before autonomous repair; it is guidance, not a current SDK compatibility reference |
 
@@ -81,8 +83,8 @@ Inspected [control requests](../src/control.rs), [client reads](../src/client.rs
 
 Do not promote the internal TOML socket protocol into a public Agent SDK. Reuse
 typed client operations and project only the selected service into the new packet.
-Add a small read-only metadata request only if missing execution context proves
-necessary; preserve unknown values and compatibility with older supervisors first.
+Add a narrow read-only loaded-metadata request for diagnosis; preserve unknown values
+and compatibility with older supervisors. Never pass unrelated response fields through.
 
 ## Local verification and limits
 
@@ -101,14 +103,28 @@ and made no model requests. Local `codex --version` reported **0.145.0**;
 `codex exec --help` confirmed stdin, JSON, output-schema, sandbox and ephemeral
 options. No authentication, model execution, MCP host or quality evaluation was run.
 
+For the revised design, `codex app-server --help` and
+`codex app-server generate-json-schema --experimental --out /tmp/devctl-agent-appserver-schema`
+were run with local version 0.145.0. Generated schemas include thread/turn start,
+turn interrupt and dynamic tool callbacks; thread start includes dynamic tools,
+ephemeral mode and permission/sandbox settings. Help labels the app-server interface
+experimental. No server, login or model turn was started. Generated schemas establish
+message shapes, not effective permissions or a working integration.
+
+The official app-server documentation describes multi-turn events and interruption,
+and labels dynamic tools experimental. Its shell/process escape interfaces must not
+be exposed by this diagnosis adapter. Merely supplying custom tools or selecting a
+read-only sandbox does not establish the required scope isolation. A compatibility
+spike must verify that claim before the adapter can be chosen.
+
 This demonstrates reusable evidence paths on this Mac. It does not establish WSL
 host integration, secret-proof export, assistant action isolation, latency/cost,
 diagnostic accuracy or automatic repair. Those remain future implementation checks.
 
 ## Evaluation plan before expanding scope
 
-Use the same manually assembled context as the baseline, then compare a packet and,
-only if needed, scoped follow-up reads. Keep a small reviewable corpus of at least
+Use manual copying and an external conversation as the baseline, then compare the
+complete integrated workflow, including follow-up questions and cited-log navigation. Keep a small reviewable corpus of at least
 ten cases spanning missing executable, immediate exit, occupied port, missing module,
 configuration error, application error while Running, noisy/incomplete history,
 offline history, restart/stale evidence and insufficient evidence. Include hostile
@@ -123,6 +139,11 @@ collection latency, follow-up calls, assistant elapsed time and supplied usage/c
 Exercise cancellation, host unavailability, expiry and output limits while ordinary
 service control continues. Keep Mac and WSL observations separate.
 
+Also exercise terminal sizes around 50-by-14 and 120-by-24, text-input shortcuts,
+selection-to-diagnosis, denial of extra access, pasted input, late engine events,
+project switching and service restarts during analysis. Measure time to a useful
+answer and context switches, not just whether a packet was produced.
+
 No vector search, multi-agent planning, repair automation or benchmark system is
-needed to run this initial evaluation. The next product decision is whether to
-implement AG1's local evidence workflow; further gates depend on its results.
+needed. Implementation remains proposed; engine feasibility is the first engineering
+gate within one complete in-TUI product increment.

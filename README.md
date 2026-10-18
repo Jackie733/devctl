@@ -52,8 +52,9 @@ environment diagnosis, runtime version management and automatic installation hav
 been removed from the unreleased experiment. Existing managed-field configurations
 need [explicit migration](docs/interaction.md#earlier-unreleased-environment-configurations).
 Agent-assisted troubleshooting has a [research and architecture proposal](docs/agent-research.md):
-start with reviewed local evidence for an external assistant, then assess read-only
-access. No Agent integration is shipped; service management works offline without it.
+notice a problem, preview scoped evidence, analyze and ask follow-up questions inside
+the TUI, then inspect cited logs and refresh evidence to verify a user-performed check.
+No Agent integration is shipped; service management works offline without it.
 Database/Redis automation is pending reassessment. See
 [scope](docs/requirements.md#directory-onboarding-and-environment-automation-a01a03).
 

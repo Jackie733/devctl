@@ -39,7 +39,7 @@ and planned M7.4 installer are superseded. Git retains the original design/histo
 | Outstanding | Real WSL log/UI and cross-version update/rollback | Preserve [log](wsl.md#verify-logs) and [update](wsl.md#verify-updates) checks |
 | Published, user acceptance pending | v1.5.0 multi-platform distribution | Linux/Apple Silicon build and public download/update verification passed; separate Mac/WSL user acceptance remains pending |
 | Pending assessment | A03 database/Redis discovery/control | Reassess concrete need and core boundary before research/design; no longer an automatic next milestone |
-| Design assessed; implementation proposed | AG01 Agent-assisted troubleshooting | Evidence-first external-assistant design; staged gates below; no Agent integration implemented |
+| Design assessed; implementation proposed | AG01 Agent-assisted troubleshooting | Integrated TUI diagnosis design; engineering gates below; no Agent integration implemented |
 | As demonstrated | Reliability/usability fixes | Reproduce issues and tie the smallest fix to an existing requirement |
 
 ### M7 implementation boundary
@@ -74,19 +74,24 @@ Historical candidates and outstanding X03 acceptance remain intact.
 
 ## AG01 proposed delivery gates
 
-These are conditional increments, not scheduled releases. Scope and acceptance are
-owned by [AG01](requirements.md#agent-assisted-troubleshooting-ag01); mechanisms by
-[DESIGN](../DESIGN.md#agent-assisted-troubleshooting-proposed).
+The first product delivery is one complete in-TUI diagnosis workflow. The previous
+packet -> MCP -> launcher sequence is superseded by the user's confirmed interaction
+choice. The following are engineering gates within that delivery, not three partial
+products or scheduled releases. Scope and acceptance belong to
+[AG01](requirements.md#agent-assisted-troubleshooting-ag01); screens and controls to
+[interaction](interaction.md#agent-assisted-troubleshooting-proposed).
 
-| Gate | Deliverable if authorized | Evidence needed before advancing |
+| Gate | Work package if implementation is authorized | Required evidence |
 | --- | --- | --- |
-| AG0: assessment | Completed research, option comparison, proposed architecture and code-capability checks | Current planning artifacts; no model-quality or end-to-end integration claim |
-| AG1: local evidence | One selected-service context packet, preview/masking, stable references and manual assistant handoff | Provenance, limits, stale/offline/error cases and no process side effects; compare with today's manual log copying on real failures |
-| AG2: read-only assistant access | Local stdio MCP adapter reusing AG1 collection and disclosure rules | A real assistant can retrieve scoped evidence; malformed/hostile/oversized requests, expiry and host-side permissions verified on Mac and WSL |
-| Conditional: launch from devctl | One supported external CLI adapter and cancellable client UI, only if manual handoff is a demonstrated obstacle | Explicit host permissions, version/auth compatibility, no service effects, output validation and useful diagnosis; no general provider framework |
-| Separate future assessment | Controlled fixes or service actions | Confirm action scenarios and enforceable authorization/ownership checks; never infer authority from a model response |
+| AG0: revised design | In-TUI workflow, screen sketches, keys, context boundary and engine comparison documented | Completed planning only; runtime remains unimplemented |
+| AG1.1: engine feasibility | Exercise one engine's turns, streaming, follow-up, cancellation and restricted evidence tools | Actual access isolation on Mac and WSL; if unavailable, decide an alternative that preserves the same UX |
+| AG1.2: evidence and hints | Reuse retained logs; add bounded hints, loaded metadata, pinned captures, preview and enforced grants | Correct identity, masking, limits, denied access, restart/offline cases and no process side effects |
+| AG1.3: integrated TUI | Connect preparation, analysis, follow-up, citations, cancellation and explicit verification refresh | Wide/compact layouts, keyboard focus, resize, project switching and engine failures work end to end |
+| AG1 acceptance | Deliver the complete user workflow, not an export command alone | Recorded diagnosis corpus, real-project review and separate Mac/WSL acceptance |
+| Separate future assessment | Additional engines, persistent case history, external MCP consumers or controlled repairs | Demonstrated use cases and explicit scope decision; historical candidates remain pending |
 
-AG1 may be sufficient. Advance to AG2 only if follow-up evidence retrieval materially
-improves the workflow; a launch button is optional and not a prerequisite for MCP.
-Do not schedule autonomous repair, a model SDK inside the supervisor, multi-agent
-orchestration, a vector database or remote hosting as part of this proposal.
+AG1.1 resolves a blocking architectural uncertainty before committing to the engine;
+AG1.2/AG1.3 describe implementation dependencies, not independent user-facing releases.
+Export can remain a convenience, but does not substitute for integrated acceptance.
+Do not add a model SDK to the supervisor, autonomous repair, a provider framework,
+a vector database or remote hosting to satisfy this first workflow.

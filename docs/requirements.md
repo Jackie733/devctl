@@ -206,60 +206,65 @@ Research starting points (not selected implementation mechanisms):
 
 ### Agent-assisted troubleshooting (AG01)
 
-**Planning only.** Research, evaluation and architecture planning were requested on
-2026-10-18. The following is a recommended scope for review, not a delivered feature
-or implementation/release authorization. [Research](agent-research.md) compares the
-options; [DESIGN](../DESIGN.md#agent-assisted-troubleshooting-proposed) owns proposed
-mechanisms, [interaction](interaction.md#agent-assisted-troubleshooting-proposed)
-owns the proposed flow, and [roadmap](roadmap.md#ag01-proposed-delivery-gates) owns gates.
+**Design proposed; not implemented.** On 2026-10-18 the user confirmed that analysis,
+follow-up questions and results belong inside devctl. This supersedes the earlier
+export-first recommendation. Planning does not authorize runtime implementation or
+release. [Research](agent-research.md) owns comparisons and source evidence;
+[interaction](interaction.md#agent-assisted-troubleshooting-proposed) owns screens,
+keys and feedback; [DESIGN](../DESIGN.md#agent-assisted-troubleshooting-proposed)
+owns mechanisms and limits; [roadmap](roadmap.md#ag01-proposed-delivery-gates) owns sequencing.
 
-The initial use case is a developer asking why one selected service failed to start,
-exited, or emitted an error. A service that is running but has a business problem
-can also be investigated, without treating process state as proof of readiness.
-The proposed first increment provides a local, reviewable evidence packet for an
-external assistant. A later read-only integration may let that assistant request
-more retained evidence. Diagnosis must distinguish observed facts, possible causes,
-missing evidence and suggested next checks; insufficient evidence is a valid result.
+The first product increment must complete one in-TUI workflow: notice a problem,
+select its evidence, preview disclosure, start analysis, follow progress, answer or
+ask questions, inspect cited logs, and refresh evidence after a user-performed check.
+Manual copying is a comparison baseline and optional escape hatch, not a prerequisite
+product phase. A running service with an application problem is a valid starting point.
 
 Proposed boundaries:
 
-- Explicit user initiation and selected service/session scope. No automatic upload,
-  continuous monitoring, background model calls or diagnosis on every failure.
-- Ordinary start/stop/logging stays offline and independent of assistant availability.
-  Agent errors or cancellation cannot stop, restart or block managed services.
-- Evidence is bounded, previewable and reduced before release. Raw environment,
-  credentials, `.env`, full configuration, source trees and other projects are not
-  collected by default. Pattern masking is not a guarantee of complete redaction.
-- The first integration provides evidence only. It does not execute model-generated
-  commands, edit projects/configuration, install dependencies or control infrastructure.
-  Suggested checks remain suggestions until the user deliberately runs them.
-- Any later automated fix/control workflow requires separate scope approval and
-  enforceable operation checks. AG01 does not restore removed A02 environment management
-  or authorize A03 database/Redis automation.
+- Local error hints never initiate a model request or steal focus. Users can also
+  initiate diagnosis from arbitrary selected logs or a description without an error hint.
+  Process failure and suspected application errors remain distinct.
+- Ordinary start/stop/logging works offline without an Agent. Diagnosis failure,
+  cancellation and client exit cannot stop or restart managed services.
+- Default disclosure covers one selected service and execution attempt: reduced
+  state, loaded execution metadata and bounded log evidence. Users can preview what
+  will be sent. Source access is optional and scoped; other projects, older attempts
+  and newly arriving logs need an explicit scope change. Raw environment, credentials,
+  `.env` and whole source trees are never collected by default. Masking is not a
+  guarantee that all sensitive business data has been removed.
+- The initial Agent observes and explains. It cannot execute commands, edit files,
+  install dependencies, control services or operate infrastructure. Users perform
+  suggested checks through their ordinary tools; a suggestion is not a completed fix.
+- One active diagnosis per TUI client is sufficient initially. General chat, a session
+  library, provider marketplaces, autonomous repair and multi-agent coordination are
+  outside this increment. Future repair/control remains a separate assessment; AG01
+  does not restore removed A02 or silently cancel pending A03.
 
-Proposed acceptance (implementation gates, not current evidence):
+Proposed acceptance (these are gates, not evidence of delivery):
 
 | Case | Required result |
 | --- | --- |
-| Spawn failure or unexpected exit | Associate the observed error with the selected service and attempt; identify missing logs rather than inventing output |
-| Application error while Running | Use retained log evidence; never infer application health from process state alone |
-| Restart, reconnect, concurrent output or edited config | Preserve service/session/instance identity; expose changes and unknown loaded declarations instead of mixing evidence |
-| Offline or incomplete history | Label historical state, missing/expired/dropped output and unconfirmed facts |
-| Sensitive or hostile log text | Preview reduced data, mask fixture secrets, and treat embedded instructions as untrusted text |
-| Assistant unavailable, cancelled or invalid output | Keep service management working; offer local evidence without silent fallback or repeated calls |
-| Proposed remedy | Show evidence, expected effect and a way to verify; never report a suggestion as a completed repair |
-| Target workflow | Verify one actual external assistant on Mac and inside WSL separately before claiming that integration is accepted |
+| Spawn failure or unexpected exit | Show the existing failure and a diagnosis entry; bind evidence to the failed attempt, including when no logs exist |
+| Application error while Running | Show a separate advisory hint; stderr alone and ordinary mentions of errors do not make a process Failed |
+| Manual log selection | Selected lines become the diagnosis anchor; selection/copy still work without an Agent |
+| Open and cancel preparation | No model request or external disclosure occurs before Start analysis |
+| Complete diagnosis | Analysis, questions, answers and results remain inside devctl; cited evidence opens the corresponding logs |
+| Typing, resizing and project switching | Typing cannot invoke service controls; evidence stays pinned to its original service; narrow layouts remain usable |
+| Restart, reconnect, edited config or offline history | Preserve provenance, expose missing data and mark stale evidence; do not silently replace it with newer output |
+| Sensitive or hostile evidence | Preview reduced fields, mask planted secrets and reject tool/scope bypasses even when log text requests them |
+| Extra evidence | Show precisely what additional access is requested; denial allows an uncertain result without bypass |
+| Unavailable engine, cancellation or malformed output | Preserve available partial results, report the failure and keep service management responsive |
+| User checks a suggested remedy | Refresh is explicit and labelled with a new evidence revision; Running alone never proves recovery |
+| Target workflow | Exercise the complete integrated workflow with an actual supported engine on Mac and inside WSL separately |
 
-For an initial diagnosis evaluation, use the [reviewable corpus and baseline](agent-research.md#evaluation-plan-before-expanding-scope).
-Proposed gates are complete evidence provenance and limit enforcement in all cases,
-masking of every planted fixture secret across all released fields, and zero
-unintended project/configuration/service changes or invented repair-success claims.
-Existing internal read locks/storage maintenance are not project modifications;
-saving a packet remains an explicit user action. A human reviewer should find at
-least 8 of the initial 10 diagnoses useful or appropriately uncertain. Record the
-rubric and outcomes; this small sample is not a general accuracy claim. Measure
-user effort against manual copying and record latency and available usage/cost
-before adding another integration stage.
+Use the [reviewable corpus and baseline](agent-research.md#evaluation-plan-before-expanding-scope).
+All cases require complete evidence provenance and enforced limits, masking of all
+planted fixture secrets across released fields, and zero unintended project,
+configuration or service changes. At least 8 of the initial 10 diagnoses should be
+useful or appropriately uncertain according to a recorded human rubric; this is
+not a general accuracy claim. Measure user effort, latency and available usage/cost.
+Passing automated checks does not establish acceptance in the user's real environment.
 
 ### Public releases and self-update (X03)
 

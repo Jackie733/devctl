@@ -288,24 +288,190 @@ used to adopt processes after a crash or reboot.
 
 ## Agent-assisted troubleshooting (proposed)
 
-No Agent command, shortcut or assistant connection is currently shipped. This is
-the proposed [AG01](requirements.md#agent-assisted-troubleshooting-ag01) interaction,
-not instructions for the current release:
+These screens and keys are a design for [AG01](requirements.md#agent-assisted-troubleshooting-ag01),
+not current commands. The user-confirmed primary experience keeps analysis,
+follow-up questions and results inside devctl. Existing service/log controls remain
+as documented above; this section defines only the proposed additions.
 
-1. Select the service and describe the failure or choose the relevant retained session.
-2. Prepare local evidence; preview the included fields, log interval, masked text and
-   missing data. Cancel without sending anything. Save/copy only on an explicit action.
-3. Hand the reviewed packet to the user's chosen assistant. A later optional local
-   connection can answer follow-up reads within an explicitly approved scope and budget.
-4. Read the assistant's observed facts, likely causes, uncertainties and next checks.
-   Suggested commands are text; devctl does not execute them.
-5. Run chosen checks or repairs through ordinary user-controlled tools. Refresh
-   evidence to check the result; a new process being Running alone does not prove recovery.
+### Notice a problem without interrupting work
 
-No assistant selection or consent prompt is added to ordinary start/stop operations.
-Assistant-specific login, transmission and permissions remain visible in that host;
-cancelled or failed diagnosis leaves the local evidence available. Proposed technical
-limits and trust boundaries are in [DESIGN](../DESIGN.md#agent-assisted-troubleshooting-proposed).
+A process failure retains its Failed state. A log pattern suggesting an application
+error adds a separate `!` hint and a short excerpt; it never changes process state.
+Writing to stderr alone does not qualify. Hints are text plus symbols, not color-only.
+Repeated matching output updates a count without opening dialogs, moving selection,
+scrolling logs or making model calls. The count means matching records, not unique
+root causes. Reading/dismissing a hint is not proof of recovery.
+
+Normal workspace sketch (illustrative content, not a running screen):
+
+```text
+ devctl / shop                         Agent: idle
+ Projects              | Logs / api / attempt 12
+ > api   Failed        | 14:02:11 Error: Cannot find module 'pg'
+   web   Running       | 14:02:11 Process exited
+                       |
+ api: process failed   | e Troubleshoot selected evidence
+ Tab Switch panel   / Search   v Select   e Troubleshoot   ? Help
+```
+
+Press `e` in Projects to use the selected service's latest current-attempt hint or
+failure. In Logs, use selected lines first, otherwise the visible cursor record;
+without a record/hint, use a recent tail and the user's problem description. A
+manual entry remains available for business errors that detection cannot identify.
+The preparation sheet adds an explicit retained-session selector backed by existing
+archive reads. Current TUI browsing covers only the current session; historical
+session browsing is currently a CLI feature, so this selector is new UI work.
+
+### Prepare and start
+
+`e` opens a local preparation sheet; it does not contact the engine. The sheet shows
+service, attempt/session, captured time, trigger excerpt, engine identity and access
+scope. Preview opens the exact reduced initial payload, with omissions and masked
+values visible. Default and optional data rules are owned by
+[DESIGN](../DESIGN.md#context-and-access-boundary).
+
+```text
+ Diagnose api / attempt 12                         LOCAL PREVIEW
+ Trigger: Error: Cannot find module 'pg'
+ Engine: configured local engine / readiness not checked
+ Included: service state, loaded command, working directory
+           selected log window / 61 records / captured 14:02:12
+ Follow-up reads: api / attempt 12 / through record 72
+ Missing: structured exit code
+ [ ] Allow selected project's source files (read only)
+ Problem: [What were you trying to do?                         ]
+ [Preview evidence]            [Cancel]       [Start analysis]
+ Tab Move focus   Enter Activate focused item   Esc Cancel
+```
+
+The problem field receives initial focus; Enter there moves to the action row and
+does not send. Start analysis is a separate focused action. Optional source access
+opens its directory/exclusion summary before enabling it. Preview must remain
+scrollable, with an obvious return action; it is not silently truncated to fit.
+Editing the problem or scope invalidates the old preview and rebuilds it locally.
+The prepared capture stays fixed until the user chooses Refresh evidence. A session
+selector lists retained IDs/times and marks them Historical; changing it rebuilds
+the preview and never implies that the historical process is still running.
+
+An unconfigured engine shows setup guidance in this sheet and disables Start.
+Start checks availability/authentication locally, then begins the model turn. If
+login is needed, show the engine's supported login instruction and a Retry action;
+never initiate installation, browser login or authentication without user action.
+Service controls remain available by closing the sheet. Display that approved data
+will go to the configured engine/provider; local process transport does not imply
+local model processing or a particular provider retention policy.
+
+### Analysis workspace and results
+
+At 120 columns by 24 rows or larger, use two working panes: logs and diagnosis.
+Projects collapse into the service header; do not squeeze three full columns into
+the terminal. Each pane has a visible focus border. The Agent header always names
+its pinned service/attempt, even when the workspace selection changes.
+
+```text
+ devctl / shop          selected: api        diagnosis: api / attempt 12
+ Logs / api                              | Agent / api / analyzing
+ 14:02:11 Error: Cannot find module 'pg'   | Reading selected log window...
+ 14:02:11 Process exited                  | Evidence: 61 lines, revision 1
+                                         |
+                                         | Finding
+                                         | Startup could not resolve pg.
+                                         | Evidence: [L42: module error]
+                                         | Unknown: dependency installation
+                                         |
+                                         | Suggested check
+                                         | Inspect the project's dependencies.
+                                         | No changes have been made.
+                                         |
+                                         | [Add details] [Refresh / verify]
+                                         | [Copy result]
+ 1 Projects   0 Logs   2 Agent   Tab Focus   i Ask   Ctrl-G Stop analysis
+```
+
+Show coarse activities, elapsed time and supplied usage when available. Do not show
+invented percentages, raw internal reasoning, protocol messages or an indefinitely
+spinning indicator after failure. Streaming output follows the tail until the user
+scrolls away; show a new-output indicator without forcing them back down.
+
+A completed result distinguishes observations, possible causes, missing evidence,
+suggested checks and verification conditions. Evidence references are focusable:
+Enter opens the exact service/session/attempt/record in Logs, and `2` returns to the
+same diagnosis position. Expired evidence shows its captured excerpt plus a missing
+history notice; never jump to a different record with the same sequence number.
+Malformed references remain plain text. Commands in suggestions can be copied but
+have no Run action.
+
+Follow-up questions and the user's answers stay in this workspace. While analysis
+runs, the user may draft a question, but sending waits for completion or explicit
+cancellation; the first version does not silently queue or steer another turn.
+An Agent question marks `Needs your input`; a scope request marks `Needs access`.
+The latter shows the reason, precise extra data and Allow/Decline actions inline.
+Decline is initially focused. Hiding the panel does not grant access; ordinary
+service control remains usable while the request waits.
+
+### Compact terminals
+
+From 50 columns by 14 rows up to the wide-layout threshold, Logs and Agent share
+the body as separate views. Keep the diagnosis service and status visible.
+
+```text
+ devctl / shop
+ Diagnosis: api / attempt 12 / complete
+ [0 Logs] [2 Agent]
+ Finding: Startup could not resolve pg.
+ Evidence: [L42: module error]
+ Unknown: dependency installation
+
+ [Add details] [Refresh / verify] [Copy]
+ 0 Logs  1 Projects  i Ask  Esc Back
+```
+
+Below 50 columns or 14 rows, show a compact status/read-only result and a resize
+notice; disable starting, sending and approving when the full controls cannot fit.
+`Ctrl-G` can still cancel and Esc returns to the ordinary workspace, whose existing
+36-by-10 minimum is unchanged. Resize preserves scroll, focus and drafts; it does
+not restart a turn or approve an action. Layouts use ordinary terminal characters.
+
+### Keyboard and focus contract
+
+| Context | Keys and behavior |
+| --- | --- |
+| Ordinary Projects/Logs | `e` prepares diagnosis; `2` opens the current diagnosis or prepares one if none exists; existing `a`, `A`, `r`, `1`, `0` retain their functions |
+| Log selection | `e` prepares from the selection; `y` copies; Esc cancels selection. Service controls remain blocked |
+| Preparation sheet | Tab/Shift-Tab move fields/actions; Enter activates the focused action; Esc closes without disclosure |
+| Agent reading | `j/k`, arrows and paging scroll; Tab/Shift-Tab traverse actions/references; Enter activates; `i` composes; `1/0` open Projects/Logs; `2` returns |
+| Agent composer | Printable keys including `q/s/x/a/e/1/0/2` are text. Enter sends only when ready; Esc leaves editing and preserves the draft. Paste never submits |
+| Agent panel | `s/x/A/X/Q` do not pass through to service controls; return to Projects/Logs to use those controls |
+| Diagnosis active | Ctrl-G interrupts only this client's diagnosis, including from the composer; Esc hides the panel without cancelling |
+| Leave devctl | `q` outside text entry and Ctrl-C retain existing client-exit semantics; the client-owned Agent is cancelled, managed services continue |
+
+The composer initially accepts one paragraph up to 4 KiB UTF-8; pasted line breaks
+become spaces with visible feedback, and excess input is rejected with a message.
+Search and add-project forms retain precedence over Agent shortcuts. Help includes
+the current mode's keys. No key is allowed to act as both text input and a service
+operation. Closing a scope sheet and denying access are distinct actions.
+
+### Scope, freshness and lifecycle feedback
+
+Switching projects never retargets an existing conversation. Show `Diagnosis: api`
+while the user views web logs. Starting another case while one is active offers
+Return to active diagnosis or Stop and prepare new; no silent cancellation. A new
+draft does not discard a completed result until Start is activated. The initial
+version retains one case in client memory, not a browsable conversation archive.
+
+Restart/disconnect/new supervisor marks the affected evidence stale or historical.
+The existing answer remains readable. Refresh / verify previews a new evidence
+revision and its scope before the user sends it to the same conversation. A restart
+requires explicitly selecting the new attempt; it is never an automatic substitution.
+Normal output, completion of analysis and a Running state do not mark the problem
+fixed. The result can only describe what its actual evidence establishes.
+
+On cancellation show Cancelled and retain partial output. On missing engine, auth
+failure, timeout or engine crash show a specific reason and a deliberate Retry;
+never retry model requests automatically. Leaving devctl ends the local case; state
+this in help and the Agent footer. Provider-side retention is separately governed
+by the selected engine/provider. Runtime state, limits and enforcement are owned by
+[DESIGN](../DESIGN.md#agent-assisted-troubleshooting-proposed).
 
 ## Self-update
 

@@ -27,7 +27,7 @@
 
 核心聚焦服务启停、日志、后台运行和轻量配置。此前未发布版本中的环境检查、版本绑定与自动安装计划已移出核心；使用过专用环境字段的配置需要[手动调整](docs/interaction.md#earlier-unreleased-environment-configurations)。数据库、Redis 自动化仍待重新评估。详见[范围说明](docs/requirements.md#directory-onboarding-and-environment-automation-a01a03)。
 
-Agent 辅助排错已完成[调研与架构规划](docs/agent-research.md)，尚未实现。建议先整理选中服务的状态与日志，供用户预览后交给已有助手分析；确有需要时，再提供受限的只读查询。助手提供原因分析和检查建议，首阶段不自动执行修复。日常启停和日志功能仍可独立离线使用。
+Agent 辅助排错已完成[调研与架构规划](docs/agent-research.md)，尚未实现。首个交付目标是在 devctl 内完成一次排查：从错误提示或选中日志进入，预览将提供的信息，查看分析、补充问题、定位引用日志，并在自行检查后刷新证据。宽终端并排显示日志与分析，窄终端切换查看；Agent 默认只获取选中服务的限定信息，额外访问需要明确开放，首阶段不执行修复。日常启停和日志功能仍可独立离线使用。
 
 ## 安装
 
