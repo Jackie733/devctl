@@ -3,6 +3,28 @@
 Keep current work and necessary handoff here; Git retains history. Collaboration
 rules are in [AGENTS.md](../AGENTS.md).
 
+## In progress: accurate startup indication (U01; readiness scope assessment)
+
+Requested on 2026-10-18: keep a loading spinner while a project actually starts,
+then distinguish startup success from failure. Existing D01–D05 readiness candidates
+remain in [requirements](requirements.md#post-mvp-scope); this investigation does not
+activate dependency orchestration or continuous health monitoring.
+
+- Confirmed `process::run` reports startup immediately after process creation;
+  `Manager::refresh_started` consequently changes Starting to Running before the
+  application supplies any readiness evidence. The current contract means process
+  alive, not application ready.
+- An isolated installed-binary fixture waited 1.2 seconds and exited with code 1
+  without becoming ready. Observed Running → Failed, then clean shutdown. No real
+  project was started or changed.
+- Asked which positive startup signal to use: an accessible application URL,
+  explicit success log, or a per-project choice. The signal and timeout semantics
+  need to be settled before implementation; a fixed delay or generic error-word
+  detector cannot establish readiness.
+- Proposed direction: loading until a configured startup check succeeds; distinguish
+  unverified readiness from confirmed startup, process exit and check timeout.
+  No runtime/configuration or installed-program changes have been made for this request.
+
 ## Completed: U01 / M5 visual refinement and local installation (unreleased)
 
 Requested on 2026-10-18 after [research](tui-design-research.md): remove the white
