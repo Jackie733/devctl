@@ -121,19 +121,20 @@ simplifying documentation must not silently cancel it.
 | D04, D05 | HTTP probes, one-shot tasks, sustained health checks, cascaded control | Candidate |
 | U01, P07 | Multiple services per project and aggregate workspace/project/service UI | Candidate; current one-command-per-project scope remains |
 | U02 | Expanded non-TUI foreground presentation | Candidate; existing foreground run and control CLI remain available |
-| X01 | Native macOS operation | Authorized; 1.5.0 source implementation, native install/update/rollback and real bogu verification; platform/release evidence in tasks.md |
+| X01 | Native macOS operation | Delivered in 1.5.0; native install/update/rollback and real bogu verification; separate platform/user acceptance evidence in tasks.md |
 | X02 | Native Windows | Candidate |
 | X03 | Public distribution and self-update | Public releases and updater delivered; full target WSL acceptance pending |
 | P06 | Service PTYs, stdin forwarding, interactive commands | Candidate |
 | W05 | package.json/Procfile import and devctl-managed file-watch restart | package.json import is included in A01; Procfile import and file-watch restart remain candidates |
 | A01–A03 | Lightweight onboarding and historical environment/infrastructure proposals | A01 retained and simplified; A02 removed from core; A03 pending reassessment; see [scope](#directory-onboarding-and-environment-automation-a01a03) |
+| AG01 | Agent-assisted troubleshooting | Research/design requested on 2026-10-18; implementation remains proposed; see [boundary and proposed acceptance](#agent-assisted-troubleshooting-ag01) |
 | Configuration extensions | Environment/tilde path expansion, env_files/env overrides | Candidate; existing literal path/environment behavior remains |
 
 An earlier 20-service performance budget is a proposal, not measured evidence.
 Existing configuration and planning code remain; unsupported runtime dependencies
 must be rejected before startup rather than silently ignored. Historical detailed
-proposals are available in Git. Cross-project aggregation, complex filters, and AI
-log assistance remain candidates, with logging foundations preceding AI assessment.
+proposals are available in Git. Cross-project aggregation and complex filters remain
+candidates. Agent assessment follows the delivered logging foundations; see AG01.
 
 ### Directory onboarding and environment automation (A01–A03)
 
@@ -141,8 +142,8 @@ The user revised the 2026-10-16 baseline on 2026-10-17 to prioritize a small,
 responsive service/log manager. Lightweight onboarding remains; environment
 inspection, runtime/package-manager version management, tool bindings, dependency
 inventory, automatic installation and repair are removed from core scope. This
-supersedes the earlier A02/M7 setup plan. Agent-assisted problem assessment is a
-future candidate, not implementation authorization.
+supersedes the earlier A02/M7 setup plan. Agent-assisted problem assessment follows
+the separate [AG01 planning boundary](#agent-assisted-troubleshooting-ag01).
 
 | ID | Scope | Observable acceptance |
 | --- | --- | --- |
@@ -202,6 +203,63 @@ Research starting points (not selected implementation mechanisms):
 - [PostgreSQL connection readiness](https://www.postgresql.org/docs/current/app-pg-isready.html)
 - [Redis PING](https://redis.io/docs/latest/commands/ping/)
 - [WSL systemd support](https://learn.microsoft.com/en-us/windows/wsl/systemd)
+
+### Agent-assisted troubleshooting (AG01)
+
+**Planning only.** Research, evaluation and architecture planning were requested on
+2026-10-18. The following is a recommended scope for review, not a delivered feature
+or implementation/release authorization. [Research](agent-research.md) compares the
+options; [DESIGN](../DESIGN.md#agent-assisted-troubleshooting-proposed) owns proposed
+mechanisms, [interaction](interaction.md#agent-assisted-troubleshooting-proposed)
+owns the proposed flow, and [roadmap](roadmap.md#ag01-proposed-delivery-gates) owns gates.
+
+The initial use case is a developer asking why one selected service failed to start,
+exited, or emitted an error. A service that is running but has a business problem
+can also be investigated, without treating process state as proof of readiness.
+The proposed first increment provides a local, reviewable evidence packet for an
+external assistant. A later read-only integration may let that assistant request
+more retained evidence. Diagnosis must distinguish observed facts, possible causes,
+missing evidence and suggested next checks; insufficient evidence is a valid result.
+
+Proposed boundaries:
+
+- Explicit user initiation and selected service/session scope. No automatic upload,
+  continuous monitoring, background model calls or diagnosis on every failure.
+- Ordinary start/stop/logging stays offline and independent of assistant availability.
+  Agent errors or cancellation cannot stop, restart or block managed services.
+- Evidence is bounded, previewable and reduced before release. Raw environment,
+  credentials, `.env`, full configuration, source trees and other projects are not
+  collected by default. Pattern masking is not a guarantee of complete redaction.
+- The first integration provides evidence only. It does not execute model-generated
+  commands, edit projects/configuration, install dependencies or control infrastructure.
+  Suggested checks remain suggestions until the user deliberately runs them.
+- Any later automated fix/control workflow requires separate scope approval and
+  enforceable operation checks. AG01 does not restore removed A02 environment management
+  or authorize A03 database/Redis automation.
+
+Proposed acceptance (implementation gates, not current evidence):
+
+| Case | Required result |
+| --- | --- |
+| Spawn failure or unexpected exit | Associate the observed error with the selected service and attempt; identify missing logs rather than inventing output |
+| Application error while Running | Use retained log evidence; never infer application health from process state alone |
+| Restart, reconnect, concurrent output or edited config | Preserve service/session/instance identity; expose changes and unknown loaded declarations instead of mixing evidence |
+| Offline or incomplete history | Label historical state, missing/expired/dropped output and unconfirmed facts |
+| Sensitive or hostile log text | Preview reduced data, mask fixture secrets, and treat embedded instructions as untrusted text |
+| Assistant unavailable, cancelled or invalid output | Keep service management working; offer local evidence without silent fallback or repeated calls |
+| Proposed remedy | Show evidence, expected effect and a way to verify; never report a suggestion as a completed repair |
+| Target workflow | Verify one actual external assistant on Mac and inside WSL separately before claiming that integration is accepted |
+
+For an initial diagnosis evaluation, use the [reviewable corpus and baseline](agent-research.md#evaluation-plan-before-expanding-scope).
+Proposed gates are complete evidence provenance and limit enforcement in all cases,
+masking of every planted fixture secret across all released fields, and zero
+unintended project/configuration/service changes or invented repair-success claims.
+Existing internal read locks/storage maintenance are not project modifications;
+saving a packet remains an explicit user action. A human reviewer should find at
+least 8 of the initial 10 diagnoses useful or appropriately uncertain. Record the
+rubric and outcomes; this small sample is not a general accuracy claim. Measure
+user effort against manual copying and record latency and available usage/cost
+before adding another integration stage.
 
 ### Public releases and self-update (X03)
 

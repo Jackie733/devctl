@@ -51,8 +51,10 @@ The core focuses on service lifecycle, logs and lightweight configuration. Proje
 environment diagnosis, runtime version management and automatic installation have
 been removed from the unreleased experiment. Existing managed-field configurations
 need [explicit migration](docs/interaction.md#earlier-unreleased-environment-configurations).
-Future Agent-assisted troubleshooting remains a candidate; service management works
-offline without it. Database/Redis automation is pending reassessment. See
+Agent-assisted troubleshooting has a [research and architecture proposal](docs/agent-research.md):
+start with reviewed local evidence for an external assistant, then assess read-only
+access. No Agent integration is shipped; service management works offline without it.
+Database/Redis automation is pending reassessment. See
 [scope](docs/requirements.md#directory-onboarding-and-environment-automation-a01a03).
 
 ## Installation

@@ -25,7 +25,9 @@
 
 开发命令需要能够非交互运行。目前支持依赖校验与计划展示，尚未实现运行时依赖编排、就绪探针、自动重启或机器重启后的恢复。已交付和候选功能的区别见[路线图](docs/roadmap.md)。
 
-核心聚焦服务启停、日志、后台运行和轻量配置。此前未发布版本中的环境检查、版本绑定与自动安装计划已移出核心；使用过专用环境字段的配置需要[手动调整](docs/interaction.md#earlier-unreleased-environment-configurations)。未来可评估 Agent 辅助排错，日常管理可独立离线使用。数据库、Redis 自动化仍待重新评估。详见[范围说明](docs/requirements.md#directory-onboarding-and-environment-automation-a01a03)。
+核心聚焦服务启停、日志、后台运行和轻量配置。此前未发布版本中的环境检查、版本绑定与自动安装计划已移出核心；使用过专用环境字段的配置需要[手动调整](docs/interaction.md#earlier-unreleased-environment-configurations)。数据库、Redis 自动化仍待重新评估。详见[范围说明](docs/requirements.md#directory-onboarding-and-environment-automation-a01a03)。
+
+Agent 辅助排错已完成[调研与架构规划](docs/agent-research.md)，尚未实现。建议先整理选中服务的状态与日志，供用户预览后交给已有助手分析；确有需要时，再提供受限的只读查询。助手提供原因分析和检查建议，首阶段不自动执行修复。日常启停和日志功能仍可独立离线使用。
 
 ## 安装
 

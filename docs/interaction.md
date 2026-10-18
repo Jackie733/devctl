@@ -286,6 +286,27 @@ Client exit signals restore the terminal and disconnect; supervisor stop signals
 request managed-process cleanup. No old PID is treated as proof of ownership or
 used to adopt processes after a crash or reboot.
 
+## Agent-assisted troubleshooting (proposed)
+
+No Agent command, shortcut or assistant connection is currently shipped. This is
+the proposed [AG01](requirements.md#agent-assisted-troubleshooting-ag01) interaction,
+not instructions for the current release:
+
+1. Select the service and describe the failure or choose the relevant retained session.
+2. Prepare local evidence; preview the included fields, log interval, masked text and
+   missing data. Cancel without sending anything. Save/copy only on an explicit action.
+3. Hand the reviewed packet to the user's chosen assistant. A later optional local
+   connection can answer follow-up reads within an explicitly approved scope and budget.
+4. Read the assistant's observed facts, likely causes, uncertainties and next checks.
+   Suggested commands are text; devctl does not execute them.
+5. Run chosen checks or repairs through ordinary user-controlled tools. Refresh
+   evidence to check the result; a new process being Running alone does not prove recovery.
+
+No assistant selection or consent prompt is added to ordinary start/stop operations.
+Assistant-specific login, transmission and permissions remain visible in that host;
+cancelled or failed diagnosis leaves the local evidence available. Proposed technical
+limits and trust boundaries are in [DESIGN](../DESIGN.md#agent-assisted-troubleshooting-proposed).
+
 ## Self-update
 
 Available since 1.2.0; clients 1.2.1 and later use Release manifests. Available on the

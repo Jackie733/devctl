@@ -22,8 +22,9 @@ problem in one project, and copy enough ordinary context to investigate it.
 | Cross-project aggregation and combined filters | Keep as lower-priority candidates | No confirmed scenario justifies extra UI/indexing yet |
 | Export | Selection copy or one CLI page redirected to files | Make scope and missing data clear without a new export UI or format system |
 
-AI log analysis remains a candidate. It does not replace trustworthy capture,
-saving, and querying, and does not justify speculative model interfaces.
+Agent log analysis now has a separate [AG01 planning proposal](requirements.md#agent-assisted-troubleshooting-ag01).
+It does not replace trustworthy capture, saving, and querying. This logging decision
+does not authorize an Agent implementation.
 
 ## Engineering choices
 

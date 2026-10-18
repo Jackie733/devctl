@@ -39,7 +39,7 @@ and planned M7.4 installer are superseded. Git retains the original design/histo
 | Outstanding | Real WSL log/UI and cross-version update/rollback | Preserve [log](wsl.md#verify-logs) and [update](wsl.md#verify-updates) checks |
 | Published, user acceptance pending | v1.5.0 multi-platform distribution | Linux/Apple Silicon build and public download/update verification passed; separate Mac/WSL user acceptance remains pending |
 | Pending assessment | A03 database/Redis discovery/control | Reassess concrete need and core boundary before research/design; no longer an automatic next milestone |
-| Candidate | Agent-assisted diagnostics and solutions | Assess an actual failure workflow using existing status/log/control commands; no new Agent integration implemented |
+| Design assessed; implementation proposed | AG01 Agent-assisted troubleshooting | Evidence-first external-assistant design; staged gates below; no Agent integration implemented |
 | As demonstrated | Reliability/usability fixes | Reproduce issues and tie the smallest fix to an existing requirement |
 
 ### M7 implementation boundary
@@ -56,9 +56,10 @@ real target-platform workflows and user acceptance remain distinct.
 
 Dedicated restart shortcuts may be worth assessing if explicit stop/start becomes
 frequent. Dependency orchestration, probes, crash restart, reboot recovery, native
-Windows, workspace profiles, interactive services, aggregation, and AI assistance
-remain candidates. Existing planning code does not establish runtime dependency
-support. A candidate's presence is neither a promise nor authorization to implement it.
+Windows, workspace profiles, interactive services and aggregation remain candidates.
+AG01 has a separate proposed sequence below. Existing planning code does not
+establish runtime dependency support. A candidate's presence is neither a promise
+nor authorization to implement it.
 
 ## How work advances
 
@@ -67,6 +68,25 @@ configuration/planning behavior unless a change is explicitly agreed. Discuss
 scope/behavior changes before implementing them; make routine local choices using
 existing conventions. Keep current state in the task record and history in Git.
 
-Logs were prioritized before AI assessment. This documentation work does not expand
-AI scope, silently remove historical requirements, or equate a published release
-with acceptance of the full X03 user workflow.
+Logs were prioritized before Agent assessment. The AG01 planning request authorizes
+research/design; the proposed implementation gates below need a scope decision.
+Historical candidates and outstanding X03 acceptance remain intact.
+
+## AG01 proposed delivery gates
+
+These are conditional increments, not scheduled releases. Scope and acceptance are
+owned by [AG01](requirements.md#agent-assisted-troubleshooting-ag01); mechanisms by
+[DESIGN](../DESIGN.md#agent-assisted-troubleshooting-proposed).
+
+| Gate | Deliverable if authorized | Evidence needed before advancing |
+| --- | --- | --- |
+| AG0: assessment | Completed research, option comparison, proposed architecture and code-capability checks | Current planning artifacts; no model-quality or end-to-end integration claim |
+| AG1: local evidence | One selected-service context packet, preview/masking, stable references and manual assistant handoff | Provenance, limits, stale/offline/error cases and no process side effects; compare with today's manual log copying on real failures |
+| AG2: read-only assistant access | Local stdio MCP adapter reusing AG1 collection and disclosure rules | A real assistant can retrieve scoped evidence; malformed/hostile/oversized requests, expiry and host-side permissions verified on Mac and WSL |
+| Conditional: launch from devctl | One supported external CLI adapter and cancellable client UI, only if manual handoff is a demonstrated obstacle | Explicit host permissions, version/auth compatibility, no service effects, output validation and useful diagnosis; no general provider framework |
+| Separate future assessment | Controlled fixes or service actions | Confirm action scenarios and enforceable authorization/ownership checks; never infer authority from a model response |
+
+AG1 may be sufficient. Advance to AG2 only if follow-up evidence retrieval materially
+improves the workflow; a launch button is optional and not a prerequisite for MCP.
+Do not schedule autonomous repair, a model SDK inside the supervisor, multi-agent
+orchestration, a vector database or remote hosting as part of this proposal.

@@ -22,8 +22,9 @@ flowchart LR
 ```
 
 Keep one Cargo package. Loaded declarations remain stable except for the reviewed
-[append-only project addition](#tui-project-addition); external edits and replacement
-or removal of existing declarations require reopening the workspace. Projects
+[append-only project addition](#tui-project-addition). Changes to existing loaded
+declarations/settings require reopening; external file edits are not automatically
+reloaded. Projects
 identify directories; services define argument arrays. The supported interactive
 workspace has one service per project. The supervisor owns the Manager, service
 states, stop senders, and task handles. Each process task exclusively owns its Child
@@ -702,9 +703,169 @@ any old supervisor and reopen. Do not rewrite existing configurations or remove
 private tool receipts automatically. Earlier released plain command configs keep
 their behavior. Removed CLI commands/options fail as invalid usage.
 
-Future Agent support is a candidate for assessing diagnostics and proposing fixes.
-Existing status, logs and control commands provide the current information and action
-boundary. No Agent runtime, provider SDK, automatic diagnosis, new protocol or plugin
-framework is introduced. Ordinary service management must remain fully usable offline.
+Agent assessment is tracked separately in [AG01](docs/requirements.md#agent-assisted-troubleshooting-ag01)
+and the proposed architecture below; no Agent runtime is currently implemented.
 No performance improvement is claimed solely from removing code; verify runtime
 behavior and measure performance separately when required.
+
+## Agent-assisted troubleshooting (proposed)
+
+**Design proposal, 2026-10-18; not implemented.** Scope and proposed acceptance belong
+to [AG01](docs/requirements.md#agent-assisted-troubleshooting-ag01). The
+[research record](docs/agent-research.md) owns external sources, comparisons and
+assessment evidence. Budgets below are proposed engineering defaults, not measurements.
+
+### Ownership and data flow
+
+Keep reasoning in the user's external assistant. devctl owns evidence identity,
+collection limits and disclosure; the assistant owns its model connection and
+conversation. The supervisor continues to own processes and archive writes.
+
+```mermaid
+flowchart LR
+    U[User selects service] --> C[Client evidence collector]
+    C -->|bounded read requests| S[Existing supervisor and archive]
+    S --> C
+    C --> P[Reduce, mask and preview]
+    P -->|explicit save or copy| E[Local evidence packet]
+    E --> H[External assistant]
+    H --> R[Explanation and proposed checks]
+    H -. optional scoped reads .-> M[Local stdio MCP adapter]
+    M --> C
+    R --> U
+```
+
+AG1 adds a small collection/representation module within the current package and
+a local export entry point. AG2 adds a separate client process entry point for MCP,
+sharing that module, not another daemon or service manager. No model requests,
+transcript retention, credentials, SDK or Agent job queue live in the supervisor.
+Optional UI work runs outside its control loop. No provider abstraction is needed
+for a packet that any assistant can read.
+
+### Evidence packet and consistency
+
+Use a versioned JSON packet as the canonical representation, with a concise text
+view derived from it. Do not serialize the internal control response wholesale.
+The proposed fields are:
+
+| Group | Contents |
+| --- | --- |
+| Envelope | Schema version, devctl version, capture start/end times and live/historical/partial mode |
+| Identity | Opaque workspace reference, current workspace ID if live, log session ID, selected service and attempt/instance if known |
+| Observation | Process state and observation time, reported failure, cleanup confirmation; unknown remains explicit |
+| Execution evidence | Reduced command/cwd only if their source is established; origin and unknown/changed markers |
+| Logs | Source, timestamp, sequence, instance, reduced text and truncation flag; fixed upper sequence for this capture |
+| Completeness | Missing sources, dropped/evicted/truncated output, storage warnings, query budget exhaustion and collection-time changes |
+| Disclosure | Included categories, masking applied, omitted fields and original evidence references preserved through reduction |
+
+Evidence references combine session, service, instance and sequence; a sequence alone
+is not globally unique. A state error can be evidence without any captured output.
+No diagnosis infers PATH, runtime version, port ownership or application readiness
+from an exit string. Raw errors and paths pass through the same reduction as logs.
+
+Reuse `client::transact(..., false)` and `client::read_logs`, with the archive's
+existing offline lock rules; never create a supervisor to diagnose. Capture status
+before and after bounded log reads, pin session/upper sequence, and filter the chosen
+attempt. This is an observation interval, not an atomic status/log snapshot. A changed
+workspace, session or selected attempt invalidates a live capture; return a marked
+partial result or require refresh. Other state changes within the same attempt are
+reported with their observation times. Late records beyond the upper bound require
+an explicit new capture. Eviction is still possible and must remain visible.
+
+Current status omits loaded command/cwd and structured exit details. AG1 can mark
+these unavailable. Never substitute today's disk configuration as the command that
+an existing supervisor actually ran. If real diagnosis needs those fields, add a
+minimal version-gated read-only context request exposing the loaded selected-service
+metadata, with an optional response field emitted only for that request. Older
+supervisors reject the new request; retain reduced evidence and report the limitation,
+rather than restarting them or loading new declarations. Do not invent structured
+exit codes by parsing human error text. Offline history cannot establish current
+process state or historic commands missing from its format.
+
+### Disclosure and resource limits
+
+Default collection uses only the selected service's observed status/error and a
+recent bounded log window. Exclude environment dumps, `.env`, full config, source
+files, project scans and all-service status from the released representation.
+An internal status response may contain other services; discard those before
+preview/export. Replace home/project prefixes with display aliases, omit raw command
+arguments by default, and mask common credential assignments, authorization values
+and credential-bearing URLs. This reduces exposure; unknown secrets and business
+data still require user review. Masking never changes the original archive.
+
+Proposed initial ceilings: 500 records and 128 KiB of log text per packet, 256 KiB
+for the entire serialized packet, and 5 seconds total collection deadline. Reuse
+existing per-page/query limits; stop with explicit partial metadata when any budget
+is reached. Bound every text field, including errors, not just the records. These
+ceilings do not raise existing IPC/archive limits. Collection is cancellable and
+has no retry loop; cancellation drops reads and never sends a process control.
+
+Preview is memory-only. Explicit save uses a private mode-0600, no-clobber file;
+do not write diagnosis packets into project trees, service logs or update receipts.
+The user manages saved packets; no hidden diagnosis history/cache is created.
+Copying uses the existing clipboard path and its ordinary limits. Nothing is sent
+to a model until the user hands off evidence or grants a read scope in the host.
+
+### Optional read-only MCP adapter
+
+Use local stdio, not a listening HTTP endpoint. Bind one adapter invocation to one
+canonical config and an explicitly selected service/session scope. Model tool
+arguments cannot choose arbitrary config paths, files, commands or destinations.
+Proposed tools are `get_service_context`, `read_service_logs` and
+`search_service_logs`; search reuses literal matching and stable cursors, not a
+new index. Expose no generic shell/file tool or start/stop/save/update operation.
+
+An approved read scope specifies service/session, included categories and ceilings.
+Launch/configuration is an explicit grant; do not silently register a server in the
+user's assistant. Initial capture establishes a fixed upper sequence. Follow-up
+calls stay below that bound; recapture or scope expansion requires a deliberate
+user action. Host-specific disclosure UX must be verified before connecting live
+evidence. Each response uses the shared reduction path; a tool cannot return raw
+logs just because it bypasses the export preview.
+
+Proposed adapter defaults: one in-flight call, 5-second tool deadline, at most 10
+calls and 1 MiB of cumulative serialized output per 10-minute scope. Charge the
+full response size on every call, including repeats; no content-deduplication
+cache is needed. Stop with an
+explicit limit/expired response; do not silently renew or widen scope. Use tools'
+structured results and input validation. Read-only annotations describe intent;
+actual handler dispatch enforces the allowed operations. Protocol messages alone
+use stdout; diagnostics use bounded stderr. Pin and test an official Rust SDK
+version supporting local stdio when AG2 is authorized; assess its dependency/build
+impact then instead of writing a private MCP implementation or adding it now.
+
+Logs, repository instructions and model output are untrusted data. A log asking to
+run commands or upload files cannot alter the scope or dispatch table. devctl's
+adapter restrictions cover its own tools only: a separately configured assistant
+may have shell, files or other connectors. A filesystem read-only sandbox alone
+does not prove that shell commands cannot control an existing service via IPC.
+Use a tool-restricted host for a diagnosis-only guarantee; otherwise clearly expose
+that the user is operating their own general assistant. Never claim the adapter
+sandboxes the whole host.
+
+### Optional launcher and later actions
+
+Only assess a devctl-launched CLI after the packet/read workflow proves useful.
+Support one concrete host first, via explicit argv/stdin and its documented JSON
+output, authentication and permission controls. Do not automate an interactive TUI,
+copy auth files, invoke a shell around model output or silently fall back to another
+provider. Host read-only defaults, hooks, inherited tools and project instructions
+must be checked against the actual supported CLI version; prompt text is not a
+permission boundary. Snapshot-only mode needs enforced removal of command/write
+tools, not just a request to refrain from using them. If the host cannot enforce
+the chosen mode, retain manual handoff instead of launching it permissively.
+
+A launcher job belongs to the client and remains separate from managed services.
+Proposed limits are one job/client, 90 seconds and 256 KiB total captured output;
+cancel/timeout kills and reaps its process group without touching service ownership.
+Stream only bounded status, validate final fields/references, and render escaped
+text. Keep observed facts, hypotheses, unknowns and suggested checks separate.
+Reject invalid/unknown evidence references; never run an output command or retry
+automatically. Usage/cost is reported only when the host supplies it; no fixed
+model, price or subscription entitlement is assumed.
+
+Automated remediation is a separate design decision. Any future action must bind
+to the current workspace/service/instance, exact intended change and user authority,
+revalidate immediately before execution and verify its actual result afterward.
+An allowlisted action boundary cannot be replaced by generic shell access or an
+approval paragraph generated by the model. No such action API is added by AG01.
