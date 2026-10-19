@@ -556,7 +556,10 @@ and public verification. It follows the push run for the exact tag/build commit,
 so a build-only run or unrelated main run cannot establish publication success.
 Failures preserve local state for review; after a push attempt remote publication
 can continue independently. Monitoring an existing tag is read-only and never
-creates another publication. Recovery and command rules belong to the
+creates another publication. Local checks use parent-owned logs and an isolated
+process group for interrupt cleanup; child checks cannot take over terminal input
+or paging. Phase/attempt state makes cancellation distinguish local preparation
+from a push that may already be publishing. Recovery and command rules belong to the
 [release guide](docs/releasing.md#one-command-release).
 
 ## Validation

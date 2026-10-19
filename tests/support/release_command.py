@@ -8,13 +8,15 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import pty
 import re
+import shlex
 import shutil
 import subprocess
 import sys
 import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 sys.dont_write_bytecode = True
 ROOT = Path(__file__).resolve().parents[2]
@@ -41,7 +43,7 @@ class ReleaseCommand(unittest.TestCase):
                     'REAL_GIT': GIT, 'RELEASE_REMOTE': str(self.remote),
                     'RELEASE_LOG': str(self.log), 'RELEASE_STATE': str(self.state),
                     'GIT_CONFIG_GLOBAL': os.devnull, 'GIT_CONFIG_NOSYSTEM': '1',
-                    'GIT_TERMINAL_PROMPT': '0'}
+                    'GIT_TERMINAL_PROMPT': '0', 'TMPDIR': str(self.root)}
         for key in list(self.env):
             if key.startswith('GIT_CONFIG_KEY_') or key.startswith('GIT_CONFIG_VALUE_') or key in (
                     'GIT_CONFIG_COUNT', 'GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE',
@@ -105,6 +107,10 @@ if args[0] == 'metadata':
 elif args[0] == os.environ.get('MOCK_CHECK_FAIL'):
     print('controlled local check failure', file=sys.stderr)
     sys.exit(1)
+elif args[0] == 'test' and os.environ.get('MOCK_CANCEL_CHECK'):
+    print('controlled waiting test', flush=True)
+    os.kill(os.getppid(), signal.SIGINT)
+    time.sleep(60)
 elif args[0] == 'test' and os.environ.get('MOCK_CHANGE_DURING_CHECK'):
     pathlib.Path(os.environ['MOCK_CHANGE_DURING_CHECK']).write_text('concurrent edit')
 ''')
@@ -152,8 +158,9 @@ else:
     def write_mock(self, name, body):
         path = self.mock / name
         path.write_text('#!' + sys.executable + '\n'
-                        'import json, os, pathlib, re, subprocess, sys\n'
+                        'import json, os, pathlib, re, signal, subprocess, sys, time\n'
                         'args = sys.argv[1:]\n'
+                        + ('if args[:1] == ["--no-pager"]: args.pop(0)\n' if name == 'git' else '') +
                         'with open(os.environ["RELEASE_LOG"], "a") as log:\n'
                         f'    log.write(json.dumps([{name!r}, *args]) + "\\n")\n' + body)
         path.chmod(0o755)
@@ -167,6 +174,7 @@ else:
                                 cwd=self.root, env={**self.env, **env}, text=True,
                                 capture_output=True, timeout=30)
         self.assertEqual(result.returncode == 0, ok, result.stdout + result.stderr)
+        self.result_code = result.returncode
         return result.stdout + result.stderr
 
     def assert_no_release(self):
@@ -182,6 +190,9 @@ else:
     def test_complete_release_and_read_only_resume(self):
         text = self.command('1.7.0')
         self.assertIn('Released 1.7.0', text)
+        self.assertIn('[3/6] Run local checks', text)
+        self.assertIn('[6/6] Wait for GitHub', text)
+        self.assertIn('[6/6] git diff --check: OK', text)
         commit = self.git('rev-parse', 'HEAD').stdout.strip()
         self.assertNotEqual(commit, self.base)
         self.assertEqual(self.git('cat-file', '-t', 'v1.7.0').stdout.strip(), 'tag')
@@ -268,10 +279,25 @@ else:
                 self.git('reset', '--hard', self.base)
 
     def test_failed_checks_preserve_edits_without_commit_tag_or_push(self):
-        self.assertIn('controlled local check failure', self.command('1.7.0', ok=False, MOCK_CHECK_FAIL='test'))
+        text = self.command('1.7.0', ok=False, MOCK_CHECK_FAIL='test')
+        self.assertIn('controlled local check failure', text)
+        self.assertIn('Last stage: [3/6] Run local checks', text)
+        self.assertIn('No release push was attempted', text)
+        log = re.search(r'^Full check output: (.+)$', text, re.M)[1]
+        self.assertIn('controlled local check failure', Path(log).read_text())
         self.assert_no_release()
         self.assertIn('version = "1.7.0"', (self.repo / 'Cargo.toml').read_text())
         self.assertEqual(self.git('diff', '--cached', '--name-only').stdout, '')
+
+    def test_ctrl_c_reports_stage_preserves_edits_and_stops_check(self):
+        text = self.command('1.7.0', ok=False, MOCK_CANCEL_CHECK='1')
+        self.assertEqual(self.result_code, 130)
+        self.assertIn('Cancelled by Ctrl+C', text)
+        self.assertIn('Last stage: [3/6] Run local checks', text)
+        self.assertIn('No release commit or tag was created', text)
+        self.assertIn('No release push was attempted', text)
+        self.assert_no_release()
+        self.assertIn('version = "1.7.0"', (self.repo / 'Cargo.toml').read_text())
 
     def test_rejected_push_preserves_local_commit_tag_and_remote_main(self):
         self.command('1.7.0', ok=False, MOCK_PUSH_FAIL='1')
@@ -346,6 +372,56 @@ class RunDiscovery(unittest.TestCase):
         with patch.object(release, 'gh_json', side_effect=RuntimeError('API unavailable')):
             with self.assertRaisesRegex(RuntimeError, 'API unavailable'):
                 release.release_state('v1.7.0')
+
+
+class TerminalOutput(unittest.TestCase):
+    def test_git_diff_check_never_opens_pager_on_a_real_terminal(self):
+        with tempfile.TemporaryDirectory(prefix='devctl pager ') as directory:
+            root = Path(directory)
+            marker = root / 'pager-used'
+            pager = root / 'pager'
+            pager.write_text('#!/bin/sh\nprintf used > "$PAGER_MARKER"\ncat\n')
+            pager.chmod(0o755)
+            pager_command = shlex.quote(str(pager))
+            env = {**os.environ, 'PAGER_MARKER': str(marker), 'GIT_PAGER': pager_command,
+                   'PAGER': pager_command, 'GH_PAGER': pager_command, 'LESS': '-R'}
+            subprocess.run([GIT, 'init', '-q', directory], env=env, check=True)
+            for fixed in (False, True):
+                master, slave = pty.openpty()
+                code = (f'import runpy; r=runpy.run_path({str(ROOT / "scripts/release")!r}); '
+                        'r["run"]("git", "diff", "--check", capture=False)')
+                command = [sys.executable, '-c', code] if fixed else [GIT, 'diff', '--check']
+                process = subprocess.Popen(command, cwd=root, env=env, stdin=slave,
+                                           stdout=slave, stderr=slave, start_new_session=True)
+                os.close(slave)
+                try:
+                    self.assertEqual(process.wait(timeout=5), 0)
+                    if fixed:
+                        self.assertFalse(marker.exists(), 'release invoked an interactive pager')
+                    else:
+                        self.assertTrue(marker.exists(), 'control did not reproduce Git paging')
+                        marker.unlink()
+                finally:
+                    if process.poll() is None:
+                        process.kill()
+                        process.wait()
+                    os.close(master)
+
+    def test_quiet_checks_report_heartbeat_and_keep_full_log(self):
+        with tempfile.TemporaryDirectory() as directory:
+            progress = release.Progress('1.7.0')
+            progress.log = str(Path(directory) / 'checks.log')
+            child = Mock()
+            child.wait.side_effect = [subprocess.TimeoutExpired(['cargo', 'test'], 10), 0]
+            with patch.object(release.subprocess, 'Popen', return_value=child) as popen, \
+                    patch('sys.stdout') as stdout:
+                progress.check(3, 6, ('cargo', 'test', '--locked'))
+            text = ''.join(call.args[0] for call in stdout.write.call_args_list)
+            self.assertIn('still running', text)
+            self.assertIn('OK', text)
+            self.assertIn('$ cargo test --locked', Path(progress.log).read_text())
+            self.assertEqual(popen.call_args.kwargs['stdin'], subprocess.DEVNULL)
+            self.assertTrue(popen.call_args.kwargs['start_new_session'])
 
 
 if __name__ == '__main__':

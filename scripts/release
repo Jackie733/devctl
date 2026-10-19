@@ -9,8 +9,10 @@ from pathlib import Path
 import re
 import shlex
 import shutil
+import signal
 import subprocess
 import sys
+import tempfile
 import time
 
 
@@ -21,12 +23,114 @@ STABLE = r'(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)'
 
 
 def run(*args, capture=True, check=True):
+    if args[0] == 'git':
+        args = ('git', '--no-pager', *args[1:])
     result = subprocess.run(args, text=True, capture_output=capture,
-                            env={**os.environ, 'GH_HOST': 'github.com', 'GH_PROMPT_DISABLED': '1'})
+                            env=command_env())
     if check and result.returncode:
         raise RuntimeError(f'Command failed: {shlex.join(args)}\n'
                            + ((result.stderr or result.stdout or '').strip()))
     return result
+
+
+def command_env():
+    return {**os.environ, 'GH_HOST': 'github.com', 'GH_PROMPT_DISABLED': '1',
+            'GIT_PAGER': 'cat', 'GH_PAGER': 'cat', 'PAGER': 'cat'}
+
+
+def log_tail(path, lines=30):
+    with open(path, 'rb') as stream:
+        stream.seek(0, os.SEEK_END)
+        stream.seek(max(0, stream.tell() - 8192))
+        return '\n'.join(stream.read().decode('utf-8', errors='replace').splitlines()[-lines:])
+
+
+class Progress:
+    def __init__(self, version):
+        self.version = version
+        self.phase = 'Starting'
+        self.started = time.monotonic()
+        self.log = None
+        self.prepared = False
+        self.commit = None
+        self.commit_attempted = False
+        self.tag = None
+        self.tag_attempted = False
+        self.push_attempted = False
+        self.remote_tag_exists = False
+
+    def step(self, number, title):
+        self.phase = f'[{number}/6] {title}'
+        self.started = time.monotonic()
+        print(f'\n{self.phase}', flush=True)
+
+    def check(self, number, total, command):
+        if self.log is None:
+            descriptor, self.log = tempfile.mkstemp(prefix=f'devctl-release-{self.version}-', suffix='.log')
+            os.close(descriptor)
+            print(f'Full check output: {self.log}', flush=True)
+        label = f'  [{number}/{total}] {shlex.join(command)}'
+        print(f'{label} ...', flush=True)
+        started = time.monotonic()
+        args = ('git', '--no-pager', *command[1:]) if command[0] == 'git' else command
+        with open(self.log, 'a', encoding='utf-8') as log:
+            log.write(f'\n$ {shlex.join(command)}\n')
+            log.flush()
+            # Checks must not take over the terminal or wait for keyboard input.
+            # A separate group lets Ctrl+C stop Cargo and its child tests together.
+            process = subprocess.Popen(args, stdin=subprocess.DEVNULL, stdout=log,
+                                       stderr=subprocess.STDOUT, env=command_env(), start_new_session=True)
+            try:
+                while True:
+                    try:
+                        code = process.wait(timeout=10)
+                        break
+                    except subprocess.TimeoutExpired:
+                        last = log_tail(self.log, lines=1).strip()
+                        print(f'{label}: still running ({time.monotonic() - started:.0f}s)'
+                              + (f' | {last[:160]}' if last else ''), flush=True)
+            except KeyboardInterrupt:
+                for stop_signal, grace in ((signal.SIGINT, 5), (signal.SIGKILL, None)):
+                    try:
+                        os.killpg(process.pid, stop_signal)
+                    except ProcessLookupError:
+                        pass
+                    try:
+                        process.wait(timeout=grace)
+                        break
+                    except subprocess.TimeoutExpired:
+                        continue
+                raise
+        elapsed = time.monotonic() - started
+        if code:
+            print(f'{label}: FAILED ({elapsed:.1f}s)\n{log_tail(self.log)}', file=sys.stderr, flush=True)
+            raise RuntimeError(f'{shlex.join(command)} exited with status {code}. Full output: {self.log}')
+        print(f'{label}: OK ({elapsed:.1f}s)', flush=True)
+
+    def stopped(self, reason):
+        print(f'\nRelease stopped: {reason}\n'
+              f'Last stage: {self.phase} ({time.monotonic() - self.started:.1f}s)', file=sys.stderr)
+        if self.log:
+            print(f'Full check output: {self.log}', file=sys.stderr)
+        if self.commit:
+            print(f'Local release commit: {self.commit}', file=sys.stderr)
+        if self.tag:
+            print(f'Local release tag: {self.tag}', file=sys.stderr)
+        if self.push_attempted or self.remote_tag_exists:
+            print(('Push was attempted; remote publication may continue.' if self.push_attempted else
+                   'The remote tag exists; publication may continue after monitoring stops.')
+                  + '\nInspect Actions/Releases.\n'
+                  f'Continue monitoring: ./scripts/release {self.version} --resume', file=sys.stderr)
+        else:
+            print('No release push was attempted by this command.', file=sys.stderr)
+            if not self.commit_attempted and not self.tag_attempted:
+                print('No release commit or tag was created by this command.', file=sys.stderr)
+            elif not self.commit or not self.tag:
+                print('Commit/tag creation was attempted. Inspect git status, log and tags before retrying.',
+                      file=sys.stderr)
+            if self.prepared:
+                print('Prepared version files are retained. Inspect git diff before retrying.', file=sys.stderr)
+        print('No automatic rollback or overwrite. See docs/releasing.md for recovery.', file=sys.stderr)
 
 
 def output(*args):
@@ -190,7 +294,8 @@ def monitor(tag, commit):
           f'Release: {state["html_url"]}\nWorkflow: {workflow["url"]}', flush=True)
 
 
-def publish(version):
+def publish(version, progress):
+    progress.step(1, 'Check release prerequisites')
     base = preflight()
     tag = f'v{version}'
     require(not output('git', 'tag', '--list', tag) and not remote_tag(tag),
@@ -207,10 +312,12 @@ def publish(version):
     run('git', 'var', 'GIT_AUTHOR_IDENT')
     run('git', 'var', 'GIT_COMMITTER_IDENT')
     run('git', 'push', '--dry-run', '--atomic', 'origin', 'HEAD:refs/heads/main', capture=False)
+    progress.step(2, f'Prepare {tag}')
     print(f'Preparing {tag} from {base[:12]}; updating {", ".join(FILES)}.', flush=True)
     for name, text in edits.items():
+        progress.prepared = True
         Path(name).write_text(text, encoding='utf-8')
-    print('Running local release checks...', flush=True)
+    progress.step(3, 'Run local checks')
     require(cargo_package_metadata()['version'] == version, 'Cargo metadata does not match the new version.')
     checks = [
         ('cargo', 'fmt', '--check'),
@@ -220,9 +327,8 @@ def publish(version):
         ('python3', 'tests/support/merge_release.py'),
         ('git', 'diff', '--check'),
     ]
-    for command in checks:
-        print(f'$ {shlex.join(command)}', flush=True)
-        run(*command, capture=False)
+    for number, command in enumerate(checks, start=1):
+        progress.check(number, len(checks), command)
     require(output('git', 'rev-parse', 'HEAD') == base and
             output('git', 'branch', '--show-current') == 'main', 'HEAD/branch changed during checks.')
     require(not output('git', 'diff', '--cached', '--name-only') and
@@ -231,13 +337,21 @@ def publish(version):
     changed = set(run('git', 'diff', '--name-only', '-z').stdout.rstrip('\0').split('\0'))
     require(changed == set(FILES) and all(Path(name).read_text(encoding='utf-8') == text for name, text in edits.items()),
             'Files changed unexpectedly during checks; inspect before committing.')
+    progress.step(4, 'Create release commit and annotated tag')
     run('git', 'add', '--', *FILES, capture=False)
+    progress.commit_attempted = True
     run('git', 'commit', '-m', f'release: prepare {version}', capture=False)
+    progress.commit = output('git', 'rev-parse', 'HEAD')
     require(not output('git', 'status', '--porcelain'), 'Worktree changed during commit; no tag created.')
     commit = output('git', 'rev-parse', 'HEAD')
+    progress.tag_attempted = True
     run('git', 'tag', '-a', tag, '-m', f'devctl {version}', commit, capture=False)
+    progress.tag = tag
+    progress.step(5, 'Push main and tag atomically')
     print(f'Prepared {tag} at {commit}. Pushing main and tag atomically...', flush=True)
+    progress.push_attempted = True
     run('git', 'push', '--atomic', 'origin', f'{commit}:refs/heads/main', f'refs/tags/{tag}', capture=False)
+    progress.step(6, 'Wait for GitHub builds, publication and public verification')
     monitor(tag, commit)
 
 
@@ -247,7 +361,8 @@ def cargo_package_metadata():
                 if package['name'] == 'devctl' and package['id'] in metadata['workspace_members'])
 
 
-def resume(version):
+def resume(version, progress):
+    progress.step(1, 'Check existing release tag')
     preflight()
     tag = f'v{version}'
     require(output('git', 'cat-file', '-t', f'refs/tags/{tag}') == 'tag', 'An existing annotated local tag is required.')
@@ -256,6 +371,9 @@ def resume(version):
     refs = dict(line.split()[::-1] for line in remote_tag(tag).splitlines())
     require(refs.get(f'refs/tags/{tag}') == local_tag and refs.get(f'refs/tags/{tag}^{{}}') == commit,
             'Local/remote tag identity differs or the remote tag is absent. Inspect Git before retrying the push.')
+    progress.step(6, 'Monitor existing GitHub release (no push)')
+    # A remote tag already exists; stopping the monitor cannot cancel publication.
+    progress.remote_tag_exists = True
     monitor(tag, commit)
 
 
@@ -267,13 +385,14 @@ def main():
     if not re.fullmatch(STABLE, args.version):
         parser.error('version must be stable MAJOR.MINOR.PATCH without v, leading zeros, prerelease or build metadata')
     os.chdir(Path(__file__).resolve().parents[1])
+    progress = Progress(args.version)
     try:
-        (resume if args.resume else publish)(args.version)
-    except (RuntimeError, OSError, ValueError, StopIteration, KeyboardInterrupt) as error:
-        print(f'Release stopped: {error}\n'
-              'Changes, commits and tags are preserved for inspection; no automatic rollback or overwrite.\n'
-              'If a push was attempted, the workflow may still publish. Check GitHub Actions/Releases.\n'
-              'See docs/releasing.md for recovery.', file=sys.stderr)
+        (resume if args.resume else publish)(args.version, progress)
+    except KeyboardInterrupt:
+        progress.stopped('Cancelled by Ctrl+C.')
+        return 130
+    except (RuntimeError, OSError, ValueError, StopIteration) as error:
+        progress.stopped(str(error))
         return 1
     return 0
 

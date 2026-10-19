@@ -3,52 +3,54 @@
 Keep current work and necessary handoff here; Git retains history. Collaboration
 rules are in [AGENTS.md](../AGENTS.md).
 
-## Current: one-command maintainer release (X03, public distribution follow-up)
+## Current: release terminal feedback and pager fix (X03)
 
-Confirmed on 2026-10-19: supply a target version to one repository command and
-automatically prepare versions, test and publish. Implemented
-`./scripts/release VERSION`, reusing the existing native release workflow without
-changing deployment configuration, runtime CLI, credentials or dependencies.
+The user's 1.7.0 attempt on 2026-10-19 stopped at a screen ending in `(END)`.
+Reproduced `git diff --check` opening less on a real PTY with inherited `LESS=-R`;
+it waits for a pager key even when there are no diagnostics. The separately rerun
+seven supervisor tests pass in about two seconds; no test deadlock was reproduced.
+The original entry-point tests captured stdout and missed this terminal-only case.
 
-The command requires clean main and reviewed Unreleased notes, checks the official
-origin/permissions/workflow/version/tag/remote-main state, updates six release
-files, runs checks, commits and creates an annotated tag, then pushes main and tag
-atomically. It follows the exact push tag/build commit through both native builds,
-publication and both public verification jobs, and confirms Latest/assets before
-reporting success. Existing versions/tags and historical notes are preserved.
-`--resume` only monitors an identical existing local/remote annotated tag. Recovery
-rules and external publication boundaries are in [releasing.md](releasing.md).
+The release command now disables Git/GitHub pagers, prints six numbered stages,
+shows each check's elapsed result and emits a ten-second heartbeat with latest
+output while a check runs. Full check output stays in a printed temporary log;
+failures show a bounded tail. Check processes have no interactive stdin and run
+in an owned process group so Ctrl+C interrupts them and bounds cleanup. Cancellation
+returns 130 with an explicit reason, stage, elapsed time, log path and actual
+commit/tag/push-attempt state. Existing read-only `--resume` behavior is preserved.
+Commands, output and recovery rules belong to [releasing.md](releasing.md).
 
 Validation on Linux:
 
 - `cargo fmt --check` and `cargo clippy --locked --all-targets -- -D warnings`: passed.
-- `cargo test --locked -- --quiet`: passed, all 331 Rust tests, including the new
-  release-command integration test and 18 existing PTY scenarios.
-- Release-command suite: 18 cases with real Git/temporary bare remotes and fake
-  Cargo/GitHub responses. Covers complete commit/tag/atomic push, read-only resume,
-  invalid/equal/lower versions, dirty work/index, branch/origin/permission/API
-  failures, remote-main drift and tag reuse, malformed metadata/missing notes,
-  check/commit/push failure, concurrent edits, public/private workflow failures,
-  skipped public checks, missing attachments, tag identity and bounded run discovery.
-- Independently prepared 1.7.0 in a temporary checkout; real
-  `cargo metadata --locked --offline --no-deps --format-version 1 --manifest-path …`
-  accepted the version without modifying the prepared dependency lock. All 18
-  release-command tests also passed against that already-bumped checkout, verifying
-  that self-tests remain usable after Unreleased is converted into release notes.
-- `python3 tests/support/install_scripts.py`: passed, 14 cases.
-- `python3 tests/support/merge_release.py`: passed, 8 cases.
-- `python3 tests/support/package_release.py ./target/debug/devctl`: passed, 4 cases.
-- `cargo test --locked --test release_cli -- --nocapture`: passed after the final
-  fixture updates; all 18 Python cases execute through the Rust integration test.
-- Read-only invocation of the script's monitor against existing v1.6.1 passed
-  using real GitHub CLI 2.45.0: exact build commit/run, all five jobs, public stable
-  Latest and all six attachments matched. No new workflow/publication was triggered.
-- `git diff --check`: passed. Inline Markdown inspection checked balanced fences
-  and all 120 local links/anchors in changed reference/task documents.
+- `cargo test --locked -- --quiet`: passed, all 331 Rust tests, including the
+  release-command integration test (21 Python cases) and 18 existing TUI PTY cases.
+- Added a real-PTY paging regression with a positive control, actual check-process
+  Ctrl+C/exit-130 coverage, heartbeat/log checks and stage assertions. Existing
+  release preparation, safety/failure and read-only monitoring cases still pass.
+- `cargo test --locked --test supervisor_cli -- --nocapture`: passed, all 7 cases.
+- Through the new check runner on a real PTY, with `GIT_PAGER`, `GH_PAGER` and
+  `PAGER` set to less and `LESS=-R`: supervisor tests and `git diff --check` passed
+  without paging, with compact elapsed output and a full log. This was read-only;
+  it did not call publication.
+- `git diff --check`: passed. Checked Markdown fences and all 36 local links/anchors
+  in the three changed documents. Recomputed preparation from HEAD and confirmed
+  the six pending files contain exactly the generated edits, with no extra changes.
 
-No real version bump, tag, push, publication or installation was performed. Native
-Mac execution and a real end-to-end publication with this entry point remain
-unverified; the existing platform/user acceptance items below remain pending.
+The user's six generated 1.7.0 preparation edits (Cargo.toml, Cargo.lock, CHANGELOG,
+both READMEs and docs/install.md) remain uncommitted and byte-for-byte unchanged by
+this fix. HEAD's package version is still 1.6.1; v1.7.0 has no local/remote tag.
+Stage/commit only the feedback fix and its tests/docs, not those prepared files.
+After reviewing the six-file diff, restore only the generated edits as described
+in the release guide, then rerun 1.7.0. `--resume` cannot restart local tests.
+No push, release or installation is part of this fix. Real publication through the
+entry point and native Mac acceptance remain unverified.
+
+The original one-command implementation is in `4475383`: exact version preparation,
+local checks, annotated tag/atomic push and exact tag/build-run monitoring. It was
+validated against the existing public v1.6.1 run, Latest and six attachments using
+real GitHub CLI, without triggering publication. This terminal fix does not change
+those publication contracts or deployment configuration.
 
 ## Preserved: mouse log text selection/copy and wheel history (L01 / U01, M5)
 
@@ -171,9 +173,10 @@ terminal queue. The failed tag is preserved; no published artifacts were overwri
 
 ## Next steps
 
-When the user selects a release version, run the [one-command release](releasing.md#one-command-release)
-and record the actual CI/public outcome. Executing this implementation task does
-not itself select a version or authorize publishing an unspecified release.
+The user selected 1.7.0 but cancelled before the release commit/tag/push. Review
+and recover the six generated preparation edits using the
+[release guide](releasing.md#failure-and-recovery), rerun the corrected entry point
+and record the actual CI/public outcome. This feedback fix does not itself publish.
 
 1. Verify dragging, actual clipboard paste, wheel paging and terminal restoration
    in the user's Windows Terminal/WSL and native Mac separately, using a new client

@@ -38,6 +38,25 @@ the script commits only the six prepared files and creates an annotated tag. An
 atomic push sends the main commit and tag together; an unsupported or rejected
 atomic push fails instead of falling back to separate pushes.
 
+### Terminal feedback
+
+The command prints six numbered stages: prerequisites, preparation, local checks,
+commit/tag, atomic push, and remote build/publication/verification. Each local
+check shows its command and final elapsed time. While a check runs, a plain-text
+heartbeat appears every ten seconds with elapsed time and its latest output line.
+There is no estimated percentage for tests or builds.
+
+Full local-check output is saved in a temporary log whose path is printed before
+the first check; use `tail -f /path/to/log` in another terminal for live detail.
+A failure prints the last 30 lines (bounded to 8 KiB) and keeps the full log.
+The command disables Git/GitHub pagers regardless of inherited pager settings;
+checks have no interactive stdin. Normal execution never waits for `q` at `(END)`.
+
+Ctrl+C during a local check interrupts its process group, waits up to five seconds
+and kills it if needed. It returns 130 with an explicit cancellation reason, last
+stage/elapsed time, log path and whether commit/tag/push was attempted. Stopping
+remote monitoring cannot stop a workflow already running on GitHub.
+
 The script locates the push-triggered release.yml run by tag **and exact build
 commit**, then uses [gh run watch](https://cli.github.com/manual/gh_run_watch) to
 show progress. Success requires both builds, publication and both native public
@@ -54,6 +73,16 @@ version or automatically dispatches another publication.
 
 - **Before commit:** inspect `git status`/`git diff`. Fix the failure, restore only
   script-prepared changes after review, commit any intended fix/notes and rerun.
+  If the only pending changes are the six exact version-preparation edits from
+  the cancelled command, restore those files to the committed baseline:
+
+  ```sh
+  git restore -- Cargo.toml Cargo.lock CHANGELOG.md README.md README.zh-CN.md docs/install.md
+  ./scripts/release 1.7.0
+  ```
+
+  Do not restore files containing additional intended edits. `--resume` monitors
+  an existing remote tag; it does not restart interrupted local preparation/tests.
 - **Commit/tag failure:** inspect the index, HEAD and local tag before retrying;
   do not discard your changes automatically.
 - **Push rejected or connection lost:** inspect origin/main, local/remote tag
