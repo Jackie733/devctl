@@ -5,6 +5,8 @@ User-facing changes are grouped by released version. Download artifacts from
 
 ## Unreleased
 
+## 1.9.1 — 2026-10-19
+
 - Retry transient release-monitoring interruptions and distinguish them from
   confirmed workflow failures before recommending recovery.
 - Synchronize native clipboard terminal checks with explicit completion signals
