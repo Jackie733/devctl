@@ -3,54 +3,53 @@
 Keep current work and necessary handoff here; Git retains history. Collaboration
 rules are in [AGENTS.md](../AGENTS.md).
 
-## Current: release terminal feedback and pager fix (X03)
+## Current: 1.7.0 published; CI Action maintenance follow-up (X03)
 
-The user's 1.7.0 attempt on 2026-10-19 stopped at a screen ending in `(END)`.
-Reproduced `git diff --check` opening less on a real PTY with inherited `LESS=-R`;
-it waits for a pager key even when there are no diagnostics. The separately rerun
-seven supervisor tests pass in about two seconds; no test deadlock was reproduced.
-The original entry-point tests captured stdout and missed this terminal-only case.
+The user successfully ran the corrected one-command release on 2026-10-19.
+[Release v1.7.0](https://github.com/Jackie733/devctl/releases/tag/v1.7.0) is public,
+stable and Latest, from annotated tag/build commit
+`f169de83fdc0778e5f2f78697c495f8bf4a90485`. The
+[release workflow](https://github.com/Jackie733/devctl/actions/runs/39221442679)
+completed successfully: both native builds, publication and both anonymous public
+verification jobs passed. All six expected public attachments are present.
 
-The release command now disables Git/GitHub pagers, prints six numbered stages,
-shows each check's elapsed result and emits a ten-second heartbeat with latest
-output while a check runs. Full check output stays in a printed temporary log;
-failures show a bounded tail. Check processes have no interactive stdin and run
-in an owned process group so Ctrl+C interrupts them and bounds cleanup. Cancellation
-returns 130 with an explicit reason, stage, elapsed time, log path and actual
-commit/tag/push-attempt state. Existing read-only `--resume` behavior is preserved.
-Commands, output and recovery rules belong to [releasing.md](releasing.md).
+The release includes mouse log selection/copy/wheel history, local-time/stable log
+labels, project-addition EOF guidance and the maintainer release command. The
+pager/feedback correction is included from `a197129`: disable paging, numbered
+stages, timed checks/heartbeat, persistent check logs and explicit interrupt state.
+Local validation before publication passed fmt, locked all-target Clippy and all
+331 Rust tests, including 21 release-command cases and 18 TUI PTY scenarios.
+A positive-control real-PTY regression reproduced the original empty less pager;
+the corrected runner completed supervisor tests and diff checks without paging.
 
-Validation on Linux:
+### Publication evidence and annotations
 
-- `cargo fmt --check` and `cargo clippy --locked --all-targets -- -D warnings`: passed.
-- `cargo test --locked -- --quiet`: passed, all 331 Rust tests, including the
-  release-command integration test (21 Python cases) and 18 existing TUI PTY cases.
-- Added a real-PTY paging regression with a positive control, actual check-process
-  Ctrl+C/exit-130 coverage, heartbeat/log checks and stage assertions. Existing
-  release preparation, safety/failure and read-only monitoring cases still pass.
-- `cargo test --locked --test supervisor_cli -- --nocapture`: passed, all 7 cases.
-- Through the new check runner on a real PTY, with `GIT_PAGER`, `GH_PAGER` and
-  `PAGER` set to less and `LESS=-R`: supervisor tests and `git diff --check` passed
-  without paging, with compact elapsed output and a full log. This was read-only;
-  it did not call publication.
-- `git diff --check`: passed. Checked Markdown fences and all 36 local links/anchors
-  in the three changed documents. Recomputed preparation from HEAD and confirmed
-  the six pending files contain exactly the generated edits, with no extra changes.
+Read-only verification after the user's run:
 
-The user's six generated 1.7.0 preparation edits (Cargo.toml, Cargo.lock, CHANGELOG,
-both READMEs and docs/install.md) remain uncommitted and byte-for-byte unchanged by
-this fix. HEAD's package version is still 1.6.1; v1.7.0 has no local/remote tag.
-Stage/commit only the feedback fix and its tests/docs, not those prepared files.
-After reviewing the six-file diff, restore only the generated edits as described
-in the release guide, then rerun 1.7.0. `--resume` cannot restart local tests.
-No push, release or installation is part of this fix. Real publication through the
-entry point and native Mac acceptance remain unverified.
+- `gh run view 39221442679 -R Jackie733/devctl --json headSha,status,conclusion,url,jobs`:
+  exact tag/build commit, completed/success, all five jobs successful.
+- `gh release view v1.7.0 -R Jackie733/devctl --json tagName,isDraft,isPrerelease,url,assets`:
+  public stable release and exactly six expected attachments.
+- `gh api repos/Jackie733/devctl/releases/latest --jq .tag_name`: `v1.7.0`.
+- Local tag resolves to the same full build commit; worktree was clean after the
+  user's release command. The previously prepared six-file changes are committed.
+- Documentation-only handoff: `git diff --check` passed; checked fences and all
+  32 local links/anchors in the three changed documents. No Rust code changed.
 
-The original one-command implementation is in `4475383`: exact version preparation,
-local checks, annotated tag/atomic push and exact tag/build-run monitoring. It was
-validated against the existing public v1.6.1 run, Latest and six attachments using
-real GitHub CLI, without triggering publication. This terminal fix does not change
-those publication contracts or deployment configuration.
+Two Node 20 annotations identify the pinned upload-artifact v4 and download-artifact
+v5 Actions. GitHub forced those Actions to Node 24 and both completed successfully.
+[GitHub's migration notice](https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/)
+recommends versions explicitly targeting Node 24. Plan a separate, compatible
+Action-pin update retaining full commit SHAs and validate artifact layout/build-only
+execution before the next release. No workflow/deployment configuration was changed
+in this handoff, and v1.7.0 needs no replacement or overwrite for these warnings.
+The macOS arm64 capacity annotation concerns possible queue delays, not a failed job;
+no project-code change is needed for that notice.
+
+Publication through the entry point is now verified in the user's environment.
+Actual installed-client/supervisor versions, physical Mac/WSL mouse/clipboard/log
+acceptance and user-project acceptance remain unconfirmed. No new installation,
+workflow run or publication was triggered while inspecting these annotations.
 
 ## Preserved: mouse log text selection/copy and wheel history (L01 / U01, M5)
 
@@ -87,10 +86,10 @@ Validation on Linux:
 - `git diff --check`: passed. Inspected code/docs and checked balanced fences and
   all 109 local link paths in the seven changed reference/task documents.
 
-Native Mac and actual Windows Terminal/WSL acceptance remain pending. No release
-or installation is included.
+Native Mac and actual Windows Terminal/WSL acceptance remain pending. This work
+is now published in 1.7.0; installation in the user environment is unconfirmed.
 
-## Published baseline: 1.6.1 (U01 / M5, X03)
+## Previous published baseline: 1.6.1 (U01 / M5, X03)
 
 Authorized on 2026-10-18: defer startup-readiness work and publish the existing TUI
 visual refinement. No startup observation interval, readiness detection, framework
@@ -103,7 +102,7 @@ No new runtime dependencies. Native release checks now exercise the appearance
 scenario against each optimized binary as well as the existing terminal scenarios.
 
 [Release v1.6.1](https://github.com/Jackie733/devctl/releases/tag/v1.6.1) is public
-and Latest, from annotated tag/build commit
+and was Latest at publication, from annotated tag/build commit
 `e7a484116fe7eeb464eff755bcf5b9e008949fd8`. The
 [final workflow](https://github.com/Jackie733/devctl/actions/runs/39136166524) passed
 both builds, publication and both anonymous public-verification jobs.
@@ -146,12 +145,13 @@ terminal queue. The failed tag is preserved; no published artifacts were overwri
 - Project-addition EOF handling landed in `6dcc7e7` (A01/M7): possible old-background
   guidance, explicit invalid-request errors and verified old/new-binary recovery.
   Linux fmt/clippy, all 321 tests and documentation checks passed. The user's
-  actual supervisor version/recovery remain unconfirmed; no release/install.
+  actual supervisor version/recovery remain unconfirmed; included in 1.7.0,
+  installation unconfirmed.
 - Local-time log capture and immutable `[out #N]` / `[err #N]` display landed in
   `28c488d` (L01/U01, M5). Linux fmt/clippy, all 319 tests (including 17 PTY tests)
   and documentation checks passed; the initial unrelated discovery-boundary failure
-  passed isolated/full reruns. Real-terminal/Mac acceptance, release and installation
-  of those changes remain pending.
+  passed isolated/full reruns. Included in 1.7.0; real-terminal/Mac acceptance and
+  installation of those changes remain pending.
 - [Startup readiness comparison](tui-design-research.md#follow-up-startup-state-and-complexity):
   deferred on 2026-10-18, not cancelled from historical D01–D05 scope. Running still
   means a live process; readiness checks and even a startup observation interval
@@ -159,9 +159,10 @@ terminal queue. The failed tag is preserved; no published artifacts were overwri
 - The [AG01 integrated proposal](agent-research.md) remains proposed; engine isolation,
   masking, diagnosis quality, costs/performance and real Mac/WSL integration remain
   unverified. No Agent integration is included in this release.
-- The local installed client uses the unreleased `12bb89f` build and still reports
-  1.5.0. Its bytes, backup, unchanged configuration and installed appearance/control
-  checks were verified; receipt: `/tmp/devctl-tui-install-a7q1d8kb/receipt.json`.
+- The last verified local installed client used the unreleased `12bb89f` build and
+  reported 1.5.0; its current version is unconfirmed. Its bytes, backup, unchanged
+  configuration and installed appearance/control checks were verified; receipt:
+  `/tmp/devctl-tui-install-a7q1d8kb/receipt.json`.
   Publication does not replace it or an already-running supervisor automatically.
 - Previous [v1.5.0](https://github.com/Jackie733/devctl/releases/tag/v1.5.0) was published
   from `2574a7febd6075a03e4320d307e48eb59218a3aa`; its
@@ -173,10 +174,9 @@ terminal queue. The failed tag is preserved; no published artifacts were overwri
 
 ## Next steps
 
-The user selected 1.7.0 but cancelled before the release commit/tag/push. Review
-and recover the six generated preparation edits using the
-[release guide](releasing.md#failure-and-recovery), rerun the corrected entry point
-and record the actual CI/public outcome. This feedback fix does not itself publish.
+Schedule the Node-24 Action-pin maintenance above without changing the published
+v1.7.0 tag/assets. Continue the real-environment acceptance below; publication and
+CI verification do not establish physical-terminal or user-project acceptance.
 
 1. Verify dragging, actual clipboard paste, wheel paging and terminal restoration
    in the user's Windows Terminal/WSL and native Mac separately, using a new client

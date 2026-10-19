@@ -39,7 +39,7 @@ and planned M7.4 installer are superseded. Git retains the original design/histo
 | Following | Verify lightweight onboarding with real daily projects | Directory/command to ordinary TUI start/log/stop/leave/reconnect; record separate Mac/WSL and user acceptance |
 | Outstanding | Real WSL log/UI and cross-version update/rollback | Preserve [log](wsl.md#verify-logs) and [update](wsl.md#verify-updates) checks |
 | Published, user acceptance pending | v1.6.1 visual refinement and multi-platform distribution | Linux/Apple Silicon build and public download/update verification passed; separate Mac/WSL user acceptance remains pending |
-| Implemented, unreleased; acceptance pending | L01/U01 mouse text selection/copy and wheel history navigation | Exact Unicode text copies, existing clipboard channels, retained pages and terminal restoration; separate real Mac/WSL acceptance |
+| Published in 1.7.0; acceptance pending | L01/U01 mouse text selection/copy and wheel history navigation | Exact Unicode text copies, existing clipboard channels, retained pages and terminal restoration; separate real Mac/WSL acceptance |
 | Pending assessment | A03 database/Redis discovery/control | Reassess concrete need and core boundary before research/design; no longer an automatic next milestone |
 | Design assessed; implementation proposed | AG01 Agent-assisted troubleshooting | Integrated TUI diagnosis design; engineering gates below; no Agent integration implemented |
 | As demonstrated | Reliability/usability fixes | Reproduce issues and tie the smallest fix to an existing requirement |
