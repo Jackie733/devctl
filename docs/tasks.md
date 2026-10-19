@@ -3,7 +3,52 @@
 Keep current work and necessary handoff here; Git retains history. Collaboration
 rules are in [AGENTS.md](../AGENTS.md).
 
-## Current: Python terminal-check cleanup complete (U01 / L01 / A01; X03 tooling boundary)
+## Current: repair v1.9.0 release monitoring and clipboard checks (X03 / U01 / L01)
+
+The maintainer reported `unexpected EOF` while watching
+[v1.9.0](https://github.com/Jackie733/devctl/actions/runs/39270476088), exact
+tag/build commit `4cbdec06335559ccd8b862f710c3ee9ccc484243`. Read-only inspection
+confirmed a separate macOS test failure: the simulated WSL clipboard scenario
+timed out waiting for a two-line selection. Linux passed; publication and public
+verification were skipped. `gh release view v1.9.0 -R Jackie733/devctl` returned
+`release not found`.
+
+The native clipboard fixture used a fixed 0.8-second copy delay. Injecting a
+1.2-second terminal-driver delay reproduced the lost-selection failure locally.
+The fixture now holds copying until the extended selection and Help are observed,
+then signals completion explicitly and checks the copied line count and preserved
+selection. Both native clipboard paths share this check; host clipboards remain
+isolated. No application behavior or workflow configuration changes.
+
+The release command retries transient read-only GitHub queries and reconnects to
+the same pending workflow with bounded attempts. It reads the exact run's result
+after watching, distinguishes confirmed failure from interrupted monitoring, and
+retains the existing build/job/release/asset validation. The
+[release guide](releasing.md#failure-and-recovery) owns retry/recovery behavior.
+
+Validation on native macOS:
+
+- `cargo fmt --check`: passed.
+- `cargo clippy --locked --all-targets -- -D warnings`: passed.
+- `cargo test --locked -- --quiet`: passed, 335 tests (201 unit, 134 integration),
+  including all 21 terminal/import checks.
+- `python3 tests/support/release_command.py`: 28 passed, covering transient query
+  retries/exhaustion, authentication failure, pending-run reconnection/exhaustion,
+  completion after disconnection, confirmed failure, wrong commit and incomplete
+  status; existing publication/asset checks remain covered.
+- Both native clipboard scenarios passed with the same injected 1.2-second delay
+  that reproduced the original failure. Their regular full-suite checks passed.
+- Invoked the repaired monitor against the real v1.9.0 tag/build commit: correctly
+  reported the already-completed failure instead of interrupted monitoring.
+- Ruff format/import/undefined-name checks for the changed clipboard module,
+  changed Markdown fences/local link paths and `git diff --check`: passed.
+
+Next: a source fix needs a new version/tag (`./scripts/release 1.9.1`); preserve
+v1.9.0. Reviewed release notes are under Unreleased. No push, job rerun or publication
+has been triggered by this repair. Native hosted validation/publication of the
+repaired version and physical-terminal/WSL acceptance remain pending.
+
+## Preserved: Python terminal-check cleanup complete (U01 / L01 / A01; X03 tooling boundary)
 
 The maintainer authorized organizing existing Python support code. No product
 feature, runtime dependency, release command or workflow configuration changes.

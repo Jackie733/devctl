@@ -59,7 +59,13 @@ remote monitoring cannot stop a workflow already running on GitHub.
 
 The script locates the push-triggered release.yml run by tag **and exact build
 commit**, then uses [gh run watch](https://cli.github.com/manual/gh_run_watch) to
-show progress. Success requires both builds, publication and both native public
+show progress. Read-only GitHub queries retry transient connection/server failures
+up to three attempts, five seconds apart. If the watcher exits, the script reads
+the exact run's status: a completed run is judged by its recorded result; a pending
+run reconnects to the same watcher, up to three attempts, five seconds apart.
+Authentication/configuration errors stop rather than being treated as an absent
+release. These retries never push, publish or rerun jobs.
+Success requires both builds, publication and both native public
 verification jobs to pass, plus a public stable Latest release with all six
 expected attachments. It prints Release/workflow links. Publication does not
 install the release or replace running supervisors. Target-environment and user
@@ -90,8 +96,10 @@ version or automatically dispatches another publication.
   If the prepared commit/tag are local only and local main still points at the
   release tag, retry `git push --atomic origin main refs/tags/v1.7.0` after resolving
   the rejection. If main moved, review before pushing; never force or move the tag.
-- **Workflow discovery timed out (180 seconds), terminal closed, or monitoring
-  failed:** the remote workflow may still publish. Continue watching the same tag:
+- **Workflow discovery timed out, terminal closed, or monitoring failed after
+  bounded retries:** the remote workflow may
+  still publish. A connection error such as `unexpected EOF` does not establish
+  that a build failed. Continue watching the same tag:
 
   ```sh
   ./scripts/release 1.7.0 --resume

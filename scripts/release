@@ -138,7 +138,20 @@ def output(*args):
 
 
 def gh_json(*args):
-    return json.loads(output('gh', *args))
+    # These calls only read GitHub state. Retry transport/server failures, never
+    # publication, pushes or job reruns. Authentication/configuration errors stop.
+    for attempt in range(3):
+        try:
+            return json.loads(output('gh', *args))
+        except RuntimeError as error:
+            transient = re.search(
+                r'unexpected eof|connection reset|connection refused|'
+                r'tls handshake timeout|i/o timeout|context deadline exceeded|'
+                r'temporary failure|http (?:429|5\d\d)\b', str(error), re.I)
+            if not transient or attempt == 2:
+                raise
+            print('GitHub read interrupted; retrying in 5 seconds...', flush=True)
+            time.sleep(5)
 
 
 def require(condition, message):
@@ -256,22 +269,35 @@ def release_state(tag):
 def monitor(tag, commit):
     workflow = find_run(tag, commit)
     print(f'Workflow: {workflow["url"]}', flush=True)
-    watched = run('gh', 'run', 'watch', str(workflow['databaseId']), '-R', REPO,
-                  '--exit-status', '--interval', '10', capture=False, check=False)
-    if watched.returncode:
+    for attempt in range(3):
+        watched = run('gh', 'run', 'watch', str(workflow['databaseId']), '-R', REPO,
+                      '--exit-status', '--interval', '10', capture=False, check=False)
+        details = gh_json('run', 'view', str(workflow['databaseId']), '-R', REPO,
+                          '--json', 'headSha,status,conclusion,jobs')
+        require(details['headSha'] == commit,
+                f'Workflow build commit differs from the release tag. Logs: {workflow["url"]}')
+        if details['status'] == 'completed':
+            break
+        require(watched.returncode and attempt < 2,
+                'Monitoring was interrupted; the workflow has not completed. '
+                'No failed build was confirmed; no jobs were rerun.\n'
+                f'Logs: {workflow["url"]}\n'
+                f'Continue monitoring with ./scripts/release {tag[1:]} --resume.')
+        print('Monitoring interrupted; GitHub workflow is still pending. '
+              'Reconnecting in 5 seconds...', flush=True)
+        time.sleep(5)
+    if details['conclusion'] != 'success':
         state = release_state(tag)
         if state and not state['draft']:
             raise RuntimeError(f'Already published: {state["html_url"]}\n'
                                'Workflow/public verification did not finish successfully. '
                                'Do not overwrite the public version; inspect or rerun the failed jobs.\n'
                                f'Logs: {workflow["url"]}')
-        raise RuntimeError('Workflow failed or monitoring was interrupted; publication is not confirmed.\n'
+        raise RuntimeError(f'Workflow completed with {details["conclusion"]}; publication is not confirmed.\n'
                            f'Logs: {workflow["url"]}\n'
                            f'After investigating, rerun failed jobs with gh run rerun '
                            f'{workflow["databaseId"]} -R {REPO} --failed, then use '
                            f'./scripts/release {tag[1:]} --resume.')
-    details = gh_json('run', 'view', str(workflow['databaseId']), '-R', REPO,
-                      '--json', 'headSha,status,conclusion,jobs')
     jobs = details['jobs']
     require(details['headSha'] == commit and details['status'] == 'completed' and
             details['conclusion'] == 'success' and len(jobs) == 5 and

@@ -147,7 +147,8 @@ elif args[:2] == ['run', 'watch']:
 elif args[:2] == ['run', 'view']:
     names = ['build (ubuntu-22.04)', 'build (macos-14)', 'publish',
              'verify / verify (ubuntu-22.04)', 'verify / verify (macos-14)']
-    print(json.dumps({'headSha': commit, 'status': 'completed', 'conclusion': 'success',
+    print(json.dumps({'headSha': commit, 'status': 'completed',
+                      'conclusion': 'failure' if os.environ.get('MOCK_WATCH_FAIL') else 'success',
                       'jobs': [{'name': name, 'conclusion':
                                 'skipped' if os.environ.get('MOCK_SKIPPED') and name.startswith('verify')
                                 else 'success'} for name in names]}))
@@ -348,6 +349,21 @@ else:
 
 
 class RunDiscovery(unittest.TestCase):
+    def test_transient_github_reads_retry_but_authentication_errors_stop(self):
+        with patch.object(release, 'output', side_effect=[
+                RuntimeError('unexpected EOF'), RuntimeError('HTTP 503'), '[]']) as command, \
+                patch.object(release.time, 'sleep') as sleep:
+            self.assertEqual(release.gh_json('run', 'list'), [])
+            self.assertEqual(command.call_count, 3)
+            self.assertEqual(sleep.call_count, 2)
+        for message, attempts in [('unexpected EOF', 3), ('HTTP 401', 1)]:
+            with self.subTest(message=message), \
+                    patch.object(release, 'output', side_effect=RuntimeError(message)) as command, \
+                    patch.object(release.time, 'sleep'):
+                with self.assertRaisesRegex(RuntimeError, message):
+                    release.gh_json('run', 'list')
+                self.assertEqual(command.call_count, attempts)
+
     def test_ignores_unrelated_runs_and_waits_for_exact_tag_and_commit(self):
         unrelated = [{'headSha': 'wrong', 'headBranch': 'v1.7.0'},
                      {'headSha': 'right', 'headBranch': 'main'}]
@@ -372,6 +388,62 @@ class RunDiscovery(unittest.TestCase):
         with patch.object(release, 'gh_json', side_effect=RuntimeError('API unavailable')):
             with self.assertRaisesRegex(RuntimeError, 'API unavailable'):
                 release.release_state('v1.7.0')
+
+
+class WorkflowMonitoring(unittest.TestCase):
+    def details(self, status='completed', conclusion='success', commit='commit'):
+        names = ['build (linux)', 'build (mac)', 'publish',
+                 'verify / verify (linux)', 'verify / verify (mac)']
+        return {'headSha': commit, 'status': status, 'conclusion': conclusion,
+                'jobs': [{'name': name, 'conclusion': conclusion} for name in names]}
+
+    def monitor(self, details, watch_codes, *, published=False, error=None):
+        tag = 'v1.7.0'
+        names = [f'devctl-{tag}-x86_64-unknown-linux-musl',
+                 f'devctl-{tag}-aarch64-apple-darwin', f'devctl-{tag}-source.tar.gz',
+                 'devctl-update', 'update.json', 'SHA256SUMS']
+        state = {'tag_name': tag, 'draft': False, 'prerelease': False,
+                 'html_url': 'https://example.invalid/release',
+                 'assets': [{'name': name} for name in names]}
+        with patch.object(release, 'find_run', return_value={
+                'databaseId': 42, 'url': 'https://example.invalid/run/42'}), \
+                patch.object(release, 'run', side_effect=[
+                    Mock(returncode=code) for code in watch_codes]) as watch, \
+                patch.object(release, 'gh_json', side_effect=[*details, state]), \
+                patch.object(release, 'release_state', return_value=state if published else None), \
+                patch.object(release.time, 'sleep') as sleep:
+            if error:
+                with self.assertRaisesRegex(RuntimeError, error):
+                    release.monitor(tag, 'commit')
+            else:
+                release.monitor(tag, 'commit')
+            self.assertTrue(all(call.args[:3] == ('gh', 'run', 'watch')
+                                for call in watch.call_args_list))
+            return watch.call_count, sleep.call_count
+
+    def test_disconnected_watch_reconnects_to_same_pending_run(self):
+        self.assertEqual(self.monitor([
+            self.details('queued', ''), self.details('in_progress', ''), self.details()
+        ], [1, 1, 0], published=True), (3, 2))
+
+    def test_disconnected_watch_can_observe_completed_success_without_reconnecting(self):
+        self.assertEqual(self.monitor([self.details()], [1], published=True), (1, 0))
+
+    def test_repeated_monitor_interruptions_do_not_suggest_rerunning_failed_jobs(self):
+        self.assertEqual(self.monitor([self.details('in_progress', '')] * 3, [1] * 3,
+                                      error='No failed build was confirmed; no jobs were rerun'), (3, 2))
+
+    def test_confirmed_failure_does_not_retry_monitoring(self):
+        self.assertEqual(self.monitor([self.details(conclusion='failure')], [1],
+                                      error='Workflow completed with failure'), (1, 0))
+
+    def test_changed_build_identity_stops_before_reconnecting(self):
+        self.assertEqual(self.monitor([self.details('in_progress', '', 'other')], [1],
+                                      error='build commit differs'), (1, 0))
+
+    def test_successful_watch_cannot_hide_incomplete_workflow(self):
+        self.assertEqual(self.monitor([self.details('in_progress', '')], [0],
+                                      error='workflow has not completed'), (1, 0))
 
 
 class TerminalOutput(unittest.TestCase):

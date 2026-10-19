@@ -183,9 +183,11 @@ if Path(__file__).name == 'pbcopy': assert os.environ.get('LC_ALL') == 'en_US.UT
 (root / 'clip.pid').write_text(str(os.getpid()))
 mode = (root / 'clip.mode').read_text()
 if mode == 'fail': sys.exit(7)
-if mode == 'slow': time.sleep(.8)
+if mode == 'slow':
+    while not (root / 'clip.release').exists(): time.sleep(.02)
 if mode == 'hang': time.sleep(60)
 (root / 'clipboard.bin').write_bytes(sys.stdin.buffer.read())
+(root / 'clip.done').touch()
 """)
         clip.chmod(0o700)
         mode = w.root / "clip.mode"
@@ -221,12 +223,28 @@ if mode == 'hang': time.sleep(60)
 
         # Changing the range during an in-flight copy must preserve the new range.
         mode.write_text("slow")
+        (w.root / "clip.done").unlink()
         ui.send(b"y")
         ui.wait("Copying 1 log lines")
-        ui.send(b"j?")
+        ui.send(b"j")
+        ui.wait("V-LINE 2 selected")
+        ui.send(b"?")
         ui.wait(" Help ")
-        ui.pump(1)
+        # Hold completion until the changed selection and Help are observed.
+        # A fixed delay lets a busy CI runner finish copying before it handles j.
+        (w.root / "clip.release").touch()
+        deadline = time.monotonic() + 3
+        while not (w.root / "clip.done").exists():
+            assert time.monotonic() < deadline, "Native clipboard did not finish"
+            ui.pump(0.02)
+        copied = (
+            (w.root / "clipboard.bin")
+            .read_bytes()
+            .decode("utf-8" if mac else "utf-16le")
+        )
+        assert len(copied.splitlines()) == 1
         ui.send(b"\x1b")
+        ui.wait(lambda text: " Help " not in text)
         ui.wait("V-LINE 2 selected")
         ui.wait(f"Copied 1 lines via {program}")
 

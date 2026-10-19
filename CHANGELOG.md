@@ -5,6 +5,11 @@ User-facing changes are grouped by released version. Download artifacts from
 
 ## Unreleased
 
+- Retry transient release-monitoring interruptions and distinguish them from
+  confirmed workflow failures before recommending recovery.
+- Synchronize native clipboard terminal checks with explicit completion signals
+  instead of a fixed copy delay, preventing scheduling-dependent release failures.
+
 ## 1.9.0 — 2026-10-19
 
 - Add the selected devctl identity to both READMEs, with complete transparent
