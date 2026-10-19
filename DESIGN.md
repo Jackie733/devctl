@@ -663,19 +663,25 @@ append-only hot update below; existing services are never restarted for addition
 Both runner entry points validate without side effects, discard that snapshot, and
 reread under run ownership before starting. This retains the import/start race fix.
 
-### TUI project addition
+### TUI project addition, edit, removal, and reload
 
-`a` opens a path/choice/custom-command/review modal; `A` starts the default group.
+`a` opens a path/choice/custom-command/review modal; `e` in the Projects panel loads
+an existing stopped (or cleanup-confirmed failed) service into the same review modal
+(`Draft::new_edit` with `replace`); `d` opens a confirmation modal (`y`/`n`/`Esc`)
+to remove a stopped service; `u` (and CLI `devctl reload`) reloads `devctl.toml` into
+the running supervisor; `r`/`R` (and CLI `devctl restart`) perform single-service or
+default-group restart after confirmed process-group cleanup (`PendingStop::restart`);
+`A` starts the default group.
 Missing configuration opens a memory-only first-use view; normalize its destination
 without creating files. Existing invalid/nonregular configs still fail. A save creates
-normal v1 project/service entries using the same import `Draft` and transaction.
+or updates normal v1 project/service entries using the same import `Draft` and transaction.
 CLI output remains outside pure planning/publication; no stdout diagnostics corrupt
 the TUI. Discover npm/pnpm scripts using existing bounded scanning, with canonical
 source-byte fingerprints retained through confirmation. Other marker files label a
 project type only; custom text is saved as explicit `/bin/sh -c` argv. Do not invent
 framework commands, run probes or prepare environments.
 
-Only one addition job exists per client. Scanning, planning and source recheck/write
+Only one addition/edit job exists per client. Scanning, planning and source recheck/write
 run off the TUI loop. Modal input captures service shortcut letters, UTF-8
 text capped at 4096 bytes and bracketed paste; restore bracketed-paste mode with other terminal state.
 Esc cancels read-only work and discards its eventual result; a new job cannot start
@@ -698,41 +704,48 @@ Enter queues inspection of the eventual completed/current path. Completion perfo
 no shell execution or writes. Actual filesystem calls may be slow; they stay outside
 the UI loop. Confirmation still validates the selected directory and saved evidence.
 
-A confirmed TUI save sends internal `add_project` with the expected workspace
+A confirmed TUI save sends internal `add_project` or `update_project` (and confirmed
+removal sends `remove_project`) with the expected workspace
 identity and compact reviewed intent: directory/argv, original file snapshot digest,
 proposed resolved configuration digest/ID and optional discovery evidence digest.
-Reject a stale workspace identity before dispatch. The supervisor accepts one save
+Reject a stale workspace identity before dispatch. For `update_project` and
+`remove_project`, `manager.check_mutable` verifies that the target service is
+`Stopped` or `Failed` (`cleanup_confirmed = true`) with no active task before
+spawning the disk writer. The supervisor accepts one config
 worker at a time; disk reads, source rechecks and publication run off the manager
 loop while starts/stops/logs remain responsive. Reject a simultaneous save with a
 retry message; a later stale review fails its snapshot comparison.
 
-The worker reconstructs the append-only draft, compares reviewed evidence and
+The worker reconstructs the draft (or removal), compares reviewed evidence and
 checks the current disk declarations against the supervisor's loaded fingerprint.
-External changes to existing declarations/settings require an explicit workspace
-reopen; they must not be silently loaded during an addition. Comments-only changes
+External changes to existing declarations/settings can be loaded explicitly via
+`reload` (`Request::Reload`), which validates `devctl.toml` off the manager loop and
+calls `manager.reload` to add new services, update stopped services, and remove
+deleted stopped services while rejecting modifications or removals of currently
+active (`Running`/`Starting`/`Stopping` or unconfirmed cleanup) services; they are
+still not silently loaded during an unreviewed TUI addition/edit. Comments-only changes
 can be reviewed again and preserved. The worker retains the supervisor's run lock
 and checks its target identity, then takes the same edit lock and uses the existing
 snapshot/parent/atomic publication checks. CLI writers still cannot take the run
 lock. First-use save without a supervisor uses the ordinary transaction, then opens
 the new idle workspace.
 
-After successful publication, register only new services, stopped statuses and log
-sinks in the serialized manager loop; update its declaration fingerprint, then
-acknowledge. Existing declarations/tasks/instances, service states, log sequences,
-workspace identity and archive session remain intact. New log streams share the
-bounded channel; the archive lazily registers them on first output. Other clients
-see new entries on ordinary status polling. Preserve log reading bookmarks when
+After successful publication, register new services, update or remove stopped
+services, and update the declaration fingerprint in the serialized manager loop, then
+acknowledge. Existing running tasks/instances, service states, log sequences,
+workspace identity and archive session remain intact. `logs.register` reuses any
+existing in-memory `Buffer` if a removed service ID is re-added in the same session,
+preserving monotonic sequence numbers. Other clients
+see updated entries on ordinary status polling. Preserve log reading bookmarks when
 selecting the new project and invalidate stale client queries without disconnecting.
 Shutdown waits for an accepted write to finish, even if the requesting client leaves.
 Report unknown/partial save outcomes explicitly and reconcile by reopening; do not
-replay starts. Older supervisors lacking this request close the connection before
-dispatch; an addition EOF includes guidance to inspect configuration/status and
+replay starts. Older supervisors lacking these requests close the connection before
+dispatch; an addition/edit/remove/reload/restart EOF includes guidance to inspect configuration/status and
 explicitly shut down/reopen with the current binary. EOF alone cannot distinguish
 an unsupported request from a lost acknowledgement, so the save outcome remains
 unknown. Current supervisors return a normal error response for invalid request
-frames before dispatch, preserving existing response compatibility. This supports
-reviewed additions only, not external-file watching or live replacement/removal of
-existing declarations.
+frames before dispatch, preserving existing response compatibility.
 Existing CLI protocol operations remain unchanged.
 
 ### Removed environment compatibility and future extensions

@@ -78,6 +78,15 @@ pub enum Command {
         #[arg(long)]
         all: bool,
     },
+    /// Stop and restart selected services in a background workspace.
+    Restart {
+        #[arg(value_name = "SERVICE", required_unless_present = "all", num_args = 1.., conflicts_with = "all")]
+        services: Vec<String>,
+        #[arg(long)]
+        all: bool,
+    },
+    /// Reload configuration changes for stopped services in an active background workspace.
+    Reload,
     /// Show current background service states.
     Status,
     /// List up to 100 retained log sessions without starting services.

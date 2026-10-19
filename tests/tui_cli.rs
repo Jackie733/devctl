@@ -127,3 +127,8 @@ fn add_dialog_completes_directory_paths_and_cycles_candidates_in_a_real_terminal
 fn tui_themes_symbols_and_reduced_motion_keep_controls_and_reading_usable() {
     scenario("appearance");
 }
+
+#[test]
+fn add_dialog_edits_removes_reloads_restarts_and_navigates_with_mouse() {
+    add_scenario("edit_remove_reload");
+}

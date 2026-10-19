@@ -30,11 +30,26 @@ pub enum Request {
         targets: Vec<String>,
         all: bool,
     },
+    Restart {
+        targets: Vec<String>,
+        all: bool,
+    },
+    Reload {},
     Shutdown {},
     /// Reviewed append-only save, applied by the workspace owner.
     AddProject {
         workspace_id: String,
         proposal: crate::import::Proposal,
+    },
+    /// Reviewed update of a stopped project, applied by the workspace owner.
+    UpdateProject {
+        workspace_id: String,
+        proposal: crate::import::Proposal,
+    },
+    /// Confirmed removal of a stopped project, applied by the workspace owner.
+    RemoveProject {
+        workspace_id: String,
+        service: String,
     },
     Logs {
         service: String,
@@ -154,10 +169,20 @@ pub async fn connection(
         Err(error) => Response::failed(format!(
             "Control request was rejected before execution: {error}"
         )),
-        Ok(Request::AddProject {
-            workspace_id: expected,
-            ..
-        }) if expected != workspace_id => {
+        Ok(
+            Request::AddProject {
+                workspace_id: expected,
+                ..
+            }
+            | Request::UpdateProject {
+                workspace_id: expected,
+                ..
+            }
+            | Request::RemoveProject {
+                workspace_id: expected,
+                ..
+            },
+        ) if expected != workspace_id => {
             Response::failed("Workspace changed; review the addition again.")
         }
         Ok(request) => match commands.try_send(Command { request, reply }) {

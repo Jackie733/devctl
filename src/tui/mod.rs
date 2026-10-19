@@ -161,6 +161,7 @@ fn handle_key(app: &mut App, key: KeyEvent, area: ratatui::layout::Rect) -> Acti
     if !view::usable(area) {
         if key.code == KeyCode::Esc || key.code == KeyCode::Char('n') {
             app.confirm_shutdown = false;
+            app.confirm_remove = None;
             app.goto_top = false;
         }
         return Action::Redraw;
@@ -175,6 +176,29 @@ fn handle_key(app: &mut App, key: KeyEvent, area: ratatui::layout::Rect) -> Acti
             }
             KeyCode::Char('n') | KeyCode::Esc => {
                 app.confirm_shutdown = false;
+                Action::Redraw
+            }
+            _ => Action::None,
+        };
+    }
+    if let Some(service) = app.confirm_remove.clone() {
+        return match key.code {
+            KeyCode::Char('y')
+                if app.connected && app.pending.is_none() && view::can_confirm(area, app) =>
+            {
+                app.confirm_remove = None;
+                if let Some(workspace_id) = app.workspace_id.clone() {
+                    Action::Control(Operation::Remove {
+                        service,
+                        workspace_id,
+                    })
+                } else {
+                    Action::Redraw
+                }
+            }
+            KeyCode::Char('n') | KeyCode::Esc => {
+                app.confirm_remove = None;
+                app.feedback = format!("Cancelled removal of {service}.");
                 Action::Redraw
             }
             _ => Action::None,
@@ -339,7 +363,18 @@ fn handle_key(app: &mut App, key: KeyEvent, area: ratatui::layout::Rect) -> Acti
                 app.feedback = "No cached output to select.".into();
             }
         }
-        KeyCode::Char('r') => return Action::Reconnect,
+        KeyCode::Char('c') => return Action::Reconnect,
+        KeyCode::Char('r') => {
+            if !app.connected {
+                return Action::Reconnect;
+            }
+            match app.selected.clone() {
+                Some(id) => return Action::Control(Operation::Restart(id)),
+                None => app.feedback = "No project selected.".into(),
+            }
+        }
+        KeyCode::Char('R') => return Action::Control(Operation::RestartAll),
+        KeyCode::Char('u') => return Action::Control(Operation::Reload),
         KeyCode::Char('?') => {
             app.help = true;
             app.help_scroll = 0;
@@ -360,6 +395,55 @@ fn handle_key(app: &mut App, key: KeyEvent, area: ratatui::layout::Rect) -> Acti
             } else {
                 app.feedback =
                     "Wait for the current service operation before adding a project.".into();
+            }
+        }
+        KeyCode::Char('e') if app.focus == Focus::Projects => {
+            if !app.connected {
+                app.feedback = "Disconnected; reconnect before editing a project.".into();
+            } else if app.pending.is_some() || app.add_busy {
+                app.feedback =
+                    "Wait for the current service operation before editing a project.".into();
+            } else if let Some(id) = app.selected.clone() {
+                let status = app.services.get(&id);
+                let mutable = status.is_some_and(|s| {
+                    s.state == crate::manager::ServiceState::Stopped
+                        || (s.state == crate::manager::ServiceState::Failed && s.cleanup_confirmed)
+                });
+                if !mutable {
+                    app.feedback =
+                        format!("Stop {id} and confirm cleanup before editing its configuration.");
+                } else {
+                    app.add = Some(onboarding::Dialog::new_edit(id.clone()));
+                    app.goto_top = false;
+                    return Action::Onboarding(onboarding::Action::Work(
+                        onboarding::Work::LoadEdit(id),
+                    ));
+                }
+            } else {
+                app.feedback = "No project selected.".into();
+            }
+        }
+        KeyCode::Char('d') if app.focus == Focus::Projects => {
+            if !app.connected {
+                app.feedback = "Disconnected; reconnect before removing a project.".into();
+            } else if app.pending.is_some() || app.add_busy {
+                app.feedback =
+                    "Wait for the current service operation before removing a project.".into();
+            } else if let Some(id) = app.selected.clone() {
+                let status = app.services.get(&id);
+                let mutable = status.is_some_and(|s| {
+                    s.state == crate::manager::ServiceState::Stopped
+                        || (s.state == crate::manager::ServiceState::Failed && s.cleanup_confirmed)
+                });
+                if !mutable {
+                    app.feedback = format!(
+                        "Stop {id} and confirm cleanup before removing it from configuration."
+                    );
+                } else {
+                    app.confirm_remove = Some(id);
+                }
+            } else {
+                app.feedback = "No project selected.".into();
             }
         }
         KeyCode::Char('A') => return Action::Control(Operation::StartAll),
@@ -543,6 +627,9 @@ pub async fn run(path: &Path) -> Result<(), String> {
                                 additions.spawn(onboarding::execute(work, path.clone(), app.workspace_id.clone()));
                             }
                         }
+                        Ok(onboarding::Finished::LoadedEdit(result)) => {
+                            if let Some(dialog) = &mut app.add { dialog.loaded_edit(result); }
+                        }
                         Ok(onboarding::Finished::Previewed(result)) => {
                             if let Some(dialog) = &mut app.add { dialog.previewed(result); }
                         }
@@ -555,9 +642,14 @@ pub async fn run(path: &Path) -> Result<(), String> {
                                 if committed { app.add = None; }
                                 else if let Some(dialog) = &mut app.add { dialog.step = onboarding::Step::Review(draft); dialog.error = Some(error); }
                             } else {
+                                let was_edit = app.add.as_ref().is_some_and(|d| d.edit_target.is_some());
                                 if app.services.contains_key(&draft.id) { app.select_id(&draft.id); }
                                 app.add = None;
-                                app.success(if committed { format!("Added {}. Press s to start; the new project is stopped.", draft.id) } else { "Already configured; existing command and edits preserved.".into() });
+                                if was_edit {
+                                    app.success(if committed { format!("Updated {}. Press s to start; the project stays stopped.", draft.id) } else { "No changes; existing command and directory preserved.".into() });
+                                } else {
+                                    app.success(if committed { format!("Added {}. Press s to start; the new project is stopped.", draft.id) } else { "Already configured; existing command and edits preserved.".into() });
+                                }
                             }
                             status_due = true; logs_due = true;
                         }
@@ -1239,5 +1331,73 @@ mod tests {
             app.add.is_none(),
             "Canceled read-only job must join before a new dialog can start"
         );
+    }
+
+    #[test]
+    fn restart_reload_reconnect_edit_and_remove_shortcuts_enforce_state_and_confirmation() {
+        let mut app = connected();
+        assert!(
+            matches!(handle_key(&mut app, key(KeyCode::Char('r')), area()), Action::Control(Operation::Restart(id)) if id == "a")
+        );
+        assert!(matches!(
+            handle_key(&mut app, key(KeyCode::Char('R')), area()),
+            Action::Control(Operation::RestartAll)
+        ));
+        assert!(matches!(
+            handle_key(&mut app, key(KeyCode::Char('u')), area()),
+            Action::Control(Operation::Reload)
+        ));
+        assert!(matches!(
+            handle_key(&mut app, key(KeyCode::Char('c')), area()),
+            Action::Reconnect
+        ));
+
+        app.services.get_mut("a").unwrap().state = crate::manager::ServiceState::Running;
+        app.services.get_mut("a").unwrap().cleanup_confirmed = false;
+        assert!(matches!(
+            handle_key(&mut app, key(KeyCode::Char('e')), area()),
+            Action::Redraw
+        ));
+        assert!(app.add.is_none());
+        assert!(matches!(
+            handle_key(&mut app, key(KeyCode::Char('d')), area()),
+            Action::Redraw
+        ));
+        assert!(app.confirm_remove.is_none());
+
+        app.services.get_mut("a").unwrap().state = crate::manager::ServiceState::Stopped;
+        app.services.get_mut("a").unwrap().cleanup_confirmed = true;
+        assert!(matches!(
+            handle_key(&mut app, key(KeyCode::Char('e')), area()),
+            Action::Onboarding(onboarding::Action::Work(onboarding::Work::LoadEdit(id))) if id == "a"
+        ));
+        app.add = None;
+
+        assert!(matches!(
+            handle_key(&mut app, key(KeyCode::Char('d')), area()),
+            Action::Redraw
+        ));
+        assert_eq!(app.confirm_remove.as_deref(), Some("a"));
+        assert!(matches!(
+            handle_key(&mut app, key(KeyCode::Char('s')), area()),
+            Action::None
+        ));
+        assert!(matches!(
+            handle_key(&mut app, key(KeyCode::Esc), area()),
+            Action::Redraw
+        ));
+        assert!(app.confirm_remove.is_none());
+
+        handle_key(&mut app, key(KeyCode::Char('d')), area());
+        assert!(
+            matches!(handle_key(&mut app, key(KeyCode::Char('y')), area()), Action::Control(Operation::Remove { service, workspace_id }) if service == "a" && workspace_id == "one")
+        );
+        assert!(app.confirm_remove.is_none());
+
+        app.disconnect("lost".into());
+        assert!(matches!(
+            handle_key(&mut app, key(KeyCode::Char('r')), area()),
+            Action::Reconnect
+        ));
     }
 }

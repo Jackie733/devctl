@@ -16,11 +16,51 @@ pub(super) fn handle(
     if !view::usable(area)
         || app.help
         || app.confirm_shutdown
+        || app.confirm_remove.is_some()
         || app.add.is_some()
         || app.search_input.is_some()
     {
         app.logs.drag = None;
         return Action::None;
+    }
+    let in_projects = view::projects_area(area, app)
+        .is_some_and(|projects| projects.contains(Position::new(mouse.column, mouse.row)));
+    if in_projects && app.logs.drag.is_none() {
+        if !mouse.modifiers.is_empty() {
+            return Action::None;
+        }
+        return match mouse.kind {
+            MouseEventKind::Down(MouseButton::Left) => {
+                let focused = app.focus != Focus::Projects;
+                app.focus(Focus::Projects);
+                if let Some(id) = view::project_at(area, app, mouse.column, mouse.row)
+                    && app.select_id(&id)
+                {
+                    Action::Selection
+                } else if focused {
+                    Action::Redraw
+                } else {
+                    Action::None
+                }
+            }
+            MouseEventKind::ScrollUp | MouseEventKind::ScrollDown => {
+                let focused = app.focus != Focus::Projects;
+                app.focus(Focus::Projects);
+                let delta = if mouse.kind == MouseEventKind::ScrollUp {
+                    -1
+                } else {
+                    1
+                };
+                if app.select(delta) {
+                    Action::Selection
+                } else if focused {
+                    Action::Redraw
+                } else {
+                    Action::None
+                }
+            }
+            _ => Action::None,
+        };
     }
     let Some(viewport) = viewport.filter(|viewport| viewport.matches(area, app)) else {
         app.logs.drag = None;
@@ -337,17 +377,18 @@ mod tests {
             content.x + 12,
             content.y,
         );
-        for modal in 0..4 {
+        for modal in 0..5 {
             app.help = modal == 0;
             app.confirm_shutdown = modal == 1;
-            app.search_input = (modal == 2).then(String::new);
-            app.add = (modal == 3).then(super::super::onboarding::Dialog::new);
+            app.confirm_remove = (modal == 2).then(|| "web".into());
+            app.search_input = (modal == 3).then(String::new);
+            app.add = (modal == 4).then(super::super::onboarding::Dialog::new);
             assert!(matches!(handle(&mut app, input, area), Action::None));
             assert!(app.logs.drag.is_none() && app.logs.selection.is_none());
         }
         app.add = None;
         assert!(matches!(
-            handle(&mut app, event(MouseEventKind::ScrollUp, 1, 4), area),
+            handle(&mut app, event(MouseEventKind::ScrollUp, 1, 0), area),
             Action::None
         ));
         app.focus(Focus::Projects);
@@ -356,6 +397,87 @@ mod tests {
             Action::None
         ));
         assert!(!app.logs.paused);
+        assert!(app.pending.is_none());
+    }
+
+    #[test]
+    fn projects_panel_click_and_wheel_select_and_focus_projects() {
+        use crate::{
+            control::Response,
+            manager::{ServiceState, ServiceStatus},
+        };
+
+        let mut app = app(&["body"]);
+        app.apply_status(Response {
+            workspace_id: "ws".into(),
+            services: [
+                (
+                    "api".into(),
+                    ServiceStatus {
+                        state: ServiceState::Running,
+                        ..ServiceStatus::default()
+                    },
+                ),
+                (
+                    "web".into(),
+                    ServiceStatus {
+                        state: ServiceState::Stopped,
+                        cleanup_confirmed: true,
+                        ..ServiceStatus::default()
+                    },
+                ),
+            ]
+            .into(),
+            ..Response::default()
+        });
+        app.selected = Some("api".into());
+        app.focus(Focus::Logs);
+        let area = Rect::new(0, 0, 120, 30);
+
+        assert!(matches!(
+            handle(
+                &mut app,
+                event(MouseEventKind::Down(MouseButton::Left), 2, 3),
+                area
+            ),
+            Action::Selection
+        ));
+        assert_eq!(app.focus, Focus::Projects);
+        assert_eq!(app.selected.as_deref(), Some("web"));
+
+        assert!(matches!(
+            handle(
+                &mut app,
+                event(MouseEventKind::Down(MouseButton::Left), 2, 3),
+                area
+            ),
+            Action::None
+        ));
+        app.focus(Focus::Logs);
+        assert!(matches!(
+            handle(
+                &mut app,
+                event(MouseEventKind::Down(MouseButton::Left), 2, 3),
+                area
+            ),
+            Action::Redraw
+        ));
+        assert_eq!(app.focus, Focus::Projects);
+        assert_eq!(app.selected.as_deref(), Some("web"));
+
+        app.focus(Focus::Logs);
+        assert!(matches!(
+            handle(&mut app, event(MouseEventKind::ScrollUp, 2, 3), area),
+            Action::Selection
+        ));
+        assert_eq!(app.focus, Focus::Projects);
+        assert_eq!(app.selected.as_deref(), Some("api"));
+
+        assert!(matches!(
+            handle(&mut app, event(MouseEventKind::ScrollDown, 2, 3), area),
+            Action::Selection
+        ));
+        assert_eq!(app.selected.as_deref(), Some("web"));
         assert!(app.pending.is_none());
     }
 

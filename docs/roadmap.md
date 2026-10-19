@@ -35,7 +35,8 @@ and planned M7.4 installer are superseded. Git retains the original design/histo
 
 | Order | Work | Acceptance basis |
 | --- | --- | --- |
-| Implemented, acceptance pending | Simplify A01 onboarding and remove A02 core environment management | TUI path/script/command/save, explicit CLI alternatives, no environment management; append-only hot update and lifecycle checks |
+| Implemented, acceptance pending | Simplify A01 onboarding, add TUI stopped-project edit/remove and config reload, and remove A02 core environment management | TUI path/script/command/save, stopped-project edit/remove (`e`/`d`), external config reload (`u`/`devctl reload`), explicit CLI alternatives, no environment management; hot update and lifecycle checks |
+| Implemented, acceptance pending | P01/P07 dedicated single/group restart and U01 Projects panel mouse navigation | `devctl restart SERVICE...` / `--all`, TUI `r`/`R` (`c` reconnect), and Projects panel left-click/wheel selection without service control side effects |
 | Following | Verify lightweight onboarding with real daily projects | Directory/command to ordinary TUI start/log/stop/leave/reconnect; record separate Mac/WSL and user acceptance |
 | Outstanding | Real WSL log/UI and cross-version update/rollback | Preserve [log](wsl.md#verify-logs) and [update](wsl.md#verify-updates) checks |
 | Published, user acceptance pending | v1.6.1 visual refinement and multi-platform distribution | Linux/Apple Silicon build and public download/update verification passed; separate Mac/WSL user acceptance remains pending |
@@ -46,7 +47,8 @@ and planned M7.4 installer are superseded. Git retains the original design/histo
 
 ### M7 implementation boundary
 
-A01 includes TUI path/script/custom-command addition, language-independent CLI `add`,
+A01 includes TUI path/script/custom-command addition, stopped-project edit/remove,
+external configuration hot-reload (`reload`), language-independent CLI `add`,
 bounded optional npm/pnpm script `import`,
 selection, canonical IDs, preserved edits and atomic configuration saves. Commands
 run in the existing environment; onboarding does not install or validate versions.
@@ -56,8 +58,7 @@ See [acceptance](requirements.md#m7-acceptance-cases),
 [usage](interaction.md#adding-projects). Tests establish implementation evidence;
 real target-platform workflows and user acceptance remain distinct.
 
-Dedicated restart shortcuts may be worth assessing if explicit stop/start becomes
-frequent. Dependency orchestration, probes, crash restart, reboot recovery, native
+Dependency orchestration, probes, crash restart, reboot recovery, native
 Windows, workspace profiles, interactive services and aggregation remain candidates.
 AG01 has a separate proposed sequence below. Existing planning code does not
 establish runtime dependency support. A candidate's presence is neither a promise

@@ -85,7 +85,7 @@ async fn connect_inner(config: &Path) -> Result<UnixStream, ConnectError> {
 fn preflight(config_path: &Path, request: &Request) -> Result<(), String> {
     let config = config::load(config_path)?;
     let manager = Manager::new(config.services);
-    if let Request::Start { targets, all, .. } = request {
+    if let Request::Start { targets, all, .. } | Request::Restart { targets, all, .. } = request {
         let selected = if *all {
             manager.default_targets()
         } else {
@@ -216,11 +216,18 @@ pub async fn transact(
         )
     })?
     .map_err(|error| {
+        let config_op = matches!(
+            request,
+            Request::AddProject { .. }
+                | Request::UpdateProject { .. }
+                | Request::RemoveProject { .. }
+                | Request::Reload {}
+        );
         let hint = if error.kind() == std::io::ErrorKind::UnexpectedEof
-            && matches!(request, Request::AddProject { .. })
+            && (config_op || matches!(request, Request::Restart { .. }))
         {
             ". The background workspace may still be running an older devctl without project addition support. Check configuration/status, then shut down and reopen the workspace with the current devctl before retrying. Shutdown stops all workspace services."
-        } else if matches!(request, Request::AddProject { .. }) {
+        } else if config_op {
             ". Inspect configuration and status before retrying."
         } else {
             ""

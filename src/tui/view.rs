@@ -399,7 +399,13 @@ fn shortcuts(text: String) -> Line<'static> {
                         | "j/k"
                         | "Enter"
                         | "a"
+                        | "r"
+                        | "R"
+                        | "e/d"
+                        | "u"
+                        | "c"
                         | "A"
+                        | "A/R"
                         | "X"
                         | "Q"
                         | "/"
@@ -438,8 +444,11 @@ fn footer(app: &App, width: u16) -> Line<'static> {
             "s/x start/stop",
             "Enter logs",
             "a add",
+            "r restart",
+            "e/d edit/del",
+            "u reload",
             "j/k select",
-            "A default",
+            "A/R default",
             "X stop ALL",
             "Q end",
         ]
@@ -505,6 +514,44 @@ pub fn layout(area: Rect, app: &App) -> ScreenLayout {
     }
 }
 
+fn projects_list_area(area: Rect, show_details: bool) -> (Rect, Rect) {
+    let inner = Block::bordered().inner(area);
+    let detail_height = if show_details {
+        inner.height.saturating_sub(1).min(2)
+    } else {
+        0
+    };
+    let [list, summary] =
+        Layout::vertical([Constraint::Min(0), Constraint::Length(detail_height)]).areas(inner);
+    (list, summary)
+}
+
+pub fn projects_area(area: Rect, app: &App) -> Option<Rect> {
+    let screen = layout(area, app);
+    screen.usable.then_some(screen.projects).flatten()
+}
+
+pub fn project_at(area: Rect, app: &App, column: u16, row: u16) -> Option<String> {
+    let screen = layout(area, app);
+    if !screen.usable {
+        return None;
+    }
+    let projects = screen.projects?;
+    let (list, _) = projects_list_area(projects, screen.wide);
+    if !list.contains(ratatui::layout::Position::new(column, row)) {
+        return None;
+    }
+    let height = usize::from(list.height);
+    let selected = app
+        .services
+        .keys()
+        .position(|id| Some(id) == app.selected.as_ref())
+        .unwrap_or(0);
+    let start = selected.saturating_sub(height.saturating_sub(1));
+    let index = start + usize::from(row - list.y);
+    app.services.keys().nth(index).cloned()
+}
+
 fn log_areas(area: Rect) -> [Rect; 2] {
     Layout::vertical([Constraint::Length(1), Constraint::Min(0)])
         .areas(Block::bordered().inner(area))
@@ -534,7 +581,12 @@ pub struct LogViewport {
 
 impl LogViewport {
     pub fn capture(area: Rect, app: &App) -> Option<Self> {
-        if app.help || app.confirm_shutdown || app.add.is_some() || app.search_input.is_some() {
+        if app.help
+            || app.confirm_shutdown
+            || app.confirm_remove.is_some()
+            || app.add.is_some()
+            || app.search_input.is_some()
+        {
             return None;
         }
         let content = log_content(area, app)?;
@@ -771,16 +823,9 @@ fn projects_view(frame: &mut Frame, area: Rect, app: &App, show_details: bool) {
         format!("[1] Projects{}", if active { " · ACTIVE" } else { "" }),
         active,
     );
-    let inner = block.inner(area);
     frame.render_widget(block, area);
     // Compact mode already shows the selection in the header; give its rows to projects.
-    let detail_height = if show_details {
-        inner.height.saturating_sub(1).min(2)
-    } else {
-        0
-    };
-    let [list, summary] =
-        Layout::vertical([Constraint::Min(0), Constraint::Length(detail_height)]).areas(inner);
+    let (list, summary) = projects_list_area(area, show_details);
     let height = usize::from(list.height);
     let selected = app
         .services
@@ -1242,9 +1287,58 @@ fn shutdown_area(area: Rect, app: &App) -> Rect {
     )
 }
 
+fn remove_lines(service: &str, width: u16) -> Vec<Line<'static>> {
+    let confirm = Span::styled(
+        "y: confirm",
+        Style::default()
+            .fg(Color::LightRed)
+            .add_modifier(Modifier::BOLD),
+    );
+    let cancel = Span::styled(
+        "n / Esc: cancel",
+        Style::default()
+            .fg(Color::Cyan)
+            .add_modifier(Modifier::BOLD),
+    );
+    let mut lines = vec![
+        heading(&format!("Remove project {}?", clean(service))),
+        Line::from("Removes this stopped service from devctl.toml and the active workspace."),
+        Line::default(),
+    ];
+    if usize::from(width) >= confirm.width() + cancel.width() + 4 {
+        lines.push(Line::from(vec![confirm, Span::raw("    "), cancel]));
+    } else {
+        lines.extend([Line::from(confirm), Line::from(cancel)]);
+    }
+    lines.push(note("Project source files on disk are never deleted."));
+    wrapped(lines, width)
+}
+
+fn remove_block() -> Block<'static> {
+    modal_block(" Remove project ", Color::LightRed)
+}
+
+fn remove_area(area: Rect, service: &str) -> Rect {
+    let width = area.width.saturating_sub(4).min(72);
+    let inner = remove_block().inner(Rect::new(0, 0, width, area.height));
+    let height = remove_lines(service, inner.width).len().saturating_add(4);
+    popup(
+        area,
+        width,
+        (height.min(usize::from(u16::MAX)) as u16).min(area.height.saturating_sub(2)),
+    )
+}
+
 pub fn can_confirm(area: Rect, app: &App) -> bool {
+    if !usable(area) {
+        return false;
+    }
+    if let Some(service) = &app.confirm_remove {
+        let inner = remove_block().inner(remove_area(area, service));
+        return remove_lines(service, inner.width).len() <= usize::from(inner.height);
+    }
     let inner = shutdown_block().inner(shutdown_area(area, app));
-    usable(area) && shutdown_lines(app, inner.width).len() <= usize::from(inner.height)
+    shutdown_lines(app, inner.width).len() <= usize::from(inner.height)
 }
 
 fn help_lines(app: &App) -> Vec<Line<'static>> {
@@ -1262,7 +1356,7 @@ fn help_lines(app: &App) -> Vec<Line<'static>> {
         lines.push(note("Cancel selection before panel or service controls."));
     } else {
         let (motion, ends) = match app.focus {
-            Focus::Projects => ("Select project", "First / last project"),
+            Focus::Projects => ("Select project (or click / wheel)", "First / last project"),
             Focus::Logs => ("Move log cursor", "Oldest retained / follow latest logs"),
         };
         lines.push(help_action("j/k / Up/Down", motion));
@@ -1280,12 +1374,13 @@ fn help_lines(app: &App) -> Vec<Line<'static>> {
     lines.extend([
         Line::default(),
         heading("PROJECT & WORKSPACE"),
-        help_action("s / x", "Start / stop selected project"),
-        help_action("a", "Add a project: directory, command, save"),
-        help_action("A", "Start defaults (autostart = true)"),
+        help_action("s / x / r", "Start / stop / restart selected project"),
+        help_action("a / e / d", "Add / edit / remove stopped project"),
+        help_action("u", "Reload devctl.toml (keeps running services)"),
+        help_action("A / R", "Start / restart defaults (autostart = true)"),
         help_action("X", "Stop ALL projects; keep background"),
         help_action("Q", "Confirm ending the entire workspace"),
-        help_action("r", "Sync existing background"),
+        help_action("c", "Sync existing background"),
         note("Running means process alive, not business readiness."),
         Line::default(),
         heading("READ LOGS"),
@@ -1369,8 +1464,13 @@ fn onboarding_rows(area: Rect, app: &App) -> (Rect, Vec<Line<'static>>, u16) {
         area.width.saturating_sub(4).min(96),
         area.height.saturating_sub(2).min(28),
     );
-    let inner = modal_block(" Add project ", Color::Cyan).inner(area);
     let dialog = app.add.as_ref().expect("open dialog");
+    let title = if dialog.edit_target.is_some() {
+        " Edit project "
+    } else {
+        " Add project "
+    };
+    let inner = modal_block(title, Color::Cyan).inner(area);
     let lines = wrapped(
         dialog
             .lines(usize::from(inner.height))
@@ -1385,7 +1485,7 @@ fn onboarding_rows(area: Rect, app: &App) -> (Rect, Vec<Line<'static>>, u16) {
         .max(8)
         .min(usize::from(area.height)) as u16;
     let area = popup(area, area.width, height);
-    let inner = modal_block(" Add project ", Color::Cyan).inner(area);
+    let inner = modal_block(title, Color::Cyan).inner(area);
     let max = lines
         .len()
         .saturating_sub(usize::from(inner.height))
@@ -1404,7 +1504,12 @@ fn overlay(frame: &mut Frame, app: &App) {
     if let Some(dialog) = &app.add {
         let (area, lines, max) = onboarding_rows(frame.area(), app);
         modal_backdrop(frame, area);
-        let block = modal_block(" Add project ", Color::Cyan).title_bottom(
+        let title = if dialog.edit_target.is_some() {
+            " Edit project "
+        } else {
+            " Add project "
+        };
+        let block = modal_block(title, Color::Cyan).title_bottom(
             if matches!(dialog.step, super::onboarding::Step::Review(_)) {
                 " Up/Down: scroll | Enter: save | e: edit | Esc: back "
             } else {
@@ -1433,6 +1538,23 @@ fn overlay(frame: &mut Frame, app: &App) {
                 .block(block),
             area,
         );
+    } else if let Some(service) = &app.confirm_remove {
+        let area = remove_area(frame.area(), service);
+        modal_backdrop(frame, area);
+        let block = remove_block();
+        let inner = block.inner(area);
+        let text = if can_confirm(frame.area(), app) {
+            remove_lines(service, inner.width)
+        } else {
+            wrapped(
+                vec![
+                    heading("Enlarge window to confirm."),
+                    Line::from("n / Esc: cancel | q: leave"),
+                ],
+                inner.width,
+            )
+        };
+        frame.render_widget(Paragraph::new(text).style(modal_style()).block(block), area);
     } else if app.confirm_shutdown {
         let area = shutdown_area(frame.area(), app);
         modal_backdrop(frame, area);

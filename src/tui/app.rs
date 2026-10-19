@@ -23,8 +23,15 @@ pub enum Focus {
 pub enum Operation {
     Start(String),
     Stop(String),
+    Restart(String),
     StartAll,
     StopAll,
+    RestartAll,
+    Reload,
+    Remove {
+        service: String,
+        workspace_id: String,
+    },
     Shutdown,
 }
 
@@ -39,6 +46,10 @@ impl Operation {
                 targets: vec![id.clone()],
                 all: false,
             },
+            Self::Restart(id) => Request::Restart {
+                targets: vec![id.clone()],
+                all: false,
+            },
             Self::StartAll => Request::Start {
                 targets: Vec::new(),
                 all: true,
@@ -46,6 +57,18 @@ impl Operation {
             Self::StopAll => Request::Stop {
                 targets: Vec::new(),
                 all: true,
+            },
+            Self::RestartAll => Request::Restart {
+                targets: Vec::new(),
+                all: true,
+            },
+            Self::Reload => Request::Reload {},
+            Self::Remove {
+                service,
+                workspace_id,
+            } => Request::RemoveProject {
+                workspace_id: workspace_id.clone(),
+                service: service.clone(),
             },
             Self::Shutdown => Request::Shutdown {},
         }
@@ -55,8 +78,12 @@ impl Operation {
         match self {
             Self::Start(id) => format!("Start {id}"),
             Self::Stop(id) => format!("Stop {id}"),
+            Self::Restart(id) => format!("Restart {id}"),
             Self::StartAll => "Start default services".into(),
             Self::StopAll => "Stop all services".into(),
+            Self::RestartAll => "Restart default services".into(),
+            Self::Reload => "Reload configuration".into(),
+            Self::Remove { service, .. } => format!("Remove {service}"),
             Self::Shutdown => "End workspace".into(),
         }
     }
@@ -672,6 +699,7 @@ pub struct App {
     pub feedback: String,
     pub connection_error: Option<String>,
     pub confirm_shutdown: bool,
+    pub confirm_remove: Option<String>,
     pub help: bool,
     pub search_input: Option<String>,
     pub add: Option<super::onboarding::Dialog>,
@@ -705,6 +733,7 @@ impl App {
             feedback: "Connecting; services will not start automatically.".into(),
             connection_error: None,
             confirm_shutdown: false,
+            confirm_remove: None,
             help: false,
             search_input: None,
             add: None,
@@ -941,6 +970,7 @@ impl App {
             self.selection_epoch += 1;
             self.reset_logs();
             self.confirm_shutdown = false;
+            self.confirm_remove = None;
             if self.workspace_id.is_none() {
                 self.feedback = "Connected. Services were not started automatically. s: start selected; a: add project; A: start default.".into();
             }
@@ -970,6 +1000,7 @@ impl App {
         self.selection_epoch += 1;
         self.reset_logs();
         self.confirm_shutdown = false;
+        self.confirm_remove = None;
         self.connection_error = Some(message);
     }
 
@@ -1033,11 +1064,25 @@ impl App {
                 "{}: Start request accepted; waiting for process state.",
                 operation.label()
             ),
+            Operation::Restart(id) => format!("{id}: restarted after confirmed cleanup."),
+            Operation::RestartAll => "Default services restarted after confirmed cleanup.".into(),
+            Operation::Reload => "Reloaded configuration; running services preserved.".into(),
+            Operation::Remove { service, .. } => {
+                format!("Removed {service} from configuration and workspace.")
+            }
             Operation::Stop(id) => format!("{id}: stopped; cleanup confirmed."),
             Operation::StopAll => "All services stopped; background workspace retained.".into(),
             Operation::Shutdown => "Workspace ended.".into(),
         };
-        if matches!(operation, Operation::Stop(_) | Operation::StopAll) {
+        if matches!(
+            operation,
+            Operation::Stop(_)
+                | Operation::StopAll
+                | Operation::Restart(_)
+                | Operation::RestartAll
+                | Operation::Reload
+                | Operation::Remove { .. }
+        ) {
             self.success(self.feedback.clone());
         }
         matches!(operation, Operation::Shutdown)

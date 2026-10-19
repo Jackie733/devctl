@@ -28,6 +28,7 @@ pub struct Dialog {
     pub input: String,
     pub scroll: u16,
     pub error: Option<String>,
+    pub edit_target: Option<String>,
     path: PathBuf,
     kind: String,
     note: Option<String>,
@@ -44,10 +45,12 @@ pub struct Dialog {
 pub enum Work {
     Complete(String),
     Scan(String),
+    LoadEdit(String),
     Preview {
         directory: PathBuf,
         arguments: Vec<String>,
         report: Option<Box<Report>>,
+        edit_target: Option<String>,
     },
     Save(Box<Draft>),
 }
@@ -57,6 +60,7 @@ pub enum Finished {
         result: Result<Completion, String>,
     },
     Scanned(Result<Scan, String>),
+    LoadedEdit(Result<(Scan, Box<Draft>), String>),
     Previewed(Result<Box<Draft>, String>),
     Saved {
         draft: Box<Draft>,
@@ -90,6 +94,7 @@ impl Dialog {
             input: String::new(),
             scroll: 0,
             error: None,
+            edit_target: None,
             path: PathBuf::new(),
             kind: String::new(),
             note: None,
@@ -101,6 +106,13 @@ impl Dialog {
             completion: None,
             completing: false,
             inspect_after_completion: false,
+        }
+    }
+    pub fn new_edit(service_id: String) -> Self {
+        Self {
+            step: Step::Preparing,
+            edit_target: Some(service_id),
+            ..Self::new()
         }
     }
     pub fn busy(&self) -> bool {
@@ -327,6 +339,7 @@ impl Dialog {
             directory,
             arguments,
             report: report.map(Box::new),
+            edit_target: self.edit_target.clone(),
         })
     }
     fn choose_project(&mut self, project: usize) -> Action {
@@ -387,6 +400,22 @@ impl Dialog {
             _ => self.step = Step::Projects(0),
         }
         Action::None
+    }
+    pub fn loaded_edit(&mut self, result: Result<(Scan, Box<Draft>), String>) {
+        match result {
+            Ok((scan, draft)) => {
+                self.path = scan.path;
+                self.kind = scan.kind;
+                self.note = scan.note;
+                self.report = scan.report;
+                self.scroll = 0;
+                self.step = Step::Review(draft);
+            }
+            Err(error) => {
+                self.error = Some(error);
+                self.step = Step::Path;
+            }
+        }
     }
     pub fn previewed(&mut self, result: Result<Box<Draft>, String>) {
         match result {
@@ -449,7 +478,13 @@ impl Dialog {
                 lines.push("Reading project declarations... No commands are executed.".into())
             }
             Step::Preparing => lines.push("Preparing the configuration preview...".into()),
-            Step::Saving => lines.push("Saving and adding the project to this workspace...".into()),
+            Step::Saving => {
+                if self.edit_target.is_some() {
+                    lines.push("Saving and updating the project in this workspace...".into());
+                } else {
+                    lines.push("Saving and adding the project to this workspace...".into());
+                }
+            }
             Step::Command => {
                 lines.push(format!("Project type: {}", self.kind));
                 lines.push(format!("Directory: {}", self.path.display()));
@@ -497,19 +532,36 @@ impl Dialog {
                 choices(&mut lines, &options, *index, rows);
             }
             Step::Review(draft) => {
-                lines.push("Review project addition".into());
+                if self.edit_target.is_some() {
+                    lines.push("Review project update".into());
+                } else {
+                    lines.push("Review project addition".into());
+                }
                 lines.push(format!("Project: {}", draft.id));
                 lines.push(format!("Directory: {}", draft.path.display()));
                 lines.push(format!("Project type: {}", self.kind));
                 lines.push(format!("Command: {}", draft.command_text()));
                 lines.push(format!("Configuration: {}", draft.target().display()));
                 if draft.changes().is_empty() {
-                    lines.push("Already configured: preserve its existing command and edits; nothing to save.".into());
+                    if self.edit_target.is_some() {
+                        lines.push(
+                            "No changes: existing command and directory are unchanged.".into(),
+                        );
+                    } else {
+                        lines.push("Already configured: preserve its existing command and edits; nothing to save.".into());
+                    }
                 }
-                lines.push(
-                    "Save only. The new project stays stopped. Existing services keep running."
-                        .into(),
-                );
+                if self.edit_target.is_some() {
+                    lines.push(
+                        "Save only. The updated project stays stopped. Existing services keep running."
+                            .into(),
+                    );
+                } else {
+                    lines.push(
+                        "Save only. The new project stays stopped. Existing services keep running."
+                            .into(),
+                    );
+                }
                 lines.push(
                     "Enter: save | e: edit command | Esc: edit path | Up/Down: scroll".into(),
                 );
@@ -742,20 +794,50 @@ pub async fn execute(work: Work, config: PathBuf, workspace: Option<String>) -> 
                 .map_err(|e| e.to_string())
                 .and_then(|r| r),
         ),
+        Work::LoadEdit(service_id) => Finished::LoadedEdit(
+            tokio::task::spawn_blocking(move || {
+                let (path, arguments) =
+                    crate::import::inspect_existing(Some(config.clone()), &service_id)?;
+                let scanned = scan(&path.to_string_lossy())?;
+                let draft = Draft::new_edit(
+                    &service_id,
+                    &path,
+                    Some(config),
+                    &arguments,
+                    scanned.report.as_ref(),
+                )?;
+                Ok((scanned, Box::new(draft)))
+            })
+            .await
+            .map_err(|e| e.to_string())
+            .and_then(|r| r),
+        ),
         Work::Preview {
             directory,
             arguments,
             report,
+            edit_target,
         } => Finished::Previewed(
             tokio::task::spawn_blocking(move || {
-                Draft::new(
-                    &directory,
-                    Some(config),
-                    None,
-                    &arguments,
-                    report.as_deref(),
-                )
-                .map(Box::new)
+                if let Some(service_id) = edit_target {
+                    Draft::new_edit(
+                        &service_id,
+                        &directory,
+                        Some(config),
+                        &arguments,
+                        report.as_deref(),
+                    )
+                    .map(Box::new)
+                } else {
+                    Draft::new(
+                        &directory,
+                        Some(config),
+                        None,
+                        &arguments,
+                        report.as_deref(),
+                    )
+                    .map(Box::new)
+                }
             })
             .await
             .map_err(|e| e.to_string())
@@ -765,30 +847,58 @@ pub async fn execute(work: Work, config: PathBuf, workspace: Option<String>) -> 
             let create_recovery = workspace.is_none();
             let mut committed = false;
             let result = if draft.changes().is_empty() {
-                client::transact(&config, &Request::Status {}, false).await.map_err(|e| e.to_string())
+                client::transact(&config, &Request::Status {}, false)
+                    .await
+                    .map_err(|e| e.to_string())
             } else if let Some(workspace_id) = workspace {
-                match client::transact(&config, &Request::AddProject { workspace_id, proposal: draft.proposal() }, false).await {
-                    Ok(response) => { committed = response.error.is_none(); Ok(response) }
+                let proposal = draft.proposal();
+                let request = if proposal.replace.is_some() {
+                    Request::UpdateProject {
+                        workspace_id,
+                        proposal,
+                    }
+                } else {
+                    Request::AddProject {
+                        workspace_id,
+                        proposal,
+                    }
+                };
+                match client::transact(&config, &request, false).await {
+                    Ok(response) => {
+                        committed = response.error.is_none();
+                        Ok(response)
+                    }
                     Err(error) => Err(format!("Project save: {error}")),
                 }
             } else {
                 let saved = tokio::task::spawn_blocking(move || {
                     let result = draft.apply();
                     (draft, result)
-                }).await;
+                })
+                .await;
                 let (returned, applied) = match saved {
                     Ok(value) => value,
-                    Err(error) => return Finished::Previewed(Err(format!("Save outcome unknown: {error}. Inspect the configuration before retrying."))),
+                    Err(error) => {
+                        return Finished::Previewed(Err(format!(
+                            "Save outcome unknown: {error}. Inspect the configuration before retrying."
+                        )));
+                    }
                 };
                 draft = returned;
                 match applied {
                     Ok(changed) => {
                         committed = changed;
-                        client::transact(&config, &Request::Status {}, true).await.map_err(|e| e.to_string())
+                        client::transact(&config, &Request::Status {}, true)
+                            .await
+                            .map_err(|e| e.to_string())
                     }
                     Err(error) => Err(error),
                 }
-            }.and_then(|response| match &response.error { Some(error) => Err(error.clone()), None => Ok(response) });
+            }
+            .and_then(|response| match &response.error {
+                Some(error) => Err(error.clone()),
+                None => Ok(response),
+            });
             let (response, error) = match result {
                 Ok(response) => (Some(response), None),
                 Err(error) => {

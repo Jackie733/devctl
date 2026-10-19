@@ -437,7 +437,7 @@ def reconnect():
         w.states(web='Stopped', weapp='Running', middle='Stopped')
         ui.choose('weapp')
         ui.wait('weapp-line-')
-        ui.send(b'r')
+        ui.send(b'c')
         ui.wait('Connected')
         ui.exit(b'\x03')
         w.states(weapp='Running')
@@ -880,7 +880,7 @@ def history():
         ui.wait('Logs · STOPPED: weapp')
         ui.choose('web')
         ui.wait(lambda text: 'READ' in text and first_sequence(text) == anchor)
-        ui.send(b'r')
+        ui.send(b'c')
         ui.pump(.3)
         ui.wait(lambda text: 'Connected' in text and 'READ' in text and first_sequence(text) == anchor)
 
@@ -892,7 +892,7 @@ def history():
         assert first_sequence(ui.screen.text()) == anchor, 'New output moved paused history'
         assert 'READ POSITION EVICTED' not in ui.screen.text(), 'Backend eviction invalidated a retained client snapshot'
         assert len(w.starts('web')) == 1
-        ui.send(b'r')
+        ui.send(b'c')
         ui.wait('READ POSITION EVICTED')
         ui.wait(lambda text: first_sequence(text) > anchor)
         ui.send(b'0p')
@@ -941,7 +941,7 @@ def disk_history():
         ui.wait('Logs · STOPPED: weapp')
         ui.choose('web')
         ui.wait(lambda text: 'READ' in text and first_sequence(text) == anchor)
-        ui.send(b'r')
+        ui.send(b'c')
         ui.pump(.3)
         ui.wait(lambda text: 'Connected' in text and 'READ' in text and first_sequence(text) == anchor)
 
@@ -953,7 +953,7 @@ def disk_history():
         assert first_sequence(ui.screen.text()) == anchor, 'New output moved paused history'
         assert 'READ POSITION EVICTED' not in ui.screen.text(), 'Backend eviction invalidated a retained client snapshot'
         assert len(w.starts('web')) == 1
-        ui.send(b'r')
+        ui.send(b'c')
         ui.pump(.3)
         ui.wait(lambda text: 'Connected' in text and first_sequence(text) == anchor)
         assert 'READ POSITION EVICTED' not in ui.screen.text(), 'Disk history failed to restore retained output'

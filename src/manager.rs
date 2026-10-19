@@ -86,6 +86,82 @@ impl Manager {
         self.logs.insert(id, sink);
     }
 
+    pub fn check_mutable(&mut self, id: &str) -> Result<(), String> {
+        self.refresh_started();
+        let status = self
+            .statuses
+            .get(id)
+            .ok_or_else(|| format!("Unknown service '{id}'."))?;
+        if self.is_pending(id)
+            || matches!(
+                status.state,
+                ServiceState::Starting | ServiceState::Running | ServiceState::Stopping
+            )
+        {
+            return Err(format!(
+                "Service '{id}' is active ({:?}); stop it before changing or removing its configuration.",
+                status.state
+            ));
+        }
+        if status.state == ServiceState::Failed && !status.cleanup_confirmed {
+            return Err(status
+                .error
+                .clone()
+                .unwrap_or_else(|| format!("Service '{id}' cleanup is unconfirmed.")));
+        }
+        Ok(())
+    }
+
+    pub fn update(&mut self, id: String, service: Service) -> Result<(), String> {
+        self.check_mutable(&id)?;
+        self.services.insert(id, service);
+        Ok(())
+    }
+
+    pub fn remove(&mut self, id: &str) -> Result<(), String> {
+        self.check_mutable(id)?;
+        self.services.remove(id);
+        self.tasks.remove(id);
+        self.statuses.remove(id);
+        self.stopping_all.remove(id);
+        self.logs.remove(id);
+        Ok(())
+    }
+
+    pub fn reload(
+        &mut self,
+        services: BTreeMap<String, Service>,
+        logs: &mut crate::logs::Store,
+    ) -> Result<(), String> {
+        self.refresh_started();
+        let existing: Vec<_> = self
+            .services
+            .iter()
+            .map(|(id, service)| (id.clone(), service.clone()))
+            .collect();
+        for (id, old) in &existing {
+            match services.get(id) {
+                None => self.check_mutable(id)?,
+                Some(new) if new != old => self.check_mutable(id)?,
+                Some(_) => {}
+            }
+        }
+        for (id, _) in existing {
+            if !services.contains_key(&id) {
+                self.remove(&id)?;
+            }
+        }
+        for (id, service) in services {
+            if let Some(slot) = self.services.get_mut(&id) {
+                *slot = service;
+            } else {
+                let sink = logs.register(&id);
+                self.add(id, service, sink);
+            }
+        }
+        Ok(())
+    }
+
     pub fn is_pending(&self, id: &str) -> bool {
         self.tasks.get(id).is_some_and(|task| !task.is_joined())
     }

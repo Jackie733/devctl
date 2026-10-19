@@ -120,6 +120,24 @@ async fn execute(cli: Cli) -> Result<(), String> {
             println!("Selected services stopped.");
             Ok(())
         }
+        Command::Restart { services, all } => {
+            client::execute(
+                &config_path,
+                &control::Request::Restart {
+                    targets: services,
+                    all,
+                },
+                true,
+            )
+            .await?;
+            println!("Restart request accepted; query status for process state.");
+            Ok(())
+        }
+        Command::Reload => {
+            client::execute(&config_path, &control::Request::Reload {}, false).await?;
+            println!("Workspace configuration reloaded.");
+            Ok(())
+        }
         Command::Status => {
             let response =
                 client::execute(&config_path, &control::Request::Status {}, false).await?;

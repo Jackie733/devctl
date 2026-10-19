@@ -147,6 +147,37 @@ try:
   cli('stop','new-project');os.kill(pid,0);ui.wait('Stopped')
   ui.send(b'Qy');ui.exit(key=None);observer.exit()
   assert 'new-project-ready' in cli('logs','new-project','--limit','10'),'New log stream was not archived'
+ elif mode=='edit_remove_reload':
+  empty_config();w.config.write_text(w.config.read_text().replace('enabled=false','enabled=true'))
+  alpha=root/'alpha';alpha.mkdir();(alpha/'v1.sh').write_text("echo $$ >> pid\nprintf 'alpha-v1\\n'\nexec /bin/sleep 60\n");(alpha/'v2.sh').write_text("echo $$ >> pid\nprintf 'alpha-v2\\n'\nexec /bin/sleep 60\n")
+  beta=root/'beta';beta.mkdir();(beta/'run.sh').write_text("echo $$ >> pid\nprintf 'beta-ready\\n'\nexec /bin/sleep 60\n")
+  cli('add',str(alpha),'--name','alpha','--apply','--yes','--','/bin/sh','v1.sh')
+  cli('add',str(beta),'--name','beta','--apply','--yes','--','/bin/sh','run.sh')
+  ui=Tui(w);ui.wait('alpha');ui.wait('beta')
+  # Start both with A, then single-restart alpha with r while beta keeps its pid.
+  ui.send(b'A');ui.wait('alpha-v1');alpha_pid1=int(wait_file(alpha/'pid').splitlines()[-1]);beta_pid1=int(wait_file(beta/'pid').splitlines()[-1])
+  ui.send(b'r');ui.wait('[out #3] alpha-v1')
+  alpha_pid2=int(wait_file(alpha/'pid').splitlines()[-1]);assert alpha_pid2!=alpha_pid1
+  assert int((beta/'pid').read_text().splitlines()[-1])==beta_pid1;os.kill(beta_pid1,0)
+  # Mouse click on row 4 (1-based SGR row 4 = 0-based row 3 = beta) selects beta; wheel up selects alpha.
+  ui.send(b'\x1b[<0;3;4M\x1b[<0;3;4m');ui.wait('beta-ready')
+  ui.send(b'\x1b[<64;3;4M');ui.wait('alpha-v1')
+  # Stop alpha, edit its command via e while beta stays running.
+  ui.send(b'x');ui.wait('Selected: alpha | Stopped')
+  ui.send(b'e');ui.wait('Review project update');ui.send(b'e');ui.wait('command you normally run');ui.send(b'\x15')
+  paste(ui,'/bin/sh v2.sh');ui.send(b'\r');ui.wait('Review project update');save(ui)
+  ui.wait('Updated alpha. Press s to start');os.kill(beta_pid1,0)
+  ui.send(b's');ui.wait('alpha-v2');os.kill(beta_pid1,0)
+  # Stop alpha and remove it via d + y while beta stays running.
+  ui.send(b'x');ui.wait('Selected: alpha | Stopped')
+  ui.send(b'd');ui.wait('Remove project');ui.send(b'y');ui.wait('Selected: beta | Running')
+  assert 'alpha:' not in cli('status') and 'beta: Running' in cli('status');os.kill(beta_pid1,0)
+  # Add gamma externally via config file and hot-reload with u while beta stays running.
+  gamma=root/'gamma';gamma.mkdir()
+  with w.config.open('a') as stream:
+   stream.write(f"\n[projects.gamma]\npath = {json.dumps(str(gamma))}\n[services.gamma]\nproject = \"gamma\"\ncmd = [\"/bin/sleep\", \"60\"]\n")
+  ui.send(b'u');ui.wait('gamma');assert 'gamma: Stopped' in cli('status');os.kill(beta_pid1,0)
+  ui.send(b'Qy');ui.exit(key=None)
 
  else: raise AssertionError(mode)
  print('PASS',mode)

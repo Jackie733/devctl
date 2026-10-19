@@ -119,13 +119,13 @@ simplifying documentation must not silently cancel it.
 | ID/scope | Capability | Status |
 | --- | --- | --- |
 | P05 | Background, leave/reconnect, independent CLI control | Included in the initial release |
-| P01, P07 | Dedicated single/group restart shortcuts | Assess after MVP; existing explicit stop/start remains |
+| P01, P07 | Dedicated single/group restart (`restart`, TUI `r`/`R`) | Delivered; real WSL/Mac acceptance pending |
 | D01–D03 | Dependency execution order, TCP/exec readiness, blocking chains and degradation | Assess after MVP; current independent commands need no readiness dependency |
 | P03 | Automatic crash restart, backoff, retry limits | Candidate |
 | R01 | Restore workspace/service choices after supervisor exit or reboot | Candidate; reconnecting to a still-live supervisor is already P05 |
 | L01, L02 | Paging, in-client reading restoration, pause, literal search and export | Delivered in 1.1.0; target WSL experience pending; no cross-exit bookmarks |
 | L04 | Persistent logs, rotation, expiry, cross-supervisor history | Delivered in 1.1.0; target WSL experience pending |
-| L01, U01 | Mouse text selection/copy and wheel navigation through retained logs | Published in 1.7.0; real WSL/Mac acceptance pending |
+| L01, U01 | Mouse log text selection/copy, wheel history, and Projects panel mouse click/wheel selection | Delivered; real WSL/Mac acceptance pending |
 | W04 | Workspace aliases/listing and profiles | Candidate |
 | D04, D05 | HTTP probes, one-shot tasks, sustained health checks, cascaded control | Candidate; standalone startup-state refinement explicitly deferred on 2026-10-18 |
 | U01, P07 | Multiple services per project and aggregate workspace/project/service UI | Candidate; current one-command-per-project scope remains |
@@ -135,7 +135,7 @@ simplifying documentation must not silently cancel it.
 | X03 | Public distribution and self-update | Public releases and updater delivered; full target WSL acceptance pending |
 | P06 | Service PTYs, stdin forwarding, interactive commands | Candidate |
 | W05 | package.json/Procfile import and devctl-managed file-watch restart | package.json import is included in A01; Procfile import and file-watch restart remain candidates |
-| A01–A03 | Lightweight onboarding and historical environment/infrastructure proposals | A01 retained and simplified; A02 removed from core; A03 pending reassessment; see [scope](#directory-onboarding-and-environment-automation-a01a03) |
+| A01–A03 | Lightweight onboarding and historical environment/infrastructure proposals | A01 retained and extended with in-place stopped-project edit/remove and config reload; A02 removed from core; A03 pending reassessment; see [scope](#directory-onboarding-and-environment-automation-a01a03) |
 | AG01 | Agent-assisted troubleshooting | Research/design requested on 2026-10-18; implementation remains proposed; see [boundary and proposed acceptance](#agent-assisted-troubleshooting-ag01) |
 | Configuration extensions | Environment/tilde path expansion, env_files/env overrides | Candidate; existing literal path/environment behavior remains |
 
@@ -156,7 +156,7 @@ the separate [AG01 planning boundary](#agent-assisted-troubleshooting-ag01).
 
 | ID | Scope | Observable acceptance |
 | --- | --- | --- |
-| A01 | TUI path/script/command addition; CLI add/import remain available | Add a project from the TUI without writing TOML/CLI setup commands or selecting environment versions; hot-add without restarting running services; preserve edits/duplicates and normal lifecycle |
+| A01 | TUI path/script/command addition, stopped-project edit/remove, and config reload; CLI add/import/reload remain available | Add, edit, or remove a stopped project from the TUI or reload external config changes without restarting running services; preserve edits/duplicates and normal lifecycle |
 | A02 | Removed from core | No doctor/setup, managed tool bindings, installation or dependency-readiness gate; unknown retired fields/options fail explicitly |
 | A03 | Infrastructure discovery/monitoring/control pending reassessment | Historical scope retained for a later concrete scenario; not an automatic next milestone |
 

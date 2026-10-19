@@ -473,6 +473,7 @@ fn make_plan(
         let Some(arguments) = &selection.command else {
             continue;
         };
+        let prior_project = existing.and_then(|config| config.projects.get(&selection.project));
         if !selection.existing {
             let mut project = Table::new();
             project["path"] = value(text_path(&selection.path)?);
@@ -480,6 +481,20 @@ fn make_plan(
             changes.push(format!(
                 "+ projects.{}: path={}",
                 safe(&selection.project),
+                safe(selection.path.display())
+            ));
+        } else if let Some(prior_project) =
+            prior_project.filter(|project| selection.replace && project.path != selection.path)
+        {
+            let table = group(&mut document, "projects")?
+                .get_mut(&selection.project)
+                .and_then(Item::as_table_like_mut)
+                .ok_or("Cannot edit project table.")?;
+            field(table, "path", value(text_path(&selection.path)?));
+            changes.push(format!(
+                "~ projects.{}.path: {} -> {}",
+                safe(&selection.project),
+                safe(prior_project.path.display()),
                 safe(selection.path.display())
             ));
         }
@@ -510,7 +525,11 @@ fn make_plan(
                     safe(format!("{expected:?}"))
                 ));
             }
-            if prior.cwd.as_ref() != Some(&selection.path) {
+            let same_project_path =
+                prior_project.is_none_or(|project| project.path == selection.path);
+            if (same_project_path || table.contains_key("cwd"))
+                && prior.cwd.as_ref() != Some(&selection.path)
+            {
                 field(table, "cwd", value(text_path(&selection.path)?));
                 changes.push(format!(
                     "~ services.{}.cwd: {} -> {}",
@@ -657,13 +676,34 @@ pub(crate) fn configuration_path(path: &Path) -> Result<PathBuf, String> {
     storage::identity(path)
 }
 
-/// An in-memory reviewed addition. No user input, output, writes or process probes.
+pub(crate) fn inspect_existing(
+    config_path: Option<PathBuf>,
+    service_id: &str,
+) -> Result<(PathBuf, Vec<String>), String> {
+    let destination = Destination::open(config_path)?;
+    let existing = destination
+        .existing
+        .as_ref()
+        .ok_or("No existing workspace configuration to edit.")?;
+    let service = existing
+        .services
+        .get(service_id)
+        .ok_or_else(|| format!("Unknown service '{}'.", safe(service_id)))?;
+    let project = existing
+        .projects
+        .get(&service.project)
+        .ok_or_else(|| format!("Unknown project '{}'.", safe(&service.project)))?;
+    Ok((project.path.clone(), service.cmd.clone()))
+}
+
+/// An in-memory reviewed addition or replacement. No user input, output, writes or process probes.
 pub(crate) struct Draft {
     destination: Destination,
     plan: Plan,
     directory: PathBuf,
     selections: Vec<Selection>,
     source: Option<(PathBuf, String)>,
+    replace: Option<String>,
     pub path: PathBuf,
     pub arguments: Vec<String>,
     pub id: String,
@@ -677,8 +717,10 @@ pub(crate) struct Proposal {
     arguments: Vec<String>,
     revision: String,
     proposed: String,
-    id: String,
+    pub(crate) id: String,
     source: Option<ReviewedSource>,
+    #[serde(default)]
+    pub(crate) replace: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -699,13 +741,23 @@ pub(crate) fn apply_owned(
     owner: Arc<crate::run_lock::RunLock>,
     live: &str,
 ) -> Result<Addition, String> {
-    let mut draft = Draft::new(
-        &proposal.directory,
-        Some(path.into()),
-        None,
-        &proposal.arguments,
-        None,
-    )?;
+    let mut draft = if let Some(ref target_id) = proposal.replace {
+        Draft::new_edit(
+            target_id,
+            &proposal.directory,
+            Some(path.into()),
+            &proposal.arguments,
+            None,
+        )?
+    } else {
+        Draft::new(
+            &proposal.directory,
+            Some(path.into()),
+            None,
+            &proposal.arguments,
+            None,
+        )?
+    };
     if draft.revision() != proposal.revision
         || draft.plan.config_fingerprint != proposal.proposed
         || draft.id != proposal.id
@@ -735,7 +787,11 @@ pub(crate) fn apply_owned(
         return Err("Reviewed source/configuration evidence changed; preview again. No configuration was written.".into());
     }
     let mut config = config::parse(&fresh.text, path)?;
-    config.services.retain(|id, _| !existing_ids.contains(id));
+    if let Some(ref target_id) = proposal.replace {
+        config.services.retain(|id, _| id == target_id);
+    } else {
+        config.services.retain(|id, _| !existing_ids.contains(id));
+    }
     if !fresh.changes.is_empty() {
         transaction.publish(&fresh.text)?;
     }
@@ -743,6 +799,77 @@ pub(crate) fn apply_owned(
         services: config.services,
         fingerprint: fresh.config_fingerprint,
     })
+}
+
+pub(crate) fn remove_owned(
+    service_id: &str,
+    path: &Path,
+    owner: Arc<crate::run_lock::RunLock>,
+    live: &str,
+) -> Result<String, String> {
+    let destination = Destination::open(Some(path.into()))?;
+    let existing = destination
+        .existing
+        .as_ref()
+        .ok_or("Workspace configuration disappeared; reopen the workspace.")?;
+    if config_fingerprint(existing) != live {
+        return Err("Existing workspace configuration changed outside the TUI; reload or reopen the workspace before removing projects. No configuration was written.".into());
+    }
+    let original = destination
+        .original
+        .as_ref()
+        .ok_or("Workspace configuration disappeared; reopen the workspace.")?;
+    let service = existing
+        .services
+        .get(service_id)
+        .ok_or_else(|| format!("Unknown service '{}'.", safe(service_id)))?;
+    for (other_id, other) in &existing.services {
+        if other_id != service_id && other.depends_on.iter().any(|dep| dep.service == service_id) {
+            return Err(format!(
+                "Cannot remove '{}': service '{}' depends on it.",
+                safe(service_id),
+                safe(other_id)
+            ));
+        }
+    }
+    let mut document = original.text.parse::<DocumentMut>().map_err(|_| {
+        "Cannot edit the existing TOML; run validate for private diagnostics.".to_owned()
+    })?;
+    let roundtrip = document.to_string();
+    if roundtrip.trim_end_matches('\n') != original.text.trim_end_matches('\n') {
+        return Err("This TOML layout cannot round-trip without unrelated formatting changes. Removal refused; edit the configuration manually.".into());
+    }
+    group(&mut document, "services")?.remove(service_id);
+    let project_id = &service.project;
+    let project_still_used = existing
+        .services
+        .iter()
+        .any(|(id, other)| id != service_id && &other.project == project_id);
+    if !project_still_used {
+        group(&mut document, "projects")?.remove(project_id);
+    }
+    let text = document.to_string();
+    let proposed = config::parse(&text, path).map_err(|_| {
+        "The proposed configuration after removal is invalid. Original bytes are unchanged."
+            .to_owned()
+    })?;
+    let fingerprint = config_fingerprint(&proposed);
+    let transaction = storage::Transaction::begin_owned(
+        &destination.requested,
+        &destination.target,
+        &destination.original,
+        owner,
+    )?;
+    let fresh_snap = storage::read(&destination.target)?
+        .ok_or("Workspace configuration disappeared; reopen the workspace.")?;
+    if fresh_snap.text != original.text {
+        return Err(
+            "Reviewed configuration changed; reload and try again. No configuration was written."
+                .into(),
+        );
+    }
+    transaction.publish(&text)?;
+    Ok(fingerprint)
 }
 
 impl Draft {
@@ -763,6 +890,7 @@ impl Draft {
                     root: root.clone(),
                     fingerprint: fingerprint.clone(),
                 }),
+            replace: self.replace.clone(),
         }
     }
     pub fn new(
@@ -854,9 +982,76 @@ impl Draft {
             directory: directory.into(),
             selections,
             source: report.map(|r| (r.root.clone(), report_fingerprint(r))),
+            replace: None,
             path,
             arguments: displayed_arguments,
             id,
+        })
+    }
+    pub fn new_edit(
+        service_id: &str,
+        directory: &Path,
+        config_path: Option<PathBuf>,
+        arguments: &[String],
+        report: Option<&Report>,
+    ) -> Result<Self, String> {
+        let path = directory.canonicalize().map_err(|error| {
+            format!(
+                "Cannot resolve project directory {}: {error}",
+                safe(directory.display())
+            )
+        })?;
+        if !path.is_dir() {
+            return Err("Project path must be a directory.".into());
+        }
+        if arguments
+            .first()
+            .is_none_or(|argument| argument.trim().is_empty())
+        {
+            return Err("Provide a non-empty command after --.".into());
+        }
+        let destination = Destination::open(config_path)?;
+        let existing = destination
+            .existing
+            .as_ref()
+            .ok_or("No existing workspace configuration to edit.")?;
+        let service = existing
+            .services
+            .get(service_id)
+            .ok_or_else(|| format!("Unknown service '{}'.", safe(service_id)))?;
+        let project_id = service.project.clone();
+        if existing
+            .services
+            .values()
+            .filter(|other| other.project == project_id)
+            .count()
+            > 1
+            && existing
+                .projects
+                .get(&project_id)
+                .is_some_and(|project| project.path != path)
+        {
+            return Err("Project has multiple services; edit devctl.toml directly to change its shared path.".into());
+        }
+        let selections = vec![Selection {
+            path: path.clone(),
+            project: project_id,
+            service: service_id.to_owned(),
+            command: Some(arguments.to_vec()),
+            replace: true,
+            existing: true,
+        }];
+        let plan = destination.plan(&path, &selections)?;
+        Ok(Self {
+            destination,
+            plan,
+            directory: directory.into(),
+            selections,
+            source: report.map(|r| (r.root.clone(), report_fingerprint(r))),
+            replace: Some(service_id.to_owned()),
+            path,
+            arguments: arguments.to_vec(),
+            id: service_id.to_owned(),
         })
     }
     pub fn command_text(&self) -> String {
@@ -1129,5 +1324,45 @@ mod hot_add_tests {
                 .contains("owner does not match")
         );
         assert!(config::load(&f.config).unwrap().services.is_empty());
+    }
+
+    #[test]
+    fn owned_edit_and_remove_update_and_delete_services_while_preserving_shared_projects() {
+        let f = Fixture::new();
+        let first = f.draft("first");
+        let owner = Arc::new(RunLock::acquire(&f.config).unwrap());
+        let added =
+            apply_owned(first.proposal(), &f.config, owner.clone(), &f.fingerprint()).unwrap();
+        let (path, cmd) = inspect_existing(Some(f.config.clone()), "first").unwrap();
+        assert_eq!(path, f.root.join("first"));
+        assert_eq!(cmd, vec!["sleep", "60"]);
+
+        let moved = f.root.join("moved");
+        fs::create_dir_all(&moved).unwrap();
+        let edit = Draft::new_edit(
+            "first",
+            &moved,
+            Some(f.config.clone()),
+            &["sleep".into(), "120".into()],
+            None,
+        )
+        .unwrap();
+        assert_eq!(edit.replace.as_deref(), Some("first"));
+        let updated = apply_owned(
+            edit.proposal(),
+            &f.config,
+            owner.clone(),
+            &added.fingerprint,
+        )
+        .unwrap();
+        let loaded = config::load(&f.config).unwrap();
+        assert_eq!(loaded.services["first"].cmd, vec!["sleep", "120"]);
+        assert_eq!(loaded.projects["first"].path, moved);
+
+        let removed = remove_owned("first", &f.config, owner, &updated.fingerprint).unwrap();
+        let loaded = config::load(&f.config).unwrap();
+        assert!(loaded.services.is_empty());
+        assert!(loaded.projects.is_empty());
+        assert_eq!(removed, f.fingerprint());
     }
 }

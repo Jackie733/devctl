@@ -34,7 +34,7 @@ pub struct Project {
     pub path: PathBuf,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Service {
     pub project: String,
@@ -148,14 +148,14 @@ pub fn resolve_import_path(explicit: Option<PathBuf>) -> Result<PathBuf, String>
     Ok(home.join(".config/devctl/devctl.toml"))
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Dependency {
     pub service: String,
     pub condition: DependencyCondition,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum DependencyCondition {
     Started,

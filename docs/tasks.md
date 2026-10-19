@@ -3,7 +3,31 @@
 Keep current work and necessary handoff here; Git retains history. Collaboration
 rules are in [AGENTS.md](../AGENTS.md).
 
-## Current: 1.7.0 published; CI Action maintenance follow-up (X03)
+## Current: dedicated restart, hot config reload, TUI project edit/remove, and Projects mouse navigation (P01, P07, A01, U01)
+
+Authorized on 2026-10-19: implement three high-frequency daily workflow enhancements:
+
+1. **Dedicated single and default-group restart (`P01`, `P07`)**:
+   - CLI `devctl restart SERVICE...` and `devctl restart --all` (creates the supervisor if needed after preflighting targets).
+   - TUI `r` restarts the selected service when connected (or reconnects when disconnected); `R` stops all active services, confirms process-group cleanup, and starts the default group (`autostart = true`); `c` reconnects/syncs to the existing background workspace.
+2. **External configuration hot-reload and TUI stopped-project edit/remove (`A01`)**:
+   - CLI `devctl reload` and TUI `u` reload `devctl.toml` into the running supervisor, applying additions, removals, and updates to `Stopped`/`Failed` (`cleanup_confirmed`) services without interrupting running services.
+   - TUI `e` in the Projects panel opens the review/edit dialog (`Edit project` / `Review project update`) for a stopped service and atomically saves updated command/directory changes via `Request::UpdateProject`.
+   - TUI `d` in the Projects panel opens a confirmation modal (`Remove project`, `y`/`n`/`Esc`) for a stopped service and atomically removes it (and its `projects.<id>` entry when unreferenced) via `Request::RemoveProject`.
+3. **Projects panel mouse click and wheel navigation (`U01`)**:
+   - Left-clicking a row in the Projects panel focuses `Projects` and selects that service.
+   - Scrolling the mouse wheel over the Projects panel focuses `Projects` and moves selection up/down without triggering service start/stop/restart/remove actions.
+
+Validation on Linux:
+
+- `cargo fmt --check`: passed.
+- `cargo clippy --locked --all-targets -- -D warnings`: passed.
+- `cargo test --locked -- --quiet`: passed, all 336 tests (204 unit tests and 132 integration tests, including 19 TUI PTY scenarios).
+- `git diff --check`: passed.
+
+Real-environment WSL/macOS acceptance of the new commands and TUI interactions remains pending.
+
+## Preserved: 1.7.0 published; CI Action maintenance follow-up (X03)
 
 The user successfully ran the corrected one-command release on 2026-10-19.
 [Release v1.7.0](https://github.com/Jackie733/devctl/releases/tag/v1.7.0) is public,

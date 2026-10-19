@@ -244,7 +244,15 @@ pub fn channel(
 
 impl Store {
     pub fn register(&mut self, id: &str) -> Sink {
-        assert!(!self.buffers.contains_key(id), "log stream must be new");
+        if let Some(buffer) = self.buffers.get(id) {
+            return Sink {
+                service: Arc::from(id),
+                instance: 0,
+                sender: self.sender.clone(),
+                dropped: buffer.dropped.clone(),
+                incomplete: buffer.incomplete.clone(),
+            };
+        }
         let dropped = Arc::new(AtomicU64::new(0));
         let incomplete = Arc::new(AtomicBool::new(false));
         self.buffers.insert(

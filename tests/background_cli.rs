@@ -663,3 +663,74 @@ fn startup_failure_is_reported_without_overwriting_an_unrelated_endpoint_file() 
     assert_eq!(fs::read_to_string(workspace.socket()).unwrap(), "keep me");
     assert!(!workspace.config.path.with_file_name("web").exists());
 }
+
+#[test]
+fn restart_and_reload_apply_changes_without_interrupting_unrelated_running_services() {
+    let mut workspace = Workspace::new();
+    workspace.ok(&["start", "web", "weapp"]);
+    let web1 = workspace.pid("web");
+    let weapp1 = workspace.pid("weapp");
+
+    workspace.ok(&["restart", "web"]);
+    workspace.stopped(web1);
+    let web2 = workspace.pid("web");
+    assert_ne!(web1, web2);
+    assert_eq!(kill(weapp1, None), Ok(()));
+
+    workspace.ok(&["restart", "--all"]);
+    workspace.stopped(web2);
+    workspace.stopped(weapp1);
+    let web3 = workspace.pid("web");
+    let weapp2 = workspace.pid("weapp");
+    let middle1 = workspace.pid("middle");
+    assert_ne!(web2, web3);
+    assert_ne!(weapp1, weapp2);
+
+    workspace.ok(&["stop", "middle"]);
+    workspace.stopped(middle1);
+
+    let worker_marker = workspace.config.path.with_file_name("worker");
+    let middle_marker = workspace.config.path.with_file_name("middle-v2");
+    workspace.edit(|config| {
+        let mut worker = config["services"]["middle"].clone();
+        worker["cmd"][4] = toml::Value::String(worker_marker.to_str().unwrap().into());
+        config["services"]["middle"]["cmd"][4] =
+            toml::Value::String(middle_marker.to_str().unwrap().into());
+        config["services"]
+            .as_table_mut()
+            .unwrap()
+            .insert("worker".into(), worker);
+    });
+    let reload_out = workspace.ok(&["reload"]);
+    assert!(reload_out.contains("Workspace configuration reloaded."));
+    assert!(workspace.ok(&["status"]).contains("worker: Stopped"));
+    assert_eq!(kill(web3, None), Ok(()));
+    assert_eq!(kill(weapp2, None), Ok(()));
+
+    workspace.ok(&["start", "middle", "worker"]);
+    let middle2 = workspace.pid("middle-v2");
+    let worker1 = workspace.pid("worker");
+    workspace.ok(&["stop", "worker"]);
+    workspace.stopped(worker1);
+
+    workspace.edit(|config| {
+        config["services"].as_table_mut().unwrap().remove("worker");
+    });
+    let reload_out = workspace.ok(&["reload"]);
+    assert!(reload_out.contains("Workspace configuration reloaded."));
+    assert!(!workspace.ok(&["status"]).contains("worker:"));
+
+    workspace.edit(|config| {
+        config["services"]["web"]["cmd"][2] = toml::Value::String("exec sleep 30".into());
+    });
+    let bad_reload = workspace.run(&["reload"]);
+    assert!(!bad_reload.status.success());
+    assert!(String::from_utf8_lossy(&bad_reload.stderr).contains("web"));
+    assert_eq!(kill(web3, None), Ok(()));
+    assert_eq!(kill(middle2, None), Ok(()));
+
+    workspace.ok(&["shutdown"]);
+    workspace.stopped(web3);
+    workspace.stopped(weapp2);
+    workspace.stopped(middle2);
+}

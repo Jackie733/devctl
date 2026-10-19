@@ -21,8 +21,27 @@ use crate::{
 
 const MAX_CLIENTS: usize = 16;
 
+enum RestartTarget {
+    All,
+    Selected(Vec<String>),
+}
+
+enum ConfigOutcome {
+    Added(import::Addition),
+    Updated(import::Addition),
+    Removed {
+        service: String,
+        fingerprint: String,
+    },
+    Reloaded {
+        config: config::Config,
+        fingerprint: String,
+    },
+}
+
 struct PendingStop {
     shutdown: bool,
+    restart: Option<RestartTarget>,
     ids: Vec<String>,
     errors: Vec<String>,
     reply: oneshot::Sender<Response>,
@@ -111,13 +130,17 @@ fn dispatch(
             };
             let _ = reply.send(snapshot(manager, result.err()));
         }
-        Request::AddProject { .. } => unreachable!("additions run outside dispatch"),
+        Request::AddProject { .. }
+        | Request::UpdateProject { .. }
+        | Request::RemoveProject { .. }
+        | Request::Reload {} => unreachable!("config mutations run outside dispatch"),
         request => {
             if pending.len() >= 32 {
                 let _ = reply.send(Response::failed("Too many pending stop requests."));
                 return;
             }
             let shutdown = matches!(request, Request::Shutdown {});
+            let mut restart = None;
             let ids = match request {
                 Request::Shutdown {} => {
                     *shutting_down = true;
@@ -140,6 +163,31 @@ fn dispatch(
                         targets
                     }
                 }
+                Request::Restart { targets, all } => {
+                    if *shutting_down {
+                        let _ = reply.send(snapshot(
+                            manager,
+                            Some("Workspace is shutting down.".into()),
+                        ));
+                        return;
+                    }
+                    if let Err(error) = validate_selection(&targets, all) {
+                        let _ = reply.send(Response::failed(error));
+                        return;
+                    }
+                    if all {
+                        manager.request_stop_all();
+                        restart = Some(RestartTarget::All);
+                        manager.all_ids()
+                    } else {
+                        if let Err(error) = manager.stop_selected(&targets) {
+                            let _ = reply.send(snapshot(manager, Some(error)));
+                            return;
+                        }
+                        restart = Some(RestartTarget::Selected(targets.clone()));
+                        targets
+                    }
+                }
                 _ => unreachable!(),
             };
             let errors = ids
@@ -156,6 +204,7 @@ fn dispatch(
                 .collect();
             pending.push(PendingStop {
                 shutdown,
+                restart,
                 ids,
                 errors,
                 reply,
@@ -173,7 +222,22 @@ fn complete_stops(manager: &mut Manager, pending: &mut Vec<PendingStop>, allow_s
             index += 1;
             continue;
         }
-        let command = pending.swap_remove(index);
+        let mut command = pending.swap_remove(index);
+        if command.errors.is_empty()
+            && let Some(restart) = command.restart.take()
+        {
+            let start_result = if !allow_shutdown {
+                Err("Workspace is shutting down.".into())
+            } else {
+                match restart {
+                    RestartTarget::All => manager.start_all(),
+                    RestartTarget::Selected(targets) => manager.start_selected(&targets),
+                }
+            };
+            if let Err(error) = start_result {
+                command.errors.push(error);
+            }
+        }
         let error = (!command.errors.is_empty()).then(|| command.errors.join("\n"));
         let _ = command.reply.send(snapshot(manager, error));
     }
@@ -270,7 +334,49 @@ async fn run_inner(path: &Path, detached: bool) -> Result<(), String> {
                             let path = path.clone();
                             let owner = _run_lock.clone();
                             let live = config_fingerprint.clone();
-                            additions.spawn_blocking(move || (reply, import::apply_owned(proposal, &path, owner, &live)));
+                            additions.spawn_blocking(move || (reply, import::apply_owned(proposal, &path, owner, &live).map(ConfigOutcome::Added)));
+                        }
+                    }
+                    Command { request: Request::UpdateProject { proposal, .. }, reply } => {
+                        if shutting_down || !additions.is_empty() {
+                            let _ = reply.send(Response::failed("Workspace is saving or shutting down; review and retry the update."));
+                        } else if let Err(error) = manager.check_mutable(&proposal.id) {
+                            let _ = reply.send(snapshot(&mut manager, Some(error)));
+                        } else {
+                            let path = path.clone();
+                            let owner = _run_lock.clone();
+                            let live = config_fingerprint.clone();
+                            additions.spawn_blocking(move || (reply, import::apply_owned(proposal, &path, owner, &live).map(ConfigOutcome::Updated)));
+                        }
+                    }
+                    Command { request: Request::RemoveProject { service, .. }, reply } => {
+                        if shutting_down || !additions.is_empty() {
+                            let _ = reply.send(Response::failed("Workspace is saving or shutting down; retry the removal."));
+                        } else if let Err(error) = manager.check_mutable(&service) {
+                            let _ = reply.send(snapshot(&mut manager, Some(error)));
+                        } else {
+                            let path = path.clone();
+                            let owner = _run_lock.clone();
+                            let live = config_fingerprint.clone();
+                            additions.spawn_blocking(move || {
+                                let result = import::remove_owned(&service, &path, owner, &live)
+                                    .map(|fingerprint| ConfigOutcome::Removed { service, fingerprint });
+                                (reply, result)
+                            });
+                        }
+                    }
+                    Command { request: Request::Reload {}, reply } => {
+                        if shutting_down || !additions.is_empty() {
+                            let _ = reply.send(Response::failed("Workspace is saving or shutting down; retry reload."));
+                        } else {
+                            let path = path.clone();
+                            additions.spawn_blocking(move || {
+                                let result = config::load(&path).map(|config| {
+                                    let fingerprint = import::config_fingerprint(&config);
+                                    ConfigOutcome::Reloaded { config, fingerprint }
+                                });
+                                (reply, result)
+                            });
                         }
                     }
                     command => {
@@ -284,13 +390,44 @@ async fn run_inner(path: &Path, detached: bool) -> Result<(), String> {
                 match completion {
                     Ok((reply, result)) => {
                         let error = match result {
-                            Ok(addition) => {
+                            Ok(ConfigOutcome::Added(addition)) => {
                                 for (id, service) in addition.services {
                                     let sink = logs.register(&id);
                                     manager.add(id, service, sink);
                                 }
                                 config_fingerprint = addition.fingerprint;
                                 None
+                            }
+                            Ok(ConfigOutcome::Updated(addition)) => {
+                                let mut update_error = None;
+                                for (id, service) in addition.services {
+                                    if let Err(error) = manager.update(id, service) {
+                                        update_error = Some(error);
+                                        break;
+                                    }
+                                }
+                                if update_error.is_none() {
+                                    config_fingerprint = addition.fingerprint;
+                                }
+                                update_error
+                            }
+                            Ok(ConfigOutcome::Removed { service, fingerprint }) => {
+                                match manager.remove(&service) {
+                                    Ok(()) => {
+                                        config_fingerprint = fingerprint;
+                                        None
+                                    }
+                                    Err(error) => Some(error),
+                                }
+                            }
+                            Ok(ConfigOutcome::Reloaded { config, fingerprint }) => {
+                                match manager.reload(config.services, &mut logs) {
+                                    Ok(()) => {
+                                        config_fingerprint = fingerprint;
+                                        None
+                                    }
+                                    Err(error) => Some(error),
+                                }
                             }
                             Err(error) => Some(error),
                         };

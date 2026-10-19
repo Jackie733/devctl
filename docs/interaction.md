@@ -23,7 +23,7 @@ Home candidates use an absolute `HOME`. Missing files are skipped; directories,
 broken symlinks, inspection errors, or an invalid selected file are errors. An explicit
 path never falls back. Non-TUI commands report searched paths when configuration is missing. The TUI
 opens an empty view for first-project addition, without creating files before save. Connecting to an existing supervisor does not reload
-the file; shutdown and recreate the supervisor to apply changes.
+the file automatically; use `devctl reload` or `u` in the TUI to apply changes to stopped services, or shut down and recreate the supervisor to change log archive settings.
 
 Configuration version is `1`. The [README](../README.md#quick-start) has a minimal
 multi-project example. Supported fields are:
@@ -61,8 +61,11 @@ Add `--config /path/to/devctl.toml` to select a workspace explicitly.
 | `devctl plan [SERVICE...]` | Preview dependency-first order; defaults to the default group; does not execute commands |
 | `devctl start SERVICE...` | Start selected services; create the supervisor if needed |
 | `devctl start --all` | Start the default group; do not duplicate already running services |
+| `devctl restart SERVICE...` | Stop selected services, confirm process-group cleanup, and start a fresh instance; create the supervisor if needed |
+| `devctl restart --all` | Stop all active services, confirm cleanup, and start the default group; create the supervisor if needed |
 | `devctl stop SERVICE...` | Stop selected services and confirm process-group cleanup |
 | `devctl stop --all` | Stop every active service, including manually started non-default services; keep the supervisor |
+| `devctl reload` | Reload `devctl.toml` into the running supervisor for stopped/cleanup-confirmed failed services without interrupting running services |
 | `devctl status` | Inspect existing service states and reasons; do not create a supervisor |
 | `devctl shutdown` | Stop all managed processes, finish log saving, and end the supervisor |
 | `devctl run SERVICE...` / `devctl run --all` | Run explicit services or the default group in the foreground |
@@ -77,7 +80,7 @@ a stopping or cleanup-unconfirmed instance cannot be started again.
 A foreground runner and background supervisor cannot manage the same configuration
 at the same time. Foreground Ctrl-C/SIGTERM stops selected process groups. Natural
 completion or explicit stop ends the foreground run; any failure makes its exit
-status 1, otherwise 0. Background `stop` and `shutdown` do not create a missing
+status 1, otherwise 0. Background `stop`, `reload`, and `shutdown` do not create a missing
 supervisor. Unconfirmed cleanup reports failure and preserves ownership and diagnostics
 rather than pretending shutdown completed. Reconnection never replays a control request.
 
@@ -99,6 +102,7 @@ These keys describe the main view outside popups, search input, and line selecti
 | Projects | `j/k`, `↓/↑` | Select next/previous service; stop at list boundaries |
 | Projects | `gg/G` | Select first/last service; sorted by service ID |
 | Projects | `Enter` | Focus selected-project logs without starting it |
+| Projects | `e` / `d` | Edit directory/command or confirm removal of the selected stopped (or cleanup-confirmed failed) project |
 | Logs | `j/k`, `↓/↑` | Move the reading cursor, scrolling at the viewport edge |
 | Logs | `gg/G` | Read oldest retained history / resume following the latest output |
 | Logs | `Esc` | Return to projects after handling active selection/search modes |
@@ -108,11 +112,12 @@ These keys describe the main view outside popups, search input, and line selecti
 | Either panel | `Home/End` | Oldest retained history / latest output and follow |
 | Either panel | `p` | Pause/resume following, outside line selection |
 | Either panel | `H/L`, `←/→` | Scroll long log lines horizontally by eight columns |
-| Service | `s/x` | Start/stop the selected service |
+| Service | `s/x/r` | Start, stop, or restart the selected service (`r` reconnects when disconnected) |
 | Add project | `a` | Open path/script/command/save dialog |
-| Workspace | `A`, `X` | Start the default group / stop all and keep the supervisor |
+| Workspace | `A`, `R`, `X` | Start the default group, restart the default group after stopping all active services, or stop all and keep the supervisor |
+| Workspace | `u` | Reload `devctl.toml` for stopped services while keeping running services alive |
 | Workspace | `Q` | Open shutdown confirmation |
-| Connection | `r` | Reconnect to an existing supervisor; do not create or reload it |
+| Connection | `c` | Reconnect/sync to an existing supervisor; do not create or reload it (`r` also reconnects while disconnected) |
 | Help | `?` | Open contextual help |
 | Leave | `q`, `Ctrl-C` | Leave the client, including from popups; keep services running |
 
@@ -142,7 +147,9 @@ source/instance prefixes, UI padding, and status labels. The limit is
 selection. Only one copy is in flight, and cancelling selection does not retract
 an already issued clipboard request.
 
-Mouse input is enabled while the TUI is open. Over the log body:
+Mouse input is enabled while the TUI is open. Over the Projects panel, left-clicking
+a project row focuses Projects and selects that project; wheel up/down focuses
+Projects and moves selection without starting or stopping services. Over the log body:
 
 - Left-button drag selects text, including parts of lines, in either direction.
   Release keeps the selection, shown as `V-TEXT`. A fresh click clears the old
@@ -160,7 +167,7 @@ Mouse input is enabled while the TUI is open. Over the log body:
 Mouse text selection shares the 64 KiB bound, eviction handling and copy feedback
 above. Keyboard endpoint movement changes it to complete-line selection. Logs keep
 capturing while reading/selecting. Mouse events do not pass through help, search
-input, project addition, shutdown confirmation, hidden log panes or unusably small
+input, project addition/edit, removal or shutdown confirmation, hidden panes or unusably small
 windows. Resizing ends a drag while preserving its current selection. Terminals
 can reserve mouse shortcuts; use `y` when right-click is handled by the terminal.
 Normal/error/signal exits restore mouse capture along with other terminal settings.
@@ -616,10 +623,14 @@ Background scanning/planning keeps controls and rendering responsive. Bracketed 
 is confined to the active input; service shortcut letters in typed text are literal.
 Saving hot-adds the project to the existing workspace: running services, their logs
 and the workspace identity remain intact; the new project stays stopped. Other open
-clients see it on their next status refresh. A changed source/configuration or a
-competing save requires review/retry instead of overwriting edits. Changes to existing
-service declarations outside the TUI require a workspace reopen; this workflow only
-adds projects. First-use save creates and opens the new idle workspace. An older
+clients see it on their next status refresh. While a project is `Stopped` (or `Failed`
+with confirmed cleanup), press **e** in the Projects panel to review and edit its
+command or directory (`Review project update`), or **d** to confirm removing it from
+`devctl.toml` and the running workspace without interrupting other running services.
+After editing `devctl.toml` externally, press **u** in the TUI or run `devctl reload`
+to apply additions, removals, and updates for stopped services while keeping running
+services alive. A changed source/configuration or a
+competing save requires review/retry instead of overwriting edits. First-use save creates and opens the new idle workspace. An older
 supervisor that cannot accept additions must be shut down and reopened under the
 new binary. Updating the executable does not replace an already-running supervisor.
 If saving reports an unexpected end of file, inspect the configuration and

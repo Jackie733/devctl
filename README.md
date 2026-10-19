@@ -142,6 +142,9 @@ explicitly, use `devctl --config /path/to/devctl.toml`.
 | `devctl` | Open or reconnect the TUI; do not start services automatically |
 | `devctl start web` | Start one service, creating the background workspace if needed |
 | `devctl start --all` | Start the default group (`autostart = true`) |
+| `devctl restart web` | Restart one service after confirmed process-group cleanup |
+| `devctl restart --all` | Stop all active services and restart the default group |
+| `devctl reload` | Reload `devctl.toml` for stopped services without interrupting running services |
 | `devctl status` | Inspect the existing background workspace |
 | `devctl logs web --limit 100` | Read a bounded page of service output |
 | `devctl log-sessions` | List retained log sessions |
@@ -165,12 +168,14 @@ complete contextual hints and motion/symbol fallbacks. See
 
 | Keys | Action |
 | --- | --- |
-| `j/k`, `↑/↓` | Select a project or move through logs, depending on focus |
+| `j/k`, `↑/↓`, mouse click/wheel | Select a project or move through logs, depending on focus/pane |
 | `h/l`, `Tab`, `1/0` | Switch between projects and logs |
 | `Enter`, `Esc` | Enter logs or return to projects, subject to the current mode |
-| `s/x` | Start or stop the selected project |
-| `a` | Add a project: directory, command, review/save |
-| `A`, `X` | Start the default group or stop all services |
+| `s/x/r` | Start, stop, or restart the selected project (`r` reconnects when disconnected) |
+| `a`, `e/d` | Add a project, or edit/remove the selected stopped project |
+| `u` | Reload `devctl.toml` for stopped services while keeping running services alive |
+| `A`, `R`, `X` | Start or restart the default group, or stop all services |
+| `c` | Reconnect/sync to the existing background workspace |
 | `gg/G`, `PageUp/PageDown` | Navigate logs; `G` resumes following outside selection mode |
 | `p` | Pause or resume following logs |
 | `/`, `n/N` | Search literal text and jump between matches |
