@@ -3,27 +3,28 @@
 Keep current work and necessary handoff here; Git retains history. Collaboration
 rules are in [AGENTS.md](../AGENTS.md).
 
-## Current: terminal-first logo alternatives (U01 visual identity)
+## Current: explainable logo composition (U01 visual identity)
 
-On 2026-10-19 the maintainer rejected the lowercase `d` proposal and requested
-simpler, modern alternatives usable inside the TUI. Created three independent
-directions with ordinary ASCII companions: Gate, Parallel, and Workspace.
-The [comparison and original assets](../assets/branding/v2/README.md) include
-generation prompts, dark/light/monochrome title specimens, rendering tradeoffs,
-and precise validation limits. The old image is preserved as superseded.
+The maintainer requested clearer design reasoning, simplicity and beauty after
+the three terminal-first alternatives were presented without sufficient rationale.
+The [current concept and rationale](../assets/branding/v3/README.md) derive four
+strokes from independent services and a shared control surface. The longer middle
+stroke establishes direction; equal spacing and matching top/bottom strokes
+establish balance. Earlier alternatives remain available; none is accepted.
 
-Validation: `cargo build --locked` passed. Ran the existing PTY fixture in an
-isolated workspace: service start/logs, 120 × 30 / 36 × 10 resize, exit and terminal
-restoration passed. Decoded all three PNGs; visually inspected 16/24/32/64 px and
-the separate title specimens. Narrow proposal headers fit 36 ASCII cells.
-Checked changed Markdown links/fences and `git diff --check`. No Rust changes;
-the proposed marks are not integrated or claimed as runtime-tested.
+Validation: decoded the original 1254 × 1254 PNG; inspected 16/24/32/48/64 px.
+Prefer at least 24 px. Inspected terminal companions in Menlo/SF Mono; the closer
+Unicode companion has ambiguous-width/font limitations, so retain ordinary ASCII
+as the default proposal. Checked changed Markdown links/fences and
+`git diff --check`. No Rust source or runtime changes; no new Rust checks needed.
 
-Next: maintainer visual selection, exact vector master and selected TUI companion,
-then implementation and relevant regression checks. Native-window screenshot
-capture, modified-header runtime behavior, WSL appearance and graphics protocols
-remain unverified. No publication, push or release-packaging changes. Existing
-release repair and real-platform acceptance handoffs below remain as recorded.
+Next: feedback on this rationale/composition, an exact geometric master and chosen
+TUI treatment, then integration and appropriate runtime checks. Earlier checks
+verified only the unchanged TUI baseline: locked build and isolated PTY service
+start/logs, 120 × 30 / 36 × 10 resize, exit and terminal restoration passed.
+Modified-header runtime behavior and native WSL/Mac appearance remain unverified.
+No push, publication or release-packaging changes. Existing release repair and
+real-platform acceptance handoffs below remain as recorded.
 
 ## Preserved: repair macOS release checks (X03 / A01)
 

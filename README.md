@@ -190,8 +190,8 @@ for selection modes, search boundaries, pagination, and failure feedback.
 
 ## Documentation
 
-- [Logo/icon directions and TUI specimens](assets/branding/v2/README.md): minimal
-  graphical marks with ordinary-text companions; pending maintainer selection.
+- [Logo/icon concept and design rationale](assets/branding/v3/README.md): service
+  lines and a control rail, with terminal adaptation; pending maintainer selection.
 - [Installation, updates, rollback, and source builds](docs/install.md)
 - [Configuration, CLI, TUI, and log reference](docs/interaction.md)
 - [WSL setup and hands-on verification](docs/wsl.md)
