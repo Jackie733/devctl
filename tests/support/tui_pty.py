@@ -325,6 +325,11 @@ class Workspace:
         self.directory.cleanup()
 
 
+def log_bodies(text, cursor=False):
+    pointer = r'> ' if cursor else ''
+    return [body.rstrip() for body in re.findall(pointer + r'\[(?:out|err) #\d+\] ([^│\n]*)', text)]
+
+
 def lifecycle():
     w = Workspace()
     try:
@@ -356,15 +361,16 @@ def lifecycle():
         w.states(weapp='Running')
         w.wait_starts('weapp', 2)
         ui.wait('Logs · RUNNING: weapp')
-        ui.wait(lambda text: re.search(r'#[0-9]+ old seq=', text) is not None)
+        ui.wait(lambda text: len(set(re.findall(r'\[(?:out|err) #(\d+)\]', text))) >= 2)
+        assert ' old ' not in ui.screen.text() and 'seq=' not in ui.screen.text()
         assert len(w.starts('weapp')) == 2
         ui.choose('web')
         ui.pump(.5)
         ui.send(b'\x1b[5~')
         ui.wait('READ')
-        anchor = re.search(r'seq=(\d+)', ui.screen.text()).group(1)
+        anchor = log_bodies(ui.screen.text())[0]
         ui.pump(.4)
-        assert re.search(r'seq=(\d+)', ui.screen.text()).group(1) == anchor
+        assert log_bodies(ui.screen.text())[0] == anchor
         ui.send(b'\x1b[F')
         ui.wait('FOLLOW')
         ui.send(b'Q')
@@ -565,11 +571,11 @@ def navigation():
         ui.wait('READ')
         selected = 'Selected: web | Running'
         assert selected in ui.screen.text()
-        anchor = re.search(r'seq=(\d+)', ui.screen.text()).group(1)
+        anchor = log_bodies(ui.screen.text())[0]
         ui.send(b'j')
-        ui.wait(lambda text: re.search(r'> \[(?:stdout|stderr) #\d+ seq=(\d+)\]', text))
-        cursor = re.search(r'> \[(?:stdout|stderr) #\d+ seq=(\d+)\]', ui.screen.text()).group(1)
-        assert cursor != anchor and re.search(r'seq=(\d+)', ui.screen.text()).group(1) == anchor
+        ui.wait(lambda text: log_bodies(text, cursor=True))
+        cursor = log_bodies(ui.screen.text(), cursor=True)[0]
+        assert cursor != anchor and log_bodies(ui.screen.text())[0] == anchor
         assert selected in ui.screen.text(), 'Log j changed the selected project'
         ui.send(b'?sxaXQ')
         ui.wait('CURRENT PANEL')
@@ -625,10 +631,10 @@ def copying():
         ui.wait('web-line-')
         ui.pump(.6)
         ui.send(b'0ggjj')
-        ui.wait(lambda text: '> [stdout' in text or '> [stderr' in text)
+        ui.wait(lambda text: log_bodies(text, cursor=True))
         ui.send(b'v')
         ui.wait('V-LINE')
-        bodies = re.findall(r'\[(?:stdout|stderr) #\d+ seq=\d+\] ([^│\n]*)', ui.screen.text())
+        bodies = log_bodies(ui.screen.text())
         assert len(bodies) >= 4
         expected = '\n'.join(body.rstrip() for body in bodies[2:4]) + '\n'
         ui.send(b'jsxaXQy')
@@ -753,8 +759,8 @@ def history():
         ui.choose('web')
         ui.wait('web-history-ready')
         def first_sequence(text):
-            match = re.search(r'seq=(\d+)', text)
-            return int(match.group(1)) if match else 0
+            match = re.search(r'\[out #\d+\] web-(history|new)-(\d+)', text)
+            return int(match.group(2)) + (1 if match.group(1) == 'history' else 352) if match else 0
         ui.send(b'0')
         for _ in range(6):
             ui.send(b'\x1b[5~')
@@ -814,8 +820,8 @@ def disk_history():
         ui.choose('web')
         ui.wait('web-history-ready')
         def first_sequence(text):
-            match = re.search(r'seq=(\d+)', text)
-            return int(match.group(1)) if match else 0
+            match = re.search(r'\[out #\d+\] web-(history|new)-(\d+)', text)
+            return int(match.group(2)) + (1 if match.group(1) == 'history' else 352) if match else 0
         ui.send(b'0')
         for _ in range(6):
             ui.send(b'\x1b[5~')
@@ -865,10 +871,10 @@ def disk_history():
         ui.wait('No further match')
         ui.send(b'/web-history-4\r')
         ui.wait('Match seq=44;')
-        ui.wait(lambda text: re.search(r'> \[stdout.*seq=44\]', text) is not None)
+        ui.wait(lambda text: log_bodies(text, cursor=True) == ['web-history-43'])
         ui.send(b'N')
         ui.wait('Match seq=43;')
-        ui.wait(lambda text: re.search(r'> \[stdout.*seq=43\]', text) is not None)
+        ui.wait(lambda text: log_bodies(text, cursor=True) == ['web-history-42'])
         ui.send(b'v')
         ui.wait('V-LINE')
         ui.send(b'y')

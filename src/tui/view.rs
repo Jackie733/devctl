@@ -79,27 +79,30 @@ fn timestamp(record: &Record, width: u16) -> String {
     if width < 100 || record.captured_ms == 0 {
         return String::new();
     }
-    let seconds = record.captured_ms / 1000;
+    let Ok(seconds) = nix::libc::time_t::try_from(record.captured_ms / 1000) else {
+        return "??:??:?? ".into();
+    };
+    // localtime_r uses the client's system timezone (or TZ override), including
+    // the daylight-saving offset at capture time. No process-wide TZ mutation.
+    let mut local = std::mem::MaybeUninit::<nix::libc::tm>::uninit();
+    // SAFETY: both pointers are valid; local is read only after a successful call.
+    let local = unsafe {
+        if nix::libc::localtime_r(&seconds, local.as_mut_ptr()).is_null() {
+            return "??:??:?? ".into();
+        }
+        local.assume_init()
+    };
     format!(
-        "UTC {:02}:{:02}:{:02} ",
-        (seconds / 3600) % 24,
-        (seconds / 60) % 60,
-        seconds % 60
+        "{:02}:{:02}:{:02} ",
+        local.tm_hour, local.tm_min, local.tm_sec
     )
 }
 
 fn record_label(app: &App, record: &Record) -> String {
     let source = match record.source {
-        Source::Stdout => "stdout",
-        Source::Stderr => "stderr",
+        Source::Stdout => "out",
+        Source::Stderr => "err",
     };
-    let old = app.connected
-        && app
-            .selected
-            .as_ref()
-            .and_then(|id| app.services.get(id))
-            .and_then(|s| s.instance)
-            .is_some_and(|instance| record.instance < instance);
     let pointer = if app.logs.selection.is_some() || app.logs.reading.is_some() {
         if app.logs.selection.map(|s| s.head).or(app.logs.reading) == Some(record.sequence) {
             "> "
@@ -109,12 +112,7 @@ fn record_label(app: &App, record: &Record) -> String {
     } else {
         ""
     };
-    format!(
-        "{pointer}[{source} #{}{} seq={}] ",
-        record.instance,
-        if old { " old" } else { "" },
-        record.sequence
-    )
+    format!("{pointer}[{source} #{}] ", record.instance)
 }
 
 pub fn reveal_search_match(app: &mut App, area: Rect) {
@@ -500,7 +498,7 @@ fn log_notice(app: &App) -> (&'static str, &'static str, Color) {
         ),
         ServiceState::Running => (
             "RUNNING",
-            "Process alive; earlier runs are marked old.",
+            "Process alive; header shows latest run.",
             Color::Green,
         ),
         ServiceState::Stopping => (
@@ -776,7 +774,7 @@ fn logs_view(frame: &mut Frame, area: Rect, app: &App) {
         .and_then(|id| app.services.get(id))
         .and_then(|status| status.instance);
     let instance_label = instance
-        .map(|instance| format!(" | #{instance}"))
+        .map(|instance| format!(" | latest #{instance}"))
         .unwrap_or_default();
     let title = format!(
         "[0] Logs{} · {status}: {}{instance_label}",
@@ -1149,7 +1147,8 @@ fn help_lines(app: &App) -> Vec<Line<'static>> {
         help_action("p", "Pause / resume following"),
         help_action("H/L / Left/Right", "Pan long lines horizontally"),
         note("FOLLOW/READ describes scrolling; the header shows service state."),
-        note("Stopped/failed logs are history; old marks an earlier run."),
+        note("out/err = stdout/stderr; # identifies a run; header shows latest #."),
+        note("Log times use your local timezone (system or TZ)."),
         Line::default(),
         heading("SEARCH & COPY"),
         help_action("/ then Enter", "Highlight literal text and find a match"),
@@ -1361,6 +1360,53 @@ mod tests {
     }
 
     #[test]
+    fn timestamps_follow_client_timezone() {
+        const EXPECTED: &str = "DEVCTL_TEST_LOG_TIMES";
+        if let Ok(expected) = std::env::var(EXPECTED) {
+            let mut record = Record {
+                captured_ms: 1_768_439_758_000, // 2026-01-15 01:15:58 UTC
+                sequence: 1,
+                instance: 1,
+                source: Source::Stdout,
+                text: String::new(),
+                truncated: false,
+            };
+            let winter = timestamp(&record, 100);
+            assert_eq!(timestamp(&record, 99), "");
+            record.captured_ms = 1_784_078_158_000; // 2026-07-15 01:15:58 UTC
+            let summer = timestamp(&record, 100);
+            assert_eq!(format!("{winter}|{summer}"), expected);
+            record.captured_ms = 0; // Older supervisors can omit capture time.
+            assert_eq!(timestamp(&record, 100), "");
+            return;
+        }
+        // Isolate TZ in child processes instead of changing the environment of
+        // concurrent Rust tests. Include date rollover and capture-time DST.
+        for (zone, expected) in [
+            ("UTC0", "01:15:58 |01:15:58 "),
+            ("CST-8", "09:15:58 |09:15:58 "),
+            ("NPT-5:45", "07:00:58 |07:00:58 "),
+            ("EST5EDT,M3.2.0,M11.1.0", "20:15:58 |21:15:58 "),
+        ] {
+            let output = std::process::Command::new(std::env::current_exe().unwrap())
+                .args([
+                    "--exact",
+                    "tui::view::tests::timestamps_follow_client_timezone",
+                ])
+                .env("TZ", zone)
+                .env(EXPECTED, expected)
+                .output()
+                .unwrap();
+            assert!(
+                output.status.success(),
+                "{zone}: {}\n{}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            );
+        }
+    }
+
+    #[test]
     fn selection_keeps_status_colors_readable_in_wide_and_narrow_views() {
         let mut app = App::new();
         app.apply_status(Response {
@@ -1462,10 +1508,37 @@ mod tests {
             ..crate::logs::Batch::default()
         });
         let stopped = draw(&app, 120, 30);
-        assert!(stopped.contains("Logs · STOPPED: web | #5"));
+        assert!(stopped.contains("Logs · STOPPED: web | latest #5"));
         assert!(stopped.contains("STOPPED | Retained logs"));
-        assert!(stopped.contains("#3 old seq=1"));
-        assert!(!stopped.contains("#5 old") && !stopped.contains("#6 old"));
+        for instance in [3, 5, 6] {
+            assert!(stopped.contains(&format!("[out #{instance}]")));
+        }
+        assert!(!stopped.contains(" old") && !stopped.contains("seq="));
+        let labels: Vec<_> = app
+            .logs
+            .records
+            .iter()
+            .map(|r| record_label(&app, r))
+            .collect();
+        app.services.get_mut("web").unwrap().instance = Some(7);
+        assert_eq!(
+            labels,
+            app.logs
+                .records
+                .iter()
+                .map(|r| record_label(&app, r))
+                .collect::<Vec<_>>()
+        );
+        app.connected = false;
+        assert_eq!(
+            labels,
+            app.logs
+                .records
+                .iter()
+                .map(|r| record_label(&app, r))
+                .collect::<Vec<_>>()
+        );
+        app.connected = true;
         assert!(stopped.contains("VITE ready") && stopped.contains("FOLLOW"));
         for (status, label, message) in [
             (

@@ -3,7 +3,35 @@
 Keep current work and necessary handoff here; Git retains history. Collaboration
 rules are in [AGENTS.md](../AGENTS.md).
 
-## Published: 1.6.1 (U01 / M5, X03)
+## Current: local log times and stable run labels (L01 / U01, M5)
+
+Confirmed user case on 2026-10-19: the TUI capture time should match the client's
+local timezone; restarting a service should not relabel historical records as `old`.
+Use compact `[out #N]` / `[err #N]` row prefixes, omit ordinary row sequence numbers,
+and identify the latest known run in the header. Preserve navigation, search,
+copying, retained records and CLI/storage identities.
+
+Implemented without new dependencies: use the client's system local-time conversion
+at capture time, keep immutable run labels and preserve existing record anchors.
+Tests cover UTC, UTC+08:00, UTC+05:45, DST/date rollover, missing capture times,
+narrow panes and stable labels. Existing PTY checks now inspect fixture bodies
+instead of relying on removed display sequence numbers.
+
+Validation on Linux:
+
+- `cargo fmt --check`: passed.
+- `cargo clippy --locked --all-targets -- -D warnings`: passed.
+- `cargo test --locked --test tui_cli -- --quiet`: passed, 17 real-terminal tests.
+- `cargo test --locked -- --quiet`: passed, all 319 tests. The initial full attempt
+  hit an unrelated discovery boundary assertion; its isolated rerun and the complete
+  rerun passed. Discovery code was not changed.
+- `git diff --check`: passed. Inspected the diffs and checked balanced code fences
+  and all 63 local link paths across the four changed reference/task documents.
+
+Real user-environment and macOS acceptance remain pending; no release or installation
+is included.
+
+## Published baseline: 1.6.1 (U01 / M5, X03)
 
 Authorized on 2026-10-18: defer startup-readiness work and publish the existing TUI
 visual refinement. No startup observation interval, readiness detection, framework
@@ -77,7 +105,8 @@ terminal queue. The failed tag is preserved; no published artifacts were overwri
 
 ## Next steps
 
-1. Continue real-platform acceptance in [roadmap](roadmap.md) and [WSL verification](wsl.md).
-2. To switch the actual local development installation to the public 1.6.1 bytes,
+1. Verify the new log display in the user's terminal with a newly built client.
+2. Continue real-platform acceptance in [roadmap](roadmap.md) and [WSL verification](wsl.md).
+3. To switch the actual local development installation to the public 1.6.1 bytes,
    shut down active workspaces/clients first, then use the normal updater.
-3. Resume startup-readiness or AG01 implementation only after explicit scope approval.
+4. Resume startup-readiness or AG01 implementation only after explicit scope approval.

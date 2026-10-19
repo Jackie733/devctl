@@ -137,7 +137,7 @@ project, connection, and workspace changes also clear selection.
 
 Copy includes selected bodies in order, with a newline after each, including text
 outside the horizontal viewport and `[truncated]` where applicable. It excludes
-source/instance/sequence prefixes, UI padding, and status labels. The limit is
+source/instance prefixes, UI padding, and status labels. The limit is
 64 KiB; partial copies are not sent. A later copy completion cannot clear a new
 selection. Only one copy is in flight, and cancelling selection does not retract
 an already issued clipboard request.
@@ -155,7 +155,8 @@ The header shows client version, connection state, and supervisor identity. Proj
 show `Stopped`, `Starting`, `Running`, `Stopping`, `Failed`, or disconnected `Unknown`.
 Log state is displayed separately from `FOLLOW`/`READ` and saving status. Stopped
 services retain output labeled as retained logs; stale “ready” text does not imply
-current readiness. Earlier process instances are marked `old` only when confirmed.
+current readiness. The log header identifies the latest known run as `latest #N`;
+each record keeps its own fixed run number across restarts and reconnects.
 Unconfirmed cleanup and unknown control completion retain their own diagnostics.
 
 Service states pair text with symbols: `○ Stopped`, `● Running`, `× Failed`, and
@@ -240,8 +241,19 @@ saving settings only after shutting down and recreating the supervisor. The
 session, and failure reason; `SAVE DEGRADED` signals potentially incomplete storage.
 
 Normal TUI history combines current-session memory and disk. Historical sessions
-remain explicit CLI queries rather than being mixed into current output. Wide views
-show UTC time; CLI records retain UTC Unix capture milliseconds, not parsed application time.
+remain explicit CLI queries rather than being mixed into current output. Log panes
+at least 100 columns wide show capture time as `HH:MM:SS` in the TUI client's local
+timezone, following the system timezone or `TZ` override, including the offset at
+each record's capture time. Missing timestamps from older supervisors are omitted;
+failed local-time conversion displays `??:??:??`. Application timestamps in the log
+body remain as emitted; CLI records retain UTC Unix capture milliseconds.
+
+Rows use `[out #N]` for stdout and `[err #N]` for stderr. The run number is permanent:
+compare it with `latest #N` in the header to distinguish earlier runs, without
+relabeling existing lines on restart. The header's process state remains authoritative
+for whether that latest run is alive; while disconnected its current state is unknown.
+Per-record sequence numbers remain internal navigation/search anchors and in CLI
+output, and are omitted from ordinary TUI rows.
 
 | Log-focused keys | Behavior |
 | --- | --- |

@@ -22,6 +22,7 @@ interface without stopping your services, then reconnect when you need it.
   completion feedback make operations clearer without requiring Nerd Fonts.
 - **Logs for daily debugging.** Read stdout/stderr, pause and page through retained
   history, search literal text, and copy complete lines with their surrounding context (local Mac uses pbcopy).
+  Wide log panes use local capture times and compact, stable output/run labels.
 - **Bounded storage.** Keep recent logs in memory and save history with configurable
   disk limits and retention. Inspect past sessions without starting services.
 - **Verified updates.** Download public release manifests, verify SHA-256 and the
