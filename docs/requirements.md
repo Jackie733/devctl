@@ -285,6 +285,12 @@ without cloning source or installing Rust for routine updates.
 - Test/build before publication. Generate the update manifest from the artifact;
   upload a complete draft before exposing it as Latest. Normal client discovery
   and downloads must not depend on anonymous REST API quotas.
+- Maintainers can publish with one repository command and an explicit higher
+  stable version: update version files/current examples and reviewed unreleased
+  notes, run local checks, commit/tag/push, then wait for both native builds and
+  public verification. Failures identify incomplete publication/verification;
+  existing public versions and tags are never overwritten. This maintainer command
+  does not install the release or establish real-environment acceptance.
 - Present truthful checking/download/install progress, including known-size download
   percentage and optional speed/ETA. Preserve plain output for redirected/dumb terminals,
   honor NO_COLOR, and retain stage-specific errors without changing update protection.

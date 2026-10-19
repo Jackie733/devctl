@@ -550,6 +550,15 @@ The [release workflow](docs/releasing.md) additionally validates shipped native 
 signed Mach-O on macOS) and anonymous public client after publication. Controlled tests and a
 published version remain distinct from target WSL acceptance.
 
+The maintainer [release command](scripts/release) owns preparation and the local
+commit/tag/atomic push; the existing workflow owns native builds, draft publication
+and public verification. It follows the push run for the exact tag/build commit,
+so a build-only run or unrelated main run cannot establish publication success.
+Failures preserve local state for review; after a push attempt remote publication
+can continue independently. Monitoring an existing tag is read-only and never
+creates another publication. Recovery and command rules belong to the
+[release guide](docs/releasing.md#one-command-release).
+
 ## Validation
 
 Test configuration/path/error handling; process descendants, early leader exit,

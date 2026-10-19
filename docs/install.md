@@ -125,7 +125,7 @@ fit the OS Unix-socket limit (104 bytes on macOS). A deeply nested checkout or t
 long default macOS temporary directory can exceed it; moving the configuration
 changes workspace/log identity, so shut down the old workspace first.
 
-The 1.6.1 manifest contains the Apple Silicon Mac target, so public `update --check` and `update`
+The current release manifest contains the Apple Silicon Mac target, so public `update --check` and `update`
 select the native artifact. The historical 1.4.0 manifest has no Mac asset.
 
 ## Before switching versions

@@ -1,0 +1,282 @@
+#!/usr/bin/env python3
+"""Prepare a stable devctl release and follow the existing GitHub workflow."""
+
+import argparse
+from datetime import date
+import json
+import os
+from pathlib import Path
+import re
+import shlex
+import shutil
+import subprocess
+import sys
+import time
+
+
+REPO = 'Jackie733/devctl'
+FILES = ('Cargo.toml', 'Cargo.lock', 'CHANGELOG.md', 'README.md',
+         'README.zh-CN.md', 'docs/install.md')
+STABLE = r'(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)'
+
+
+def run(*args, capture=True, check=True):
+    result = subprocess.run(args, text=True, capture_output=capture,
+                            env={**os.environ, 'GH_HOST': 'github.com', 'GH_PROMPT_DISABLED': '1'})
+    if check and result.returncode:
+        raise RuntimeError(f'Command failed: {shlex.join(args)}\n'
+                           + ((result.stderr or result.stdout or '').strip()))
+    return result
+
+
+def output(*args):
+    return run(*args).stdout.strip()
+
+
+def gh_json(*args):
+    return json.loads(output('gh', *args))
+
+
+def require(condition, message):
+    if not condition:
+        raise RuntimeError(message)
+
+
+def replace_once(text, pattern, replacement):
+    result, count = re.subn(pattern, replacement, text, flags=re.M)
+    require(count == 1, f'Expected one current-version field matching {pattern!r}; found {count}.')
+    return result
+
+
+def package_version(text, section, old, new):
+    pattern = r'(?ms)^' + re.escape(section) + r'\n.*?(?=^\[|\Z)'
+    matches = list(re.finditer(pattern, text))
+    if section == '[[package]]':
+        matches = [match for match in matches
+                   if re.search(r'^name = "devctl"$', match[0], re.M)]
+    require(len(matches) == 1, f'Expected one devctl {section} section.')
+    match = matches[0]
+    updated = replace_once(match[0], r'^version = "' + re.escape(old) + r'"$',
+                           f'version = "{new}"')
+    return text[:match.start()] + updated + text[match.end():]
+
+
+def prepare_files(old, new):
+    """Compute all edits before writing; historical release notes stay untouched."""
+    texts = {name: Path(name).read_text(encoding='utf-8') for name in FILES}
+    texts['Cargo.toml'] = package_version(texts['Cargo.toml'], '[package]', old, new)
+    texts['Cargo.lock'] = package_version(texts['Cargo.lock'], '[[package]]', old, new)
+    changelog = texts['CHANGELOG.md']
+    require(not re.search(r'^## ' + re.escape(new) + r'(?:\s|$)', changelog, re.M),
+            'CHANGELOG.md already contains the requested version.')
+    unreleased = re.search(r'^## Unreleased\n(.*?)(?=^## |\Z)', changelog, re.M | re.S)
+    require(unreleased is not None and re.search(r'^- \S', unreleased[1], re.M),
+            'Add reviewed release notes under ## Unreleased in CHANGELOG.md and commit them first.')
+    texts['CHANGELOG.md'] = (changelog[:unreleased.start()] + '## Unreleased\n\n'
+                             + f'## {new} — {date.today().isoformat()}\n\n'
+                             + unreleased[1].strip() + '\n\n' + changelog[unreleased.end():])
+    texts['README.md'] = replace_once(texts['README.md'],
+                                      r'^Release \*\*' + re.escape(old) + r'\*\* provides',
+                                      f'Release **{new}** provides')
+    texts['README.zh-CN.md'] = replace_once(texts['README.zh-CN.md'],
+                                            r'^\*\*' + re.escape(old) + r'\*\* 提供',
+                                            f'**{new}** 提供')
+    install = replace_once(texts['docs/install.md'],
+                           r'^Current public release: \*\*' + re.escape(old) + r'\*\*',
+                           f'Current public release: **{new}**')
+    # Only these sections contain current download/build examples. The Update
+    # section also records a historical cross-version acceptance scenario.
+    sections = re.split(r'(?=^## )', install, flags=re.M)
+    for index, section in enumerate(sections):
+        if section.startswith(('## Prebuilt binary\n', '## macOS\n',
+                               '## Rollback\n', '## Build from source\n')):
+            sections[index] = section.replace(old, new)
+        elif section.startswith('## Update\n'):
+            sections[index] = section.replace(f'--version {old}\n', f'--version {new}\n')
+    texts['docs/install.md'] = ''.join(sections)
+    return texts
+
+
+def preflight():
+    for tool in ('git', 'cargo', 'gh'):
+        require(shutil.which(tool), f'{tool} is required.')
+    require(output('git', 'status', '--porcelain') == '', 'A clean worktree and index are required.')
+    require(output('git', 'branch', '--show-current') == 'main', 'Run from the main branch.')
+    urls = [output('git', 'remote', 'get-url', 'origin'),
+            output('git', 'remote', 'get-url', '--push', '--all', 'origin')]
+    pattern = r'(?:git@github\.com:|https://github\.com/|ssh://git@github\.com/)' + REPO + r'(?:\.git)?/?'
+    require(all(re.fullmatch(pattern, url) for url in urls),
+            f'origin must fetch and push only github.com/{REPO}.')
+    repository = gh_json('api', f'repos/{REPO}')
+    require(repository.get('permissions', {}).get('push'), 'GitHub repository write permission is required.')
+    workflow = gh_json('api', f'repos/{REPO}/actions/workflows/release.yml')
+    require(workflow['state'] == 'active', 'The release workflow must be active.')
+    return output('git', 'rev-parse', 'HEAD')
+
+
+def remote_tag(tag):
+    return output('git', 'ls-remote', '--tags', 'origin', f'refs/tags/{tag}', f'refs/tags/{tag}^{{}}')
+
+
+def find_run(tag, commit):
+    print(f'Waiting for the tag workflow for {tag} ({commit[:12]})...', flush=True)
+    deadline = time.monotonic() + 180
+    while True:
+        runs = gh_json('run', 'list', '-R', REPO, '--workflow', 'release.yml',
+                       '--branch', tag, '--commit', commit, '--event', 'push',
+                       '--limit', '20', '--json', 'databaseId,headSha,headBranch,url')
+        for workflow in runs:
+            if workflow['headSha'] == commit and workflow['headBranch'] == tag:
+                return workflow
+        require(time.monotonic() < deadline,
+                'No matching tag workflow appeared within 180 seconds. Check Actions; '
+                f'resume monitoring with ./scripts/release {tag[1:]} --resume. '
+                'No manual publication was triggered.')
+        time.sleep(5)
+
+
+def release_state(tag):
+    # Listing distinguishes absence from an API/network error, including on gh
+    # versions predating --slurp. Do not treat authentication failure as absence.
+    page = 1
+    while True:
+        releases = gh_json('api', f'repos/{REPO}/releases?per_page=100&page={page}')
+        for release in releases:
+            if release['tag_name'] == tag:
+                return release
+        if len(releases) < 100:
+            return None
+        page += 1
+
+
+def monitor(tag, commit):
+    workflow = find_run(tag, commit)
+    print(f'Workflow: {workflow["url"]}', flush=True)
+    watched = run('gh', 'run', 'watch', str(workflow['databaseId']), '-R', REPO,
+                  '--exit-status', '--interval', '10', capture=False, check=False)
+    if watched.returncode:
+        state = release_state(tag)
+        if state and not state['draft']:
+            raise RuntimeError(f'Already published: {state["html_url"]}\n'
+                               'Workflow/public verification did not finish successfully. '
+                               'Do not overwrite the public version; inspect or rerun the failed jobs.\n'
+                               f'Logs: {workflow["url"]}')
+        raise RuntimeError('Workflow failed or monitoring was interrupted; publication is not confirmed.\n'
+                           f'Logs: {workflow["url"]}\n'
+                           f'After investigating, rerun failed jobs with gh run rerun '
+                           f'{workflow["databaseId"]} -R {REPO} --failed, then use '
+                           f'./scripts/release {tag[1:]} --resume.')
+    details = gh_json('run', 'view', str(workflow['databaseId']), '-R', REPO,
+                      '--json', 'headSha,status,conclusion,jobs')
+    jobs = details['jobs']
+    require(details['headSha'] == commit and details['status'] == 'completed' and
+            details['conclusion'] == 'success' and len(jobs) == 5 and
+            all(job['conclusion'] == 'success' for job in jobs) and
+            sum(job['name'].startswith('build (') for job in jobs) == 2 and
+            sum(job['name'] == 'publish' for job in jobs) == 1 and
+            sum(job['name'].startswith('verify / verify (') for job in jobs) == 2,
+            f'Workflow did not confirm both builds, publication and both public checks. Logs: {workflow["url"]}')
+    state = release_state(tag)
+    require(state is not None and not state['draft'] and not state['prerelease'],
+            'Workflow ended but a public stable release was not found.')
+    latest = gh_json('api', f'repos/{REPO}/releases/latest')
+    require(latest['tag_name'] == tag, 'The release is public but is no longer Latest. Inspect GitHub Releases.')
+    version = tag[1:]
+    expected = {f'devctl-{tag}-x86_64-unknown-linux-musl', f'devctl-{tag}-aarch64-apple-darwin',
+                f'devctl-{tag}-source.tar.gz', 'devctl-update', 'update.json', 'SHA256SUMS'}
+    require({asset['name'] for asset in state['assets']} == expected,
+            'The release is public but its attachments are incomplete or unexpected.')
+    print(f'Released {version}; both platform builds and public verification passed.\n'
+          f'Release: {state["html_url"]}\nWorkflow: {workflow["url"]}', flush=True)
+
+
+def publish(version):
+    base = preflight()
+    tag = f'v{version}'
+    require(not output('git', 'tag', '--list', tag) and not remote_tag(tag),
+            f'{tag} already exists. Versions and tags are never overwritten; use --resume to monitor an existing tag.')
+    require(release_state(tag) is None, f'A Release for {tag} already exists; choose a new version.')
+    metadata = cargo_package_metadata()
+    old = metadata['version']
+    require(re.fullmatch(STABLE, old) and tuple(map(int, version.split('.'))) > tuple(map(int, old.split('.'))),
+            f'The requested stable version must be greater than {old}.')
+    edits = prepare_files(old, version)
+    run('git', 'fetch', '--no-tags', 'origin', 'refs/heads/main', capture=False)
+    require(run('git', 'merge-base', '--is-ancestor', 'FETCH_HEAD', base, check=False).returncode == 0,
+            'Local main is behind or diverges from origin/main. Synchronize it before releasing.')
+    run('git', 'var', 'GIT_AUTHOR_IDENT')
+    run('git', 'var', 'GIT_COMMITTER_IDENT')
+    run('git', 'push', '--dry-run', '--atomic', 'origin', 'HEAD:refs/heads/main', capture=False)
+    print(f'Preparing {tag} from {base[:12]}; updating {", ".join(FILES)}.', flush=True)
+    for name, text in edits.items():
+        Path(name).write_text(text, encoding='utf-8')
+    print('Running local release checks...', flush=True)
+    require(cargo_package_metadata()['version'] == version, 'Cargo metadata does not match the new version.')
+    checks = [
+        ('cargo', 'fmt', '--check'),
+        ('cargo', 'clippy', '--locked', '--all-targets', '--', '-D', 'warnings'),
+        ('cargo', 'test', '--locked'),
+        ('python3', 'tests/support/install_scripts.py'),
+        ('python3', 'tests/support/merge_release.py'),
+        ('git', 'diff', '--check'),
+    ]
+    for command in checks:
+        print(f'$ {shlex.join(command)}', flush=True)
+        run(*command, capture=False)
+    require(output('git', 'rev-parse', 'HEAD') == base and
+            output('git', 'branch', '--show-current') == 'main', 'HEAD/branch changed during checks.')
+    require(not output('git', 'diff', '--cached', '--name-only') and
+            not output('git', 'ls-files', '--others', '--exclude-standard'),
+            'The index or untracked files changed during checks; inspect before committing.')
+    changed = set(run('git', 'diff', '--name-only', '-z').stdout.rstrip('\0').split('\0'))
+    require(changed == set(FILES) and all(Path(name).read_text(encoding='utf-8') == text for name, text in edits.items()),
+            'Files changed unexpectedly during checks; inspect before committing.')
+    run('git', 'add', '--', *FILES, capture=False)
+    run('git', 'commit', '-m', f'release: prepare {version}', capture=False)
+    require(not output('git', 'status', '--porcelain'), 'Worktree changed during commit; no tag created.')
+    commit = output('git', 'rev-parse', 'HEAD')
+    run('git', 'tag', '-a', tag, '-m', f'devctl {version}', commit, capture=False)
+    print(f'Prepared {tag} at {commit}. Pushing main and tag atomically...', flush=True)
+    run('git', 'push', '--atomic', 'origin', f'{commit}:refs/heads/main', f'refs/tags/{tag}', capture=False)
+    monitor(tag, commit)
+
+
+def cargo_package_metadata():
+    metadata = json.loads(output('cargo', 'metadata', '--locked', '--no-deps', '--format-version', '1'))
+    return next(package for package in metadata['packages']
+                if package['name'] == 'devctl' and package['id'] in metadata['workspace_members'])
+
+
+def resume(version):
+    preflight()
+    tag = f'v{version}'
+    require(output('git', 'cat-file', '-t', f'refs/tags/{tag}') == 'tag', 'An existing annotated local tag is required.')
+    commit = output('git', 'rev-parse', f'refs/tags/{tag}^{{commit}}')
+    local_tag = output('git', 'rev-parse', f'refs/tags/{tag}')
+    refs = dict(line.split()[::-1] for line in remote_tag(tag).splitlines())
+    require(refs.get(f'refs/tags/{tag}') == local_tag and refs.get(f'refs/tags/{tag}^{{}}') == commit,
+            'Local/remote tag identity differs or the remote tag is absent. Inspect Git before retrying the push.')
+    monitor(tag, commit)
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__, epilog='Running without --resume commits and pushes main plus the new tag to publish a public release.')
+    parser.add_argument('version', help='new stable MAJOR.MINOR.PATCH, without v')
+    parser.add_argument('--resume', action='store_true', help='monitor an existing tag without editing, committing or pushing')
+    args = parser.parse_args()
+    if not re.fullmatch(STABLE, args.version):
+        parser.error('version must be stable MAJOR.MINOR.PATCH without v, leading zeros, prerelease or build metadata')
+    os.chdir(Path(__file__).resolve().parents[1])
+    try:
+        (resume if args.resume else publish)(args.version)
+    except (RuntimeError, OSError, ValueError, StopIteration, KeyboardInterrupt) as error:
+        print(f'Release stopped: {error}\n'
+              'Changes, commits and tags are preserved for inspection; no automatic rollback or overwrite.\n'
+              'If a push was attempted, the workflow may still publish. Check GitHub Actions/Releases.\n'
+              'See docs/releasing.md for recovery.', file=sys.stderr)
+        return 1
+    return 0
+
+
+if __name__ == '__main__':
+    sys.exit(main())

@@ -2,10 +2,83 @@
 
 Public distribution and self-update implement X03. The
 [release workflow](../.github/workflows/release.yml) builds Linux/WSL2 x86_64 and macOS Apple Silicon artifacts. Intel Mac is excluded.
-Release 1.6.1 provides both targets; historical 1.4.0 remains Linux-only. [tasks.md](tasks.md) records publication authorization, actual outcomes,
+Current releases provide both targets; historical 1.4.0 remains Linux-only. [tasks.md](tasks.md) records publication authorization, actual outcomes,
 and pending real-environment acceptance.
 
-## Prepare and trigger
+## One-command release
+
+From the repository checkout, with your intended changes and reviewed notes under
+`## Unreleased` in CHANGELOG.md already committed, run:
+
+```sh
+./scripts/release 1.7.0
+```
+
+Replace the example with a stable `MAJOR.MINOR.PATCH` higher than Cargo.toml's
+version. Running this command authorizes committing and pushing main plus a new
+annotated tag, and publishing a public GitHub Release without another prompt.
+It requires Python 3.9+, Git, Cargo with rustfmt/Clippy, the normal development
+test tools, and an authenticated [GitHub CLI](https://cli.github.com/manual/).
+Both Git push credentials and GitHub repository write/Actions read access must
+work. Branch protection still applies; no bypass or force push is attempted.
+
+The [script](../scripts/release) checks a clean worktree/index, local main,
+the official origin fetch/push URLs, repository permissions, an active release
+workflow, unused version/tag, and a nondivergent remote main. Local main may
+include committed changes not yet pushed. It computes all edits before writing:
+Cargo.toml, only devctl's Cargo.lock entry, current platform versions in both
+READMEs, current installation/build examples, and the dated changelog entry.
+Historical feature versions and cross-version acceptance records are preserved;
+an empty Unreleased section remains for future work.
+
+Local checks run fmt, locked Clippy/all Rust tests, installer tests, bundle-merging
+tests, release-command tests and `git diff --check`. No commit/tag/push occurs if
+they fail. After verifying the checked files/HEAD/index did not change unexpectedly,
+the script commits only the six prepared files and creates an annotated tag. An
+atomic push sends the main commit and tag together; an unsupported or rejected
+atomic push fails instead of falling back to separate pushes.
+
+The script locates the push-triggered release.yml run by tag **and exact build
+commit**, then uses [gh run watch](https://cli.github.com/manual/gh_run_watch) to
+show progress. Success requires both builds, publication and both native public
+verification jobs to pass, plus a public stable Latest release with all six
+expected attachments. It prints Release/workflow links. Publication does not
+install the release or replace running supervisors. Target-environment and user
+acceptance remain separate.
+
+### Failure and recovery
+
+Errors return nonzero and preserve prepared files, commits and tags for inspection.
+The script never resets/stashes work, deletes/moves tags, overwrites a public
+version or automatically dispatches another publication.
+
+- **Before commit:** inspect `git status`/`git diff`. Fix the failure, restore only
+  script-prepared changes after review, commit any intended fix/notes and rerun.
+- **Commit/tag failure:** inspect the index, HEAD and local tag before retrying;
+  do not discard your changes automatically.
+- **Push rejected or connection lost:** inspect origin/main, local/remote tag
+  identities and Actions first; a lost response does not prove the push failed.
+  If the prepared commit/tag are local only and local main still points at the
+  release tag, retry `git push --atomic origin main refs/tags/v1.7.0` after resolving
+  the rejection. If main moved, review before pushing; never force or move the tag.
+- **Workflow discovery timed out (180 seconds), terminal closed, or monitoring
+  failed:** the remote workflow may still publish. Continue watching the same tag:
+
+  ```sh
+  ./scripts/release 1.7.0 --resume
+  ```
+
+  Resume requires a clean local main checkout and identical local/remote annotated
+  tags. It monitors without editing, committing, pushing or retrying jobs.
+- **CI failed:** inspect the printed workflow link. For a transient failure,
+  `gh run rerun RUN_ID -R Jackie733/devctl --failed`, then resume monitoring.
+  A code fix requires a new version/tag. If the tag event never ran, use the manual
+  fallback below after inspection; resume automatically discovers only push runs.
+- **Public verification failed:** the release is already public. The script reports
+  this state and its link; failure never promises that publication was rolled back.
+  Investigate/rerun verification, or publish a new version for a code fix.
+
+## Manual preparation and trigger
 
 1. Update Cargo.toml, Cargo.lock, CHANGELOG, and current installation/version examples.
    Keep English and Chinese READMEs consistent. Run applicable checks and commit.

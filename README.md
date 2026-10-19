@@ -199,6 +199,10 @@ Bug reports, documentation fixes, and focused pull requests are welcome. Read
 [CONTRIBUTING.md](CONTRIBUTING.md) for setup, checks, and how to report a problem.
 Please discuss substantial behavior changes before implementing them.
 
+Maintainers can run `./scripts/release 1.7.0` from a clean main checkout after
+committing reviewed `Unreleased` notes. It updates versions, tests, commits/tags,
+pushes and follows publication/public verification. See [release maintenance](docs/releasing.md).
+
 ## License
 
 devctl is licensed under the [MIT License](LICENSE).

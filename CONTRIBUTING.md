@@ -41,6 +41,7 @@ cargo clippy --locked --all-targets -- -D warnings
 cargo test --locked
 python3 tests/support/install_scripts.py
 python3 tests/support/merge_release.py
+python3 tests/support/release_command.py
 python3 tests/support/package_release.py ./target/debug/devctl
 ```
 

@@ -3,6 +3,16 @@
 User-facing changes are grouped by released version. Download artifacts from
 [GitHub Releases](https://github.com/Jackie733/devctl/releases).
 
+## Unreleased
+
+- Add mouse text selection in logs, `y` or right-click copying, and wheel paging
+  through retained history, preserving original Unicode text and terminal restoration.
+- Show local log capture times and stable, compact output/run labels.
+- Explain project-addition EOF errors from an older background process and reject
+  invalid control requests explicitly.
+- Add a maintainer release command that prepares versions, runs checks, commits
+  and pushes a new tag, then follows both platform builds and public verification.
+
 ## 1.6.1 — 2026-10-18
 
 - Remove reverse-video state flashes during start/stop. Keep selected project

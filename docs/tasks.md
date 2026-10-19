@@ -3,7 +3,54 @@
 Keep current work and necessary handoff here; Git retains history. Collaboration
 rules are in [AGENTS.md](../AGENTS.md).
 
-## Current: mouse log text selection/copy and wheel history (L01 / U01, M5)
+## Current: one-command maintainer release (X03, public distribution follow-up)
+
+Confirmed on 2026-10-19: supply a target version to one repository command and
+automatically prepare versions, test and publish. Implemented
+`./scripts/release VERSION`, reusing the existing native release workflow without
+changing deployment configuration, runtime CLI, credentials or dependencies.
+
+The command requires clean main and reviewed Unreleased notes, checks the official
+origin/permissions/workflow/version/tag/remote-main state, updates six release
+files, runs checks, commits and creates an annotated tag, then pushes main and tag
+atomically. It follows the exact push tag/build commit through both native builds,
+publication and both public verification jobs, and confirms Latest/assets before
+reporting success. Existing versions/tags and historical notes are preserved.
+`--resume` only monitors an identical existing local/remote annotated tag. Recovery
+rules and external publication boundaries are in [releasing.md](releasing.md).
+
+Validation on Linux:
+
+- `cargo fmt --check` and `cargo clippy --locked --all-targets -- -D warnings`: passed.
+- `cargo test --locked -- --quiet`: passed, all 331 Rust tests, including the new
+  release-command integration test and 18 existing PTY scenarios.
+- Release-command suite: 18 cases with real Git/temporary bare remotes and fake
+  Cargo/GitHub responses. Covers complete commit/tag/atomic push, read-only resume,
+  invalid/equal/lower versions, dirty work/index, branch/origin/permission/API
+  failures, remote-main drift and tag reuse, malformed metadata/missing notes,
+  check/commit/push failure, concurrent edits, public/private workflow failures,
+  skipped public checks, missing attachments, tag identity and bounded run discovery.
+- Independently prepared 1.7.0 in a temporary checkout; real
+  `cargo metadata --locked --offline --no-deps --format-version 1 --manifest-path …`
+  accepted the version without modifying the prepared dependency lock. All 18
+  release-command tests also passed against that already-bumped checkout, verifying
+  that self-tests remain usable after Unreleased is converted into release notes.
+- `python3 tests/support/install_scripts.py`: passed, 14 cases.
+- `python3 tests/support/merge_release.py`: passed, 8 cases.
+- `python3 tests/support/package_release.py ./target/debug/devctl`: passed, 4 cases.
+- `cargo test --locked --test release_cli -- --nocapture`: passed after the final
+  fixture updates; all 18 Python cases execute through the Rust integration test.
+- Read-only invocation of the script's monitor against existing v1.6.1 passed
+  using real GitHub CLI 2.45.0: exact build commit/run, all five jobs, public stable
+  Latest and all six attachments matched. No new workflow/publication was triggered.
+- `git diff --check`: passed. Inline Markdown inspection checked balanced fences
+  and all 120 local links/anchors in changed reference/task documents.
+
+No real version bump, tag, push, publication or installation was performed. Native
+Mac execution and a real end-to-end publication with this entry point remain
+unverified; the existing platform/user acceptance items below remain pending.
+
+## Preserved: mouse log text selection/copy and wheel history (L01 / U01, M5)
 
 Confirmed on 2026-10-19: select parts of log text with the mouse, copy the selection
 and scroll up/down through history. Implemented left drag/release, `y` or right-click
@@ -123,6 +170,10 @@ terminal queue. The failed tag is preserved; no published artifacts were overwri
   controlled tests and public artifact checks. A03 remains pending assessment.
 
 ## Next steps
+
+When the user selects a release version, run the [one-command release](releasing.md#one-command-release)
+and record the actual CI/public outcome. Executing this implementation task does
+not itself select a version or authorize publishing an unspecified release.
 
 1. Verify dragging, actual clipboard paste, wheel paging and terminal restoration
    in the user's Windows Terminal/WSL and native Mac separately, using a new client
