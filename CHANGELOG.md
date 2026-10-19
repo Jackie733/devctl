@@ -5,6 +5,8 @@ User-facing changes are grouped by released version. Download artifacts from
 
 ## Unreleased
 
+## 1.7.0 — 2026-10-19
+
 - Add mouse text selection in logs, `y` or right-click copying, and wheel paging
   through retained history, preserving original Unicode text and terminal restoration.
 - Show local log capture times and stable, compact output/run labels.
