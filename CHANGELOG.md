@@ -5,6 +5,16 @@ User-facing changes are grouped by released version. Download artifacts from
 
 ## Unreleased
 
+- Add dedicated single and default-group restart commands (`devctl restart SERVICE...`,
+  `devctl restart --all`), and TUI shortcuts (`r` to restart selected service, `R` to
+  restart default group, and `c` to reconnect/sync).
+- Add external configuration hot-reload via `devctl reload` and TUI `u`, applying
+  manifest updates, additions, and stopped-service removals without interrupting running services.
+- Add TUI stopped-project editing on `e` and confirmed removal on `d`, saving configuration
+  changes atomically.
+- Add mouse click and wheel navigation in the Projects panel to focus and cycle selection
+  without triggering service actions.
+
 ## 1.7.0 — 2026-10-19
 
 - Add mouse text selection in logs, `y` or right-click copying, and wheel paging
