@@ -5,6 +5,8 @@ User-facing changes are grouped by released version. Download artifacts from
 
 ## Unreleased
 
+## 1.8.0 — 2026-10-19
+
 - Add dedicated single and default-group restart commands (`devctl restart SERVICE...`,
   `devctl restart --all`), and TUI shortcuts (`r` to restart selected service, `R` to
   restart default group, and `c` to reconnect/sync).
