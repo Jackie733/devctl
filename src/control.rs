@@ -142,9 +142,7 @@ pub async fn connection(
             return Err(invalid("Unsupported control protocol."));
         }
         probe::write_identity(&mut stream, config).await?;
-        read_frame::<Request>(&mut stream, MAX_REQUEST)
-            .await
-            .map(Some)
+        Ok(Some(read_frame::<Request>(&mut stream, MAX_REQUEST).await))
     })
     .await
     .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "Control request timed out."))??;
@@ -152,11 +150,17 @@ pub async fn connection(
         return Ok(());
     };
     let (reply, response) = oneshot::channel();
-    let stale = matches!(&request, Request::AddProject { workspace_id: expected, .. } if expected != workspace_id);
-    let mut response = if stale {
-        Response::failed("Workspace changed; review the addition again.")
-    } else {
-        match commands.try_send(Command { request, reply }) {
+    let mut response = match request {
+        Err(error) => Response::failed(format!(
+            "Control request was rejected before execution: {error}"
+        )),
+        Ok(Request::AddProject {
+            workspace_id: expected,
+            ..
+        }) if expected != workspace_id => {
+            Response::failed("Workspace changed; review the addition again.")
+        }
+        Ok(request) => match commands.try_send(Command { request, reply }) {
             Ok(()) => match timeout(Duration::from_secs(10), response).await {
                 Ok(Ok(response)) => response,
                 Ok(Err(_)) => {
@@ -169,7 +173,7 @@ pub async fn connection(
             Err(_) => {
                 Response::failed("Workspace is busy or shutting down; request was not accepted.")
             }
-        }
+        },
     };
     response.workspace_id = workspace_id.to_owned();
     timeout(Duration::from_secs(2), async {
@@ -294,5 +298,39 @@ mod tests {
             receiver.try_recv().is_err(),
             "Stale addition must never reach the manager"
         );
+    }
+
+    #[tokio::test]
+    async fn invalid_requests_return_explicit_errors_without_dispatch() {
+        for payload in [
+            "action='future_action'\n",
+            "action='status'\nunknown=1\n",
+            "action='add_project'\nworkspace_id='current'\n",
+        ] {
+            let (mut client, server) = UnixStream::pair().unwrap();
+            let (sender, mut receiver) = mpsc::channel(1);
+            let task = tokio::spawn(async move {
+                connection(server, Path::new("/tmp/config"), sender, "current").await
+            });
+            client.write_all(CONTROL_HEADER).await.unwrap();
+            verify_identity(&mut client, Path::new("/tmp/config"))
+                .await
+                .unwrap();
+            client.write_u32(payload.len() as u32).await.unwrap();
+            client.write_all(payload.as_bytes()).await.unwrap();
+            let response: Response = read_frame(&mut client, MAX_RESPONSE).await.unwrap();
+            assert_eq!(response.workspace_id, "current");
+            assert!(
+                response
+                    .error
+                    .unwrap()
+                    .contains("rejected before execution")
+            );
+            task.await.unwrap().unwrap();
+            assert!(
+                receiver.try_recv().is_err(),
+                "Invalid requests must not execute"
+            );
+        }
     }
 }

@@ -769,7 +769,7 @@ pub async fn execute(work: Work, config: PathBuf, workspace: Option<String>) -> 
             } else if let Some(workspace_id) = workspace {
                 match client::transact(&config, &Request::AddProject { workspace_id, proposal: draft.proposal() }, false).await {
                     Ok(response) => { committed = response.error.is_none(); Ok(response) }
-                    Err(error) => Err(format!("Save completion is unknown: {error}. Inspect configuration and status before retrying.")),
+                    Err(error) => Err(format!("Project save: {error}")),
                 }
             } else {
                 let saved = tokio::task::spawn_blocking(move || {

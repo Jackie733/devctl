@@ -3,33 +3,37 @@
 Keep current work and necessary handoff here; Git retains history. Collaboration
 rules are in [AGENTS.md](../AGENTS.md).
 
-## Current: local log times and stable run labels (L01 / U01, M5)
+## Current: explain project-addition EOF and reject invalid requests explicitly (A01, M7)
 
-Confirmed user case on 2026-10-19: the TUI capture time should match the client's
-local timezone; restarting a service should not relabel historical records as `old`.
-Use compact `[out #N]` / `[err #N]` row prefixes, omit ordinary row sequence numbers,
-and identify the latest known run in the header. Preserve navigation, search,
-copying, retained records and CLI/storage identities.
+Reported on 2026-10-19: a 1.6.1 client shows `Save completion is unknown` /
+`unexpected end of file` after confirming an npm project addition. The user's
+running supervisor version is not yet known. Reproduced the exact dialog with a
+real pre-onboarding supervisor (`9c99851`, reporting 1.5.0) and the current client;
+configuration bytes remained unchanged and the existing service stayed Running.
+Updating the executable alone does not replace a detached supervisor.
 
-Implemented without new dependencies: use the client's system local-time conversion
-at capture time, keep immutable run labels and preserve existing record anchors.
-Tests cover UTC, UTC+08:00, UTC+05:45, DST/date rollover, missing capture times,
-narrow panes and stable labels. Existing PTY checks now inspect fixture bodies
-instead of relying on removed display sequence numbers.
+Addition EOF now explains the possible older supervisor and explicit shutdown/reopen
+recovery, including its effect on running services. Preserve unknown-outcome wording:
+EOF can also mean a completed write lost its reply. Current supervisors return
+normal error responses for invalid requests before dispatch instead of silently
+closing the connection. No automatic retry, shutdown or configuration rewrite.
 
 Validation on Linux:
 
 - `cargo fmt --check`: passed.
 - `cargo clippy --locked --all-targets -- -D warnings`: passed.
-- `cargo test --locked --test tui_cli -- --quiet`: passed, 17 real-terminal tests.
-- `cargo test --locked -- --quiet`: passed, all 319 tests. The initial full attempt
-  hit an unrelated discovery boundary assertion; its isolated rerun and the complete
-  rerun passed. Discovery code was not changed.
-- `git diff --check`: passed. Inspected the diffs and checked balanced code fences
-  and all 63 local link paths across the four changed reference/task documents.
+- `cargo test --locked -- --quiet`: passed, all 321 tests, including 17 PTY tests.
+  Added regressions for addition EOF and explicit unknown/malformed request errors
+  without dispatch. Final message refinements were followed by the same full suite.
+- Real old/new-binary PTY reproduction and recovery passed: old-background EOF,
+  unchanged configuration/running service, explicit shutdown, new-background reopen,
+  successful npm addition and both services remaining stopped. No project npm
+  command ran. Fixture: `/tmp/devctl-add-legacy-repro.py`.
+- `git diff --check`: passed. Inspected the diff and checked balanced fences and
+  all 58 local link paths across the four changed reference/task documents.
 
-Real user-environment and macOS acceptance remain pending; no release or installation
-is included.
+The user's WSL recovery and native macOS remain unverified. No release or
+installation is included.
 
 ## Published baseline: 1.6.1 (U01 / M5, X03)
 
@@ -84,6 +88,11 @@ terminal queue. The failed tag is preserved; no published artifacts were overwri
 
 ## Preserved handoff
 
+- Local-time log capture and immutable `[out #N]` / `[err #N]` display landed in
+  `28c488d` (L01/U01, M5). Linux fmt/clippy, all 319 tests (including 17 PTY tests)
+  and documentation checks passed; the initial unrelated discovery-boundary failure
+  passed isolated/full reruns. Real-terminal/Mac acceptance, release and installation
+  of those changes remain pending.
 - [Startup readiness comparison](tui-design-research.md#follow-up-startup-state-and-complexity):
   deferred on 2026-10-18, not cancelled from historical D01–D05 scope. Running still
   means a live process; readiness checks and even a startup observation interval
@@ -105,8 +114,8 @@ terminal queue. The failed tag is preserved; no published artifacts were overwri
 
 ## Next steps
 
-1. Verify the new log display in the user's terminal with a newly built client.
-2. Continue real-platform acceptance in [roadmap](roadmap.md) and [WSL verification](wsl.md).
-3. To switch the actual local development installation to the public 1.6.1 bytes,
-   shut down active workspaces/clients first, then use the normal updater.
+1. Verify the user's WSL recovery after an explicit supervisor shutdown/reopen;
+   inspect configuration/status before retrying.
+2. Verify the new log display in the user's terminal with a newly built client.
+3. Continue real-platform acceptance in [roadmap](roadmap.md) and [WSL verification](wsl.md).
 4. Resume startup-readiness or AG01 implementation only after explicit scope approval.

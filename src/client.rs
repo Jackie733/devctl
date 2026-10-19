@@ -216,8 +216,17 @@ pub async fn transact(
         )
     })?
     .map_err(|error| {
+        let hint = if error.kind() == std::io::ErrorKind::UnexpectedEof
+            && matches!(request, Request::AddProject { .. })
+        {
+            ". The background workspace may still be running an older devctl without project addition support. Check configuration/status, then shut down and reopen the workspace with the current devctl before retrying. Shutdown stops all workspace services."
+        } else if matches!(request, Request::AddProject { .. }) {
+            ". Inspect configuration and status before retrying."
+        } else {
+            ""
+        };
         Connection(format!(
-            "Control connection failed; completion is unknown: {error}"
+            "Control connection failed; completion is unknown: {error}{hint}"
         ))
     })?;
     if response.workspace_id.is_empty() {
@@ -343,5 +352,36 @@ mod tests {
             transact(&config, &Request::Status {}, false).await,
             Err(ClientError::Preparation(_))
         ));
+    }
+
+    #[tokio::test]
+    async fn addition_eof_explains_old_supervisor_recovery_without_claiming_save_failure() {
+        let (_endpoint, config, listener) = Endpoint::new();
+        let identity = config.clone();
+        let server = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            let mut header = [0; 9];
+            stream.read_exact(&mut header).await.unwrap();
+            assert_eq!(&header, control::CONTROL_HEADER);
+            crate::probe::write_identity(&mut stream, &identity)
+                .await
+                .unwrap();
+            let request: Request = control::read_frame(&mut stream, control::MAX_REQUEST)
+                .await
+                .unwrap();
+            assert!(matches!(request, Request::AddProject { .. }));
+            // Older supervisors close on unknown actions. A lost save response
+            // looks the same, so neither case proves the configuration was unchanged.
+        });
+        let request = toml::from_str("action='add_project'\nworkspace_id='one'\n[proposal]\ndirectory='/tmp/project'\narguments=['sleep','60']\nrevision='old'\nproposed='reviewed'\nid='project'\n").unwrap();
+        let error = transact(&config, &request, false).await.unwrap_err();
+        let ClientError::Connection(error) = error else {
+            panic!("A closed connection must retain its unknown-outcome classification");
+        };
+        assert!(error.contains("completion is unknown"));
+        assert!(error.contains("older devctl"));
+        assert!(error.contains("shut down and reopen"));
+        assert!(error.contains("Shutdown stops all workspace services"));
+        server.await.unwrap();
     }
 }

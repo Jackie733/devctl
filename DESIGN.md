@@ -693,9 +693,14 @@ see new entries on ordinary status polling. Preserve log reading bookmarks when
 selecting the new project and invalidate stale client queries without disconnecting.
 Shutdown waits for an accepted write to finish, even if the requesting client leaves.
 Report unknown/partial save outcomes explicitly and reconcile by reopening; do not
-replay starts. Older supervisors lacking this request reject it safely; reopen
-under the new binary before trying again. This supports reviewed additions only,
-not external-file watching or live replacement/removal of existing declarations.
+replay starts. Older supervisors lacking this request close the connection before
+dispatch; an addition EOF includes guidance to inspect configuration/status and
+explicitly shut down/reopen with the current binary. EOF alone cannot distinguish
+an unsupported request from a lost acknowledgement, so the save outcome remains
+unknown. Current supervisors return a normal error response for invalid request
+frames before dispatch, preserving existing response compatibility. This supports
+reviewed additions only, not external-file watching or live replacement/removal of
+existing declarations.
 Existing CLI protocol operations remain unchanged.
 
 ### Removed environment compatibility and future extensions

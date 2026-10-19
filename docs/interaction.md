@@ -597,7 +597,14 @@ competing save requires review/retry instead of overwriting edits. Changes to ex
 service declarations outside the TUI require a workspace reopen; this workflow only
 adds projects. First-use save creates and opens the new idle workspace. An older
 supervisor that cannot accept additions must be shut down and reopened under the
-new binary. CLI save commands retain their existing owned-workspace refusal.
+new binary. Updating the executable does not replace an already-running supervisor.
+If saving reports an unexpected end of file, inspect the configuration and
+`devctl status` before retrying: an older supervisor may have rejected the request,
+but a lost reply can also hide a completed save. To replace an old supervisor, leave
+the dialog and use `Q` then `y` in the main view, or `devctl shutdown`, then reopen
+with the current binary. Shutdown stops all workspace services; start the desired
+services again after reopening. CLI save commands retain their existing
+owned-workspace refusal.
 
 ### Explicit command addition
 
