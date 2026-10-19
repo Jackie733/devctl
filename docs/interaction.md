@@ -182,11 +182,12 @@ verify the actual clipboard.
 
 ### Layout, help, and confirmation
 
-The three-row header places the [complete devctl mark](../assets/branding/README.md)
-beside the client version, connection state, and supervisor identity. Compact views
-use the third text row for the selected project instead of the workspace identity.
-The 36 × 10 minimum remains supported; log paging uses the remaining content area.
-Dialogs cover the background mark as a whole rather than leaving clipped strokes.
+The header shows client version, connection state, and supervisor identity in
+one row for wide layouts. Compact layouts retain the original second row for the
+selected project and panel hints. The 36 × 10 minimum remains supported.
+The [complete devctl mark](../assets/branding/README.md) appears only in Help when
+space permits, fixed above its scrollable content. It never reserves rows in the
+main project/log view; smaller help dialogs omit it as a whole.
 Projects show `Stopped`, `Starting`, `Running`, `Stopping`, `Failed`, or disconnected
 `Unknown`.
 Log state is displayed separately from `FOLLOW`/`READ` and saving status. Stopped

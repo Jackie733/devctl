@@ -3,22 +3,21 @@
 Keep current work and necessary handoff here; Git retains history. Collaboration
 rules are in [AGENTS.md](../AGENTS.md).
 
-## Current: selected full logo integrated (U01 visual identity)
+## Current: restore compact workspace header (U01 visual identity)
 
-On 2026-10-19 the maintainer selected the service-line/control-rail design and
-required the complete mark everywhere, with no abbreviated companion. The
-[brand assets and usage](../assets/branding/README.md) own the selected geometry.
-Created transparent SVG/1024px PNG light/dark treatments; both READMEs show the
-full mark. Removed abandoned proposals and abbreviated previews from the active
-tree; Git retains them. The selected ImageGen reference/prompt are preserved.
+The maintainer selected the service-line/control-rail identity with no abbreviated
+companion, then rejected the three-row main header as too intrusive. Restored the
+original text header: one row in wide layouts, two in compact layouts, with the
+original version/connection/workspace and selection/panel hints. Main-view log and
+project areas recover their original space; unusable windows show exit/resize
+guidance without decorative rows.
 
-The TUI reserves three header rows for the complete three-horizontal-line and
-separate vertical-rail mark. ASCII mode changes stroke characters only. Theme,
-monochrome, narrow and resize states keep the full structure and longer middle
-line. Connection information fits beside it at 36 × 10; compact mode uses the
-third text row for the selection. Dialogs cover the whole background mark; tiny
-unusable terminals show guidance instead of clipping the mark. Mouse/page geometry
-uses the updated layout, with no new dependency or service/protocol changes.
+The complete mark now appears only in Help when room remains for readable content
+and its footer. It stays fixed while help text scrolls; smaller help dialogs omit
+the entire mark. ASCII/theme/NO_COLOR treatments retain all four strokes. Full
+SVG/PNG assets and README artwork are unchanged. The
+[brand usage rule](../assets/branding/README.md) owns this placement; docs and the
+updated [preview](../assets/branding/tui-preview.png) match the working build.
 
 Validation on native macOS:
 
@@ -26,17 +25,17 @@ Validation on native macOS:
 - `cargo clippy --locked --all-targets -- -D warnings`: passed.
 - `cargo test --locked -- --quiet`: passed, 334 tests (201 unit, 133 integration;
   includes 20 real-PTY TUI scenarios).
-- Existing appearance PTY scenario now verifies every logo row in dark/light/
-  terminal/monochrome modes and 120-column, 60-column and 36 × 10 layouts.
-  New unit coverage checks complete/never-partial rendering, disconnected labels,
-  theme/ASCII/NO_COLOR combinations and dialog coverage. Existing lifecycle,
-  mouse selection/copy, project edit/remove/reload and terminal restoration pass.
-- Decoded exports, compared both SVG geometries and PNG alpha masks; inspected
-  complete small-size and light/dark renderings. Reconstructed the running build's
-  actual PTY text/colors with Menlo for the [preview](../assets/branding/tui-preview.png),
-  including a 36 × 10 ASCII/monochrome view. Isolated capture workspaces cleaned up.
-- Changed Markdown links/fences, README image references and `git diff --check`
-  passed. No installed binary replacement, push, release or publication.
+- Appearance PTY checks cover the compact header in dark/light/terminal/monochrome
+  modes, 120-column, 60-column and 36 × 10 layouts, and the full mark inside Help.
+  Unit coverage verifies original header height, full Help mark before/after
+  scrolling, and whole-mark omission in small Help dialogs. Existing lifecycle,
+  log reading/copying, mouse selection, project edit/remove/reload, help diagnostic
+  reachability and terminal restoration scenarios pass.
+- Ran isolated dark/light/ASCII-monochrome main views and light Help. Reconstructed
+  actual PTY text/colors with Menlo and inspected the preview; capture workspaces
+  cleaned up. This is not a native-window screenshot.
+- Changed Markdown links/fences, image references and `git diff --check` passed.
+  No installed binary replacement, push, release or publication.
 
 Next: physical-terminal/font acceptance on the user's Mac and Windows Terminal/
 WSL remains separate from controlled native PTY checks. Existing release repair

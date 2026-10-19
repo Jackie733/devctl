@@ -196,7 +196,8 @@ for selection modes, search boundaries, pagination, and failure feedback.
 ## Documentation
 
 - [Logo/icon assets and usage](assets/branding/README.md): the complete service-line
-  and control-rail mark, including full three-row terminal rendering.
+  and control-rail mark; Help displays it when space permits, with no extra rows
+  in the everyday workspace header.
 - [Installation, updates, rollback, and source builds](docs/install.md)
 - [Configuration, CLI, TUI, and log reference](docs/interaction.md)
 - [WSL setup and hands-on verification](docs/wsl.md)

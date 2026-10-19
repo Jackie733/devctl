@@ -31,9 +31,15 @@ including the longer middle line and all gaps. Scale proportionally. Do not crop
 remove strokes, replace it with punctuation, or use a one-row abbreviation.
 Color may follow the background/theme; the four-stroke structure is invariant.
 
-The TUI uses the complete mark in seven columns and three rows, beside the title.
+The everyday TUI keeps its original compact text header: one row in the wide
+layout and two in the compact layout. No brand rows are reserved in the project/
+log workspace, and no abbreviated logo is inserted into the title.
+
+The Help dialog shows the complete mark in seven columns and three fixed rows
+when enough space remains for readable help and its footer. It does not scroll
+with the help text. Smaller dialogs omit the entire mark rather than clipping it.
 Common line-drawing characters provide the normal treatment; ASCII mode changes
-only the stroke characters, preserving every row and its length/spacing:
+only stroke characters, preserving every row and its length/spacing:
 
 ```text
 ---   |
@@ -43,10 +49,8 @@ only the stroke characters, preserving every row and its length/spacing:
 
 This is the same complete cell geometry, not an abbreviated companion. It needs
 no image protocol, new dependency, Nerd Font, or special terminal configuration.
-Themes and `NO_COLOR` preserve its structure. A dialog covers the entire background
-mark, never a fragment. If a terminal cannot fit the complete mark plus one line
-of resize/exit guidance, only the guidance appears; no partial mark is drawn.
-The regular 36 × 10 minimum remains supported.
+Themes and `NO_COLOR` preserve its structure. The regular 36 × 10 minimum remains
+supported. Unusable windows prioritize the original resize/exit guidance.
 
 The English/Chinese READMEs display the same full vector geometry, with background-
 appropriate color. Existing CLI help, status and log text keep their text formats;
@@ -54,7 +58,8 @@ the brand integration does not insert decorative output into data/diagnostics.
 
 ## Terminal preview
 
-[Preview](tui-preview.png) shows the running local build in dark, light, and
-monochrome/ASCII modes. It reconstructs actual PTY characters and emitted colors
-with Menlo; it is not a native terminal-window screenshot. The capture used
+[Preview](tui-preview.png) shows the compact main header and full identity in Help,
+including light and monochrome/ASCII treatments. It reconstructs actual PTY
+characters and emitted colors with Menlo; it is not a native terminal-window
+screenshot. The capture used
 isolated test services and cleaned up their background workspaces afterward.

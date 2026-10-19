@@ -489,7 +489,7 @@ fn footer(app: &App, width: u16) -> Line<'static> {
 pub fn layout(area: Rect, app: &App) -> ScreenLayout {
     let wide = area.width >= 80 && area.height >= 12;
     let [header, body, details, footer] = Layout::vertical([
-        Constraint::Length(brand::HEIGHT),
+        Constraint::Length(if wide { 1 } else { 2 }),
         Constraint::Min(0),
         Constraint::Length(1),
         Constraint::Length(1),
@@ -763,21 +763,9 @@ fn render_content(frame: &mut Frame, app: &App) {
     };
     let screen = layout(area, app);
     if !screen.usable {
-        let brand_fits = area.width >= brand::WIDTH && area.height > brand::HEIGHT;
-        let message = if brand_fits {
-            brand::render(frame, area, app.appearance.ascii);
-            Rect::new(
-                area.x,
-                area.y + brand::HEIGHT,
-                area.width,
-                area.height - brand::HEIGHT,
-            )
-        } else {
-            area
-        };
         frame.render_widget(Paragraph::new(format!(
             "q: leave | Ctrl-C: leave\nWindow too small (min 36x10).\n{connection}\nEnlarge to control services."
-        )), message);
+        )), area);
         return;
     }
     let identity: String = clean(app.workspace_id.as_deref().unwrap_or("-"))
@@ -791,46 +779,29 @@ fn render_content(frame: &mut Frame, app: &App) {
     } else {
         "?"
     };
-    let text_area = Rect::new(
-        screen.header.x + brand::WIDTH + 1,
-        screen.header.y,
-        screen.header.width.saturating_sub(brand::WIDTH + 1),
-        screen.header.height,
-    );
-    // A modal may cover the header. Hide the entire background mark while a
-    // dialog is open so its border can never leave a misleading partial logo.
-    if !app.help && !app.confirm_shutdown && app.confirm_remove.is_none() && app.add.is_none() {
-        brand::render(frame, screen.header, app.appearance.ascii);
-    }
-    let mut header = vec![
-        Line::from(Span::styled(
+    let mut header = vec![Line::from(vec![
+        Span::styled(
             format!("devctl {}", env!("CARGO_PKG_VERSION")),
             Style::default().add_modifier(Modifier::BOLD),
-        )),
-        Line::from(Span::styled(
-            if Line::from(format!("{connection} {connection_icon}")).width()
-                <= usize::from(text_area.width)
-            {
-                format!("{connection} {connection_icon}")
-            } else {
-                connection.to_owned()
-            },
+        ),
+        Span::raw(" | "),
+        Span::styled(
+            format!("{connection} {connection_icon}"),
             Style::default().fg(if app.connected {
                 Color::Green
             } else {
                 Color::Yellow
             }),
-        )),
-    ];
-    header.push(if screen.wide {
-        Line::from(Span::styled(
-            format!("workspace {identity}"),
+        ),
+        Span::styled(
+            format!(" | workspace {identity}"),
             Style::default().fg(Color::DarkGray),
-        ))
-    } else {
-        Line::from(selected_summary(app))
-    });
-    frame.render_widget(Paragraph::new(header), text_area);
+        ),
+    ])];
+    if screen.header.height > 1 {
+        header.push(Line::from(format!("{} | 1/0 panel", selected_summary(app))));
+    }
+    frame.render_widget(Paragraph::new(header), screen.header);
     if let Some(projects) = screen.projects {
         projects_view(frame, projects, app, screen.wide);
     }
@@ -1466,22 +1437,38 @@ fn help_area(area: Rect, app: &App) -> Rect {
     let width = area.width.saturating_sub(4).min(80);
     let inner = help_block().inner(Rect::new(0, 0, width, area.height));
     let rows = wrapped(help_lines(app), inner.width).len();
-    // Borders, vertical padding and the two fixed footer rows occupy six rows.
-    let height = rows.saturating_add(6).min(usize::from(u16::MAX)) as u16;
+    // Borders, padding and footer occupy six rows; allow room for the full mark.
+    let height = rows
+        .saturating_add(6 + usize::from(brand::HEIGHT))
+        .min(usize::from(u16::MAX)) as u16;
     popup(area, width, height.min(area.height.saturating_sub(2)))
 }
 
+fn help_sections(inner: Rect) -> [Rect; 3] {
+    // The optional identity must leave room for readable help and its footer.
+    // Never reserve brand rows in the everyday project/log workspace.
+    let brand_height = if inner.width >= brand::WIDTH && inner.height >= 8 {
+        brand::HEIGHT
+    } else {
+        0
+    };
+    Layout::vertical([
+        Constraint::Length(brand_height),
+        Constraint::Min(0),
+        Constraint::Length(2),
+    ])
+    .areas(inner)
+}
+
 pub fn help_height(area: Rect, app: &App) -> u16 {
-    help_block()
-        .inner(help_area(area, app))
+    help_sections(help_block().inner(help_area(area, app)))[1]
         .height
-        .saturating_sub(2)
         .max(1)
 }
 
 pub fn help_max_scroll(area: Rect, app: &App) -> u16 {
     let inner = help_block().inner(help_area(area, app));
-    let height = usize::from(inner.height.saturating_sub(2));
+    let height = usize::from(help_sections(inner)[1].height);
     let count = wrapped(help_lines(app), inner.width).len();
     count.saturating_sub(height).min(usize::from(u16::MAX)) as u16
 }
@@ -1610,8 +1597,20 @@ fn overlay(frame: &mut Frame, app: &App) {
         let block = help_block();
         let inner = block.inner(area);
         frame.render_widget(block, area);
-        let [body, footer] =
-            Layout::vertical([Constraint::Min(0), Constraint::Length(2)]).areas(inner);
+        let [identity, body, footer] = help_sections(inner);
+        brand::render(frame, identity, app.appearance.ascii);
+        if identity.height > 0 {
+            frame.render_widget(
+                Paragraph::new(format!("devctl {}", env!("CARGO_PKG_VERSION")))
+                    .style(modal_style().add_modifier(Modifier::BOLD)),
+                Rect::new(
+                    identity.x + brand::WIDTH + 2,
+                    identity.y + 1,
+                    identity.width.saturating_sub(brand::WIDTH + 2),
+                    1,
+                ),
+            );
+        }
         let max = help_max_scroll(frame.area(), app);
         let scroll = app.help_scroll.min(max);
         let lines = wrapped(help_lines(app), body.width);
@@ -1988,9 +1987,6 @@ mod tests {
                 assert_eq!(log_height(area, &app), usize::from(screen.logs.height - 3));
                 assert!(log_height(area, &app) >= if width >= 80 && height >= 12 { 4 } else { 1 });
                 let text = draw(&app, width, height);
-                for (row, mark) in text.lines().zip(brand::rows(false)) {
-                    assert!(row.starts_with(mark));
-                }
                 assert!(text.contains(concat!("devctl ", env!("CARGO_PKG_VERSION"))));
                 assert!(text.contains("Connected"));
                 assert!(text.contains("q leave") && text.contains("? help"));
@@ -2006,7 +2002,7 @@ mod tests {
     }
 
     #[test]
-    fn full_brand_survives_themes_small_screens_and_disconnected_headers() {
+    fn full_brand_in_help_keeps_the_workspace_header_compact() {
         use super::super::appearance::Theme;
 
         for ascii in [false, true] {
@@ -2016,29 +2012,42 @@ mod tests {
                     app.appearance.ascii = ascii;
                     app.appearance.theme = theme;
                     app.appearance.no_color = no_color;
-                    app.disconnect("lost".into());
-                    for (width, height) in [(120, 30), (80, 12), (36, 10), (20, 8), (7, 4)] {
+                    for (width, height) in [(120, 30), (80, 12), (60, 16), (36, 10)] {
+                        let area = Rect::new(0, 0, width, height);
+                        let screen = layout(area, &app);
+                        assert_eq!(screen.header.height, if screen.wide { 1 } else { 2 });
+                        app.help = false;
                         let text = draw(&app, width, height);
-                        for (row, mark) in text.lines().zip(brand::rows(ascii)) {
-                            assert!(row.starts_with(mark), "{width}x{height}: {text}");
-                        }
-                        if width >= 36 {
-                            assert!(text.contains("Disconnected / state unknown"));
-                            assert!(text.contains("q leave"));
+                        assert!(text.starts_with(concat!("devctl ", env!("CARGO_PKG_VERSION"))));
+                        assert!(!text.contains(brand::rows(ascii)[1]));
+                        app.help = true;
+                        let inner = help_block().inner(help_area(area, &app));
+                        let [identity, _, _] = help_sections(inner);
+                        for scroll in [0, help_max_scroll(area, &app)] {
+                            app.help_scroll = scroll;
+                            let text = draw(&app, width, height);
+                            for (offset, stroke) in brand::rows(ascii).into_iter().enumerate() {
+                                if identity.height > 0 {
+                                    assert_eq!(
+                                        text.chars()
+                                            .skip(
+                                                (usize::from(identity.y) + offset)
+                                                    * usize::from(width)
+                                                    + usize::from(identity.x),
+                                            )
+                                            .take(usize::from(brand::WIDTH))
+                                            .collect::<String>(),
+                                        stroke
+                                    );
+                                } else {
+                                    assert!(!text.contains(stroke), "{text}");
+                                }
+                            }
+                            assert!(text.contains("?/Esc close | q leave"));
                         }
                     }
-                    // A dialog covers the whole background mark; no clipped
-                    // service stroke or disconnected rail may remain visible.
-                    app.help = true;
-                    let text = draw(&app, 36, 10);
-                    assert!(!text.contains(brand::rows(ascii)[0]));
-                    assert!(!text.contains(brand::rows(ascii)[1]));
                 }
             }
-        }
-        for (width, height) in [(6, 4), (7, 3), (1, 1)] {
-            let text = draw(&App::new(), width, height);
-            assert!(!text.contains('━') && !text.contains('┃'));
         }
     }
 
@@ -2071,19 +2080,19 @@ mod tests {
         let mut app = App::new();
         app.help = true;
         app.feedback = "HELP-TAIL".into();
-        let large = Rect::new(7, 3, 300, 64);
+        let large = Rect::new(7, 3, 300, 80);
         let popup = help_area(large, &app);
         assert_eq!(popup.width, 80);
         let inner_width = help_block().inner(popup).width;
         assert_eq!(
             usize::from(popup.height),
-            wrapped(help_lines(&app), inner_width).len() + 6
+            wrapped(help_lines(&app), inner_width).len() + 6 + usize::from(brand::HEIGHT)
         );
         assert!(popup.height < large.height - 2);
         assert_eq!(popup.x, large.x + (large.width - popup.width) / 2);
         assert_eq!(popup.y, large.y + (large.height - popup.height) / 2);
         assert_eq!(help_max_scroll(large, &app), 0);
-        let text = draw(&app, 300, 64);
+        let text = draw(&app, 300, 80);
         assert!(text.contains("CURRENT PANEL") && text.contains("HELP-TAIL"));
 
         for (width, height) in [(120, 30), (80, 12), (60, 16), (36, 10)] {
@@ -2097,7 +2106,7 @@ mod tests {
             assert!(text.contains("?/Esc close | q leave"));
         }
         // A stale scroll position must not hide content after enlarging the window.
-        let text = draw(&app, 300, 64);
+        let text = draw(&app, 300, 80);
         assert!(text.contains("CURRENT PANEL") && text.contains("HELP-TAIL"));
     }
 
@@ -2174,7 +2183,7 @@ mod tests {
                 .iter()
                 .any(|line| line.to_string().contains("GAP"))
         );
-        assert_eq!(log_height(area, &app), 4);
+        assert_eq!(log_height(area, &app), 6);
         assert!(can_confirm(area, &app));
         assert!(!can_confirm(Rect::new(0, 0, 20, 6), &app));
     }

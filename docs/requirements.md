@@ -66,6 +66,9 @@ required complete rendering wherever a logo is used (U01). The
 [brand usage rule](../assets/branding/README.md#usage) owns the shape and rendering
 constraints. This authorizes asset and TUI integration, not publication or
 acceptance of physical-terminal rendering on every platform.
+The confirmed layout keeps the original compact workspace header; place the
+complete identity in Help only when space permits, without substituting an
+abbreviated symbol or adding brand rows to the main workspace.
 
 ## Initial scope and acceptance
 
