@@ -5,6 +5,10 @@ User-facing changes are grouped by released version. Download artifacts from
 
 ## Unreleased
 
+- Add the selected devctl identity to both READMEs and the TUI header, preserving
+  the complete three-service-line/control-rail mark in themes, narrow terminals,
+  monochrome output and ASCII mode. Include transparent SVG/PNG assets.
+
 ## 1.8.1 — 2026-10-19
 
 - Fix macOS release checks by comparing canonical project paths in the edit/remove test.

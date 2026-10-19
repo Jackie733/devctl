@@ -1,5 +1,10 @@
 # devctl
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/branding/devctl-mark-on-dark.svg">
+  <img src="assets/branding/devctl-mark.svg" alt="devctl: three independent service lines and one control rail" width="96" height="96">
+</picture>
+
 A terminal workspace manager for local development services, written in Rust.
 Start projects, inspect their logs, and stop them from one place. Leave the terminal
 interface without stopping your services, then reconnect when you need it.
@@ -190,8 +195,8 @@ for selection modes, search boundaries, pagination, and failure feedback.
 
 ## Documentation
 
-- [Logo/icon concept and design rationale](assets/branding/v3/README.md): service
-  lines and a control rail, with terminal adaptation; pending maintainer selection.
+- [Logo/icon assets and usage](assets/branding/README.md): the complete service-line
+  and control-rail mark, including full three-row terminal rendering.
 - [Installation, updates, rollback, and source builds](docs/install.md)
 - [Configuration, CLI, TUI, and log reference](docs/interaction.md)
 - [WSL setup and hands-on verification](docs/wsl.md)

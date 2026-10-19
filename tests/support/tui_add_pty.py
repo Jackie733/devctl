@@ -159,9 +159,10 @@ try:
   ui.send(b'r');ui.wait('[out #3] alpha-v1')
   alpha_pid2=int(wait_file(alpha/'pid').splitlines()[-1]);assert alpha_pid2!=alpha_pid1
   assert int((beta/'pid').read_text().splitlines()[-1])==beta_pid1;os.kill(beta_pid1,0)
-  # Mouse click on row 4 (1-based SGR row 4 = 0-based row 3 = beta) selects beta; wheel up selects alpha.
-  ui.send(b'\x1b[<0;3;4M\x1b[<0;3;4m');ui.wait('beta-ready')
-  ui.send(b'\x1b[<64;3;4M');ui.wait('alpha-v1')
+  # Locate beta in the rendered Projects pane rather than depending on header height.
+  beta_row=next(y for y,row in enumerate(ui.screen.rows) if 'beta' in ''.join(row[:32]))+1
+  ui.send(f'\x1b[<0;3;{beta_row}M\x1b[<0;3;{beta_row}m'.encode());ui.wait('beta-ready')
+  ui.send(f'\x1b[<64;3;{beta_row}M'.encode());ui.wait('alpha-v1')
   # Stop alpha, edit its command via e while beta stays running.
   ui.send(b'x');ui.wait('Selected: alpha | Stopped')
   ui.send(b'e');ui.wait('Review project update');ui.send(b'e');ui.wait('command you normally run');ui.send(b'\x15')

@@ -3,28 +3,45 @@
 Keep current work and necessary handoff here; Git retains history. Collaboration
 rules are in [AGENTS.md](../AGENTS.md).
 
-## Current: explainable logo composition (U01 visual identity)
+## Current: selected full logo integrated (U01 visual identity)
 
-The maintainer requested clearer design reasoning, simplicity and beauty after
-the three terminal-first alternatives were presented without sufficient rationale.
-The [current concept and rationale](../assets/branding/v3/README.md) derive four
-strokes from independent services and a shared control surface. The longer middle
-stroke establishes direction; equal spacing and matching top/bottom strokes
-establish balance. Earlier alternatives remain available; none is accepted.
+On 2026-10-19 the maintainer selected the service-line/control-rail design and
+required the complete mark everywhere, with no abbreviated companion. The
+[brand assets and usage](../assets/branding/README.md) own the selected geometry.
+Created transparent SVG/1024px PNG light/dark treatments; both READMEs show the
+full mark. Removed abandoned proposals and abbreviated previews from the active
+tree; Git retains them. The selected ImageGen reference/prompt are preserved.
 
-Validation: decoded the original 1254 × 1254 PNG; inspected 16/24/32/48/64 px.
-Prefer at least 24 px. Inspected terminal companions in Menlo/SF Mono; the closer
-Unicode companion has ambiguous-width/font limitations, so retain ordinary ASCII
-as the default proposal. Checked changed Markdown links/fences and
-`git diff --check`. No Rust source or runtime changes; no new Rust checks needed.
+The TUI reserves three header rows for the complete three-horizontal-line and
+separate vertical-rail mark. ASCII mode changes stroke characters only. Theme,
+monochrome, narrow and resize states keep the full structure and longer middle
+line. Connection information fits beside it at 36 × 10; compact mode uses the
+third text row for the selection. Dialogs cover the whole background mark; tiny
+unusable terminals show guidance instead of clipping the mark. Mouse/page geometry
+uses the updated layout, with no new dependency or service/protocol changes.
 
-Next: feedback on this rationale/composition, an exact geometric master and chosen
-TUI treatment, then integration and appropriate runtime checks. Earlier checks
-verified only the unchanged TUI baseline: locked build and isolated PTY service
-start/logs, 120 × 30 / 36 × 10 resize, exit and terminal restoration passed.
-Modified-header runtime behavior and native WSL/Mac appearance remain unverified.
-No push, publication or release-packaging changes. Existing release repair and
-real-platform acceptance handoffs below remain as recorded.
+Validation on native macOS:
+
+- `cargo fmt --check`: passed.
+- `cargo clippy --locked --all-targets -- -D warnings`: passed.
+- `cargo test --locked -- --quiet`: passed, 334 tests (201 unit, 133 integration;
+  includes 20 real-PTY TUI scenarios).
+- Existing appearance PTY scenario now verifies every logo row in dark/light/
+  terminal/monochrome modes and 120-column, 60-column and 36 × 10 layouts.
+  New unit coverage checks complete/never-partial rendering, disconnected labels,
+  theme/ASCII/NO_COLOR combinations and dialog coverage. Existing lifecycle,
+  mouse selection/copy, project edit/remove/reload and terminal restoration pass.
+- Decoded exports, compared both SVG geometries and PNG alpha masks; inspected
+  complete small-size and light/dark renderings. Reconstructed the running build's
+  actual PTY text/colors with Menlo for the [preview](../assets/branding/tui-preview.png),
+  including a 36 × 10 ASCII/monochrome view. Isolated capture workspaces cleaned up.
+- Changed Markdown links/fences, README image references and `git diff --check`
+  passed. No installed binary replacement, push, release or publication.
+
+Next: physical-terminal/font acceptance on the user's Mac and Windows Terminal/
+WSL remains separate from controlled native PTY checks. Existing release repair
+and real-platform acceptance handoffs below remain as recorded; this task does
+not trigger or replace that release work.
 
 ## Preserved: repair macOS release checks (X03 / A01)
 

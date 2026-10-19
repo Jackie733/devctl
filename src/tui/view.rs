@@ -7,7 +7,10 @@ use ratatui::{
 };
 use unicode_segmentation::UnicodeSegmentation;
 
-use super::app::{App, Focus, TextCell, TextPosition};
+use super::{
+    app::{App, Focus, TextCell, TextPosition},
+    brand,
+};
 use crate::{
     logs::{Record, Source},
     manager::ServiceState,
@@ -486,7 +489,7 @@ fn footer(app: &App, width: u16) -> Line<'static> {
 pub fn layout(area: Rect, app: &App) -> ScreenLayout {
     let wide = area.width >= 80 && area.height >= 12;
     let [header, body, details, footer] = Layout::vertical([
-        Constraint::Length(if wide { 1 } else { 2 }),
+        Constraint::Length(brand::HEIGHT),
         Constraint::Min(0),
         Constraint::Length(1),
         Constraint::Length(1),
@@ -760,9 +763,21 @@ fn render_content(frame: &mut Frame, app: &App) {
     };
     let screen = layout(area, app);
     if !screen.usable {
+        let brand_fits = area.width >= brand::WIDTH && area.height > brand::HEIGHT;
+        let message = if brand_fits {
+            brand::render(frame, area, app.appearance.ascii);
+            Rect::new(
+                area.x,
+                area.y + brand::HEIGHT,
+                area.width,
+                area.height - brand::HEIGHT,
+            )
+        } else {
+            area
+        };
         frame.render_widget(Paragraph::new(format!(
             "q: leave | Ctrl-C: leave\nWindow too small (min 36x10).\n{connection}\nEnlarge to control services."
-        )), area);
+        )), message);
         return;
     }
     let identity: String = clean(app.workspace_id.as_deref().unwrap_or("-"))
@@ -776,29 +791,46 @@ fn render_content(frame: &mut Frame, app: &App) {
     } else {
         "?"
     };
-    let mut header = vec![Line::from(vec![
-        Span::styled(
+    let text_area = Rect::new(
+        screen.header.x + brand::WIDTH + 1,
+        screen.header.y,
+        screen.header.width.saturating_sub(brand::WIDTH + 1),
+        screen.header.height,
+    );
+    // A modal may cover the header. Hide the entire background mark while a
+    // dialog is open so its border can never leave a misleading partial logo.
+    if !app.help && !app.confirm_shutdown && app.confirm_remove.is_none() && app.add.is_none() {
+        brand::render(frame, screen.header, app.appearance.ascii);
+    }
+    let mut header = vec![
+        Line::from(Span::styled(
             format!("devctl {}", env!("CARGO_PKG_VERSION")),
             Style::default().add_modifier(Modifier::BOLD),
-        ),
-        Span::raw(" | "),
-        Span::styled(
-            format!("{connection} {connection_icon}"),
+        )),
+        Line::from(Span::styled(
+            if Line::from(format!("{connection} {connection_icon}")).width()
+                <= usize::from(text_area.width)
+            {
+                format!("{connection} {connection_icon}")
+            } else {
+                connection.to_owned()
+            },
             Style::default().fg(if app.connected {
                 Color::Green
             } else {
                 Color::Yellow
             }),
-        ),
-        Span::styled(
-            format!(" | workspace {identity}"),
+        )),
+    ];
+    header.push(if screen.wide {
+        Line::from(Span::styled(
+            format!("workspace {identity}"),
             Style::default().fg(Color::DarkGray),
-        ),
-    ])];
-    if screen.header.height > 1 {
-        header.push(Line::from(format!("{} | 1/0 panel", selected_summary(app))));
-    }
-    frame.render_widget(Paragraph::new(header), screen.header);
+        ))
+    } else {
+        Line::from(selected_summary(app))
+    });
+    frame.render_widget(Paragraph::new(header), text_area);
     if let Some(projects) = screen.projects {
         projects_view(frame, projects, app, screen.wide);
     }
@@ -1956,11 +1988,11 @@ mod tests {
                 assert_eq!(log_height(area, &app), usize::from(screen.logs.height - 3));
                 assert!(log_height(area, &app) >= if width >= 80 && height >= 12 { 4 } else { 1 });
                 let text = draw(&app, width, height);
-                assert!(text.starts_with(concat!(
-                    "devctl ",
-                    env!("CARGO_PKG_VERSION"),
-                    " | Connected"
-                )));
+                for (row, mark) in text.lines().zip(brand::rows(false)) {
+                    assert!(row.starts_with(mark));
+                }
+                assert!(text.contains(concat!("devctl ", env!("CARGO_PKG_VERSION"))));
+                assert!(text.contains("Connected"));
                 assert!(text.contains("q leave") && text.contains("? help"));
                 assert!(text.contains(if focus == Focus::Projects {
                     "Projects · ACTIVE"
@@ -1970,6 +2002,43 @@ mod tests {
                 assert_eq!(app.selected.as_deref(), Some("web"));
                 assert_eq!(app.focus, focus);
             }
+        }
+    }
+
+    #[test]
+    fn full_brand_survives_themes_small_screens_and_disconnected_headers() {
+        use super::super::appearance::Theme;
+
+        for ascii in [false, true] {
+            for theme in [Theme::Dark, Theme::Light, Theme::Terminal] {
+                for no_color in [false, true] {
+                    let mut app = App::new();
+                    app.appearance.ascii = ascii;
+                    app.appearance.theme = theme;
+                    app.appearance.no_color = no_color;
+                    app.disconnect("lost".into());
+                    for (width, height) in [(120, 30), (80, 12), (36, 10), (20, 8), (7, 4)] {
+                        let text = draw(&app, width, height);
+                        for (row, mark) in text.lines().zip(brand::rows(ascii)) {
+                            assert!(row.starts_with(mark), "{width}x{height}: {text}");
+                        }
+                        if width >= 36 {
+                            assert!(text.contains("Disconnected / state unknown"));
+                            assert!(text.contains("q leave"));
+                        }
+                    }
+                    // A dialog covers the whole background mark; no clipped
+                    // service stroke or disconnected rail may remain visible.
+                    app.help = true;
+                    let text = draw(&app, 36, 10);
+                    assert!(!text.contains(brand::rows(ascii)[0]));
+                    assert!(!text.contains(brand::rows(ascii)[1]));
+                }
+            }
+        }
+        for (width, height) in [(6, 4), (7, 3), (1, 1)] {
+            let text = draw(&App::new(), width, height);
+            assert!(!text.contains('━') && !text.contains('┃'));
         }
     }
 
@@ -2105,7 +2174,7 @@ mod tests {
                 .iter()
                 .any(|line| line.to_string().contains("GAP"))
         );
-        assert_eq!(log_height(area, &app), 6);
+        assert_eq!(log_height(area, &app), 4);
         assert!(can_confirm(area, &app));
         assert!(!can_confirm(Rect::new(0, 0, 20, 6), &app));
     }
@@ -2525,8 +2594,9 @@ mod tests {
                 app.tick(std::time::Instant::now() + std::time::Duration::from_millis(millis));
                 terminal.draw(|frame| render(frame, &app)).unwrap();
                 let row = terminal.backend().buffer();
-                for x in 1..31 {
-                    let cell = &row[(x, 2)];
+                let projects = projects_area(Rect::new(0, 0, 120, 30), &app).unwrap();
+                for x in projects.x + 1..projects.right() - 1 {
+                    let cell = &row[(x, projects.y + 1)];
                     assert_eq!(cell.bg, app.appearance.background(Color::DarkGray));
                     assert!(!cell.modifier.intersects(
                         Modifier::REVERSED | Modifier::SLOW_BLINK | Modifier::RAPID_BLINK

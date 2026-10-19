@@ -1,44 +1,60 @@
-# devctl icon
+# devctl identity
 
-Superseded proposal: the maintainer rejected this lowercase `d` direction.
-See the [terminal-first alternatives](v2/README.md) for the current exploration.
+Selected by the maintainer: three independent horizontal service lines facing
+one vertical control rail. The middle line is longer, giving the composition
+one clear direction while the matching upper/lower lines provide balance.
+The separated strokes express independently controlled services in one workspace.
+The mark is static and does not indicate the current selection or service state.
 
-[Original PNG](devctl-icon.png) — 1254 × 1254 pixels, RGBA, with transparent
-space outside the dark rounded tile.
+## Assets
 
-The mark combines a lowercase **d** with the terminal prompt **>**. The enclosing
-shape suggests a single place to control development services. Mint teal against
-deep blue-black reflects a calm, focused terminal tool.
+| Use | Vector | Transparent 1024px PNG |
+| --- | --- | --- |
+| Light background | [SVG master](devctl-mark.svg) | [PNG](devctl-mark.png) |
+| Dark background | [SVG](devctl-mark-on-dark.svg) | [PNG](devctl-mark-on-dark.png) |
 
-This is a superseded visual proposal. It is not
-installed into the terminal interface or release packaging. The PNG is the
-original image-generation output; no editable vector master is included.
+The light-background SVG owns the geometry; the dark-background SVG and both
+PNGs have the same geometry. All four strokes have a 44-unit thickness on a
+512-unit square canvas. Short lines are 220 units long; the middle line is 304.
+The vertical rail is 260 units high and remains separate from all three lines.
+The assets have transparent backgrounds and no added frame or effects.
 
-## Usage and inspection
+The [original ImageGen concept](source/control-rail-concept.png) and its
+[exact prompt](source/prompt.txt) document the selected reference. The SVG master
+rebuilds that reference as precise flat geometry; it is the production asset.
+Earlier rejected/unselected proposals remain recoverable in Git history.
 
-Use at 24 pixels or larger when both the letter and terminal prompt must be clear.
-At 16 pixels the silhouette remains visible, but the internal detail becomes less
-distinct. Avoid adding shadows, extra symbols, or text inside the tile.
+## Usage
 
-Inspected on light and dark backgrounds at 16, 24, 32, 48, and 64 pixels. Checked
-square dimensions, the alpha range, and transparency at all four outer corners.
-These checks verify the supplied asset; they do not establish maintainer approval.
+Always display the complete three-horizontal-line and one-vertical-rail shape,
+including the longer middle line and all gaps. Scale proportionally. Do not crop,
+remove strokes, replace it with punctuation, or use a one-row abbreviation.
+Color may follow the background/theme; the four-stroke structure is invariant.
 
-## Generation
-
-Created with the built-in Codex ImageGen tool. The prompt requested a flat,
-vector-like appearance; the result is a raster image with slight tonal variation.
-The requested palette was mint teal `#52E0BC` and deep blue-black `#111820`;
-these values describe the design intent rather than exact colors of every pixel.
-
-Exact generation prompt:
+The TUI uses the complete mark in seven columns and three rows, beside the title.
+Common line-drawing characters provide the normal treatment; ASCII mode changes
+only the stroke characters, preserving every row and its length/spacing:
 
 ```text
-Use case: logo-brand.
-Create ONE final polished logo / application icon for "devctl", a lightweight Rust terminal workspace manager for local development services. Developers start/stop multiple projects in one place, inspect logs, leave the terminal while services continue in background, reconnect later. Personality: precise, calm, lightweight, dependable, modern developer tooling.
-Asset: a single square icon, no wordmark, no presentation board, no multiple versions.
-Design a distinctive bold geometric lowercase d / terminal-control symbol: a thick open rounded-square loop forms an abstract lowercase d silhouette, with a simple right-pointing terminal chevron integrated into its interior through deliberate negative space. The result must look like one coherent custom mark, not a collection of pictograms. Large open counters, even substantial weight, optical balance. A subtle top opening or cut suggests ongoing service/control, but do NOT use a generic power button.
-Composition: centered on a flat near-black blue rounded-square tile (#111820), generous equal padding of about 22%, mark occupies about 58% of tile. Rounded tile corners about 22% of width. Logo mark in solid fresh mint-teal (#52E0BC). Use only those two flat colors, with genuinely transparent space OUTSIDE the rounded tile.
-Style: expertly designed flat vector-like identity, extremely clean crisp edges, strong simple silhouette, balanced at 24px, restrained and timeless, slightly softened corners.
-Avoid: text, letters spelling the name, tagline, 3D, bevel, glow, gradients, reflections, drop shadows, texture, terminal-window frame, tiny dots, circuit networks, gears, mascots, decorative borders, busy lines, mockups. Deliver only the finished isolated icon at 1024x1024.
+---   |
+----- |
+---   |
 ```
+
+This is the same complete cell geometry, not an abbreviated companion. It needs
+no image protocol, new dependency, Nerd Font, or special terminal configuration.
+Themes and `NO_COLOR` preserve its structure. A dialog covers the entire background
+mark, never a fragment. If a terminal cannot fit the complete mark plus one line
+of resize/exit guidance, only the guidance appears; no partial mark is drawn.
+The regular 36 × 10 minimum remains supported.
+
+The English/Chinese READMEs display the same full vector geometry, with background-
+appropriate color. Existing CLI help, status and log text keep their text formats;
+the brand integration does not insert decorative output into data/diagnostics.
+
+## Terminal preview
+
+[Preview](tui-preview.png) shows the running local build in dark, light, and
+monochrome/ASCII modes. It reconstructs actual PTY characters and emitted colors
+with Menlo; it is not a native terminal-window screenshot. The capture used
+isolated test services and cleaned up their background workspaces afterward.

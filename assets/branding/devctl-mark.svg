@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-labelledby="title">
+  <title id="title">devctl: three independent service lines and one control rail</title>
+  <g fill="#142028">
+    <rect x="56" y="126" width="220" height="44"/>
+    <rect x="56" y="234" width="304" height="44"/>
+    <rect x="56" y="342" width="220" height="44"/>
+    <rect x="412" y="126" width="44" height="260"/>
+  </g>
+</svg>

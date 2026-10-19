@@ -1,5 +1,10 @@
 # devctl
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/branding/devctl-mark-on-dark.svg">
+  <img src="assets/branding/devctl-mark.svg" alt="devctl：三条独立服务线与一条统一控制线" width="96" height="96">
+</picture>
+
 用 Rust 编写的本地开发服务终端管理工具。在一个界面中启动多个项目、查看日志和停止服务；离开终端界面后服务继续运行，需要时重新连接。
 
 [![Release](https://img.shields.io/github/v/release/Jackie733/devctl)](https://github.com/Jackie733/devctl/releases/latest)
@@ -139,7 +144,7 @@ TUI 连接空闲工作区，不自动启动服务。按 `s` 启动选中服务�
 
 ## 文档
 
-- [Logo / 图标与设计思路](assets/branding/v3/README.md)：用三条独立横线表示多个服务，一条竖线表示统一控制；以四笔、等距和留白构成图形，并说明终端适配方式。已检查小尺寸效果，仍为待确认的设计方案。
+- [Logo / 图标与使用规范](assets/branding/README.md)：已选定“三条独立服务线与一条统一控制线”的设计，提供透明矢量图和图片。TUI 用三行显示完整标志，深浅主题、无彩色及普通字符模式均保留三横一竖和中间长线，不使用缩写；标题旁显示版本、连接状态与工作区或当前项目。
 - [安装、更新、回退与源码构建](docs/install.md)
 - [配置、CLI、TUI 与日志参考](docs/interaction.md)
 - [WSL 设置与实际验收](docs/wsl.md)

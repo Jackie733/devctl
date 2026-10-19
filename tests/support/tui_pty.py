@@ -531,6 +531,8 @@ def appearance():
             if theme == 'mono':
                 options.update(NO_COLOR='1', DEVCTL_TUI_ASCII='1', DEVCTL_TUI_REDUCED_MOTION='1')
             ui = Tui(w, appearance=options)
+            mark = ['---   |', '----- |', '---   |'] if theme == 'mono' else ['━━━   ┃', '━━━━━ ┃', '━━━   ┃']
+            assert all(row.startswith(stroke) for row, stroke in zip(ui.screen.text().splitlines(), mark)), ui.screen.text()
             ui.choose('web')
             ui.wait('- Stopped' if theme == 'mono' else '○ Stopped')
             ui.send(b's')
@@ -548,10 +550,15 @@ def appearance():
             ui.wait(lambda text: ' Help ' not in text)
             ui.resize(60,18)
             ui.wait('q leave')
+            assert all(row.startswith(stroke) for row, stroke in zip(ui.screen.text().splitlines(), mark)), ui.screen.text()
             ui.send(b'1')
             ui.wait('s/x start/stop | Enter logs | a add')
             ui.send(b'x')
             ui.wait('- Stopped' if theme == 'mono' else '○ Stopped')
+            ui.resize(36,10)
+            ui.wait('q leave')
+            assert all(row.startswith(stroke) for row, stroke in zip(ui.screen.text().splitlines(), mark)), ui.screen.text()
+            assert 'Connected' in ui.screen.text()
             assert b'\x1b[7m' not in ui.raw, 'State changes must not invert colors'
             if theme == 'mono':
                 assert b'38;2;' not in ui.raw and b'48;2;' not in ui.raw

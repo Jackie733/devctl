@@ -61,6 +61,12 @@ state changes preserve stable backgrounds without reverse-video flashes,
 animations preserve log reading positions, and failures remain visible after ordinary
 success feedback expires. Actual WSL appearance remains a user acceptance step.
 
+On 2026-10-19 the maintainer selected the service-line/control-rail identity and
+required complete rendering wherever a logo is used (U01). The
+[brand usage rule](../assets/branding/README.md#usage) owns the shape and rendering
+constraints. This authorizes asset and TUI integration, not publication or
+acceptance of physical-terminal rendering on every platform.
+
 ## Initial scope and acceptance
 
 Preserve the original requirement IDs. Post-MVP proposals below do not become

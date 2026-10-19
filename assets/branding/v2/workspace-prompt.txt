@@ -1,9 +1,0 @@
-Use case: logo-brand
-Asset type: a single primary brand icon for devctl, a developer terminal workspace control tool.
-Input image 1: product UI context only, showing devctl's plain terminal project and process layout. Do not reproduce the screenshot.
-Primary request: create the Workspace direction: an extremely simple abstract [=] symbol built from two inward-facing square brackets surrounding two short parallel horizontal strokes, evoking centrally controlled parallel services.
-Style: modern Swiss industrial tool identity, geometrically precise, bold uniform strokes, crisp square corners, generous negative space. All components share the same stroke width. The two horizontal lines have equal lengths; their endpoints have ample space from the brackets. The brackets should be simple open square brackets, not an enclosure/window.
-Composition: one single symbol, centered, occupying about 55% of a square 1024 by 1024 canvas, with comfortable empty margins.
-Palette: solid very dark blue-black #111827 symbol on a perfectly flat near-white #F8FAFC background. Strictly monochrome.
-Terminal requirement: the graphic must translate directly and recognizably into the ordinary ASCII token [=].
-Avoid: letters including d, wordmarks, typography, additional text, gear, rings, circles, app tile or icon backplate, window frame, gradients, shadows, textures, 3D, glow, ornamental details, multiple options, collage, watermark.

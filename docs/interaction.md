@@ -182,8 +182,13 @@ verify the actual clipboard.
 
 ### Layout, help, and confirmation
 
-The header shows client version, connection state, and supervisor identity. Projects
-show `Stopped`, `Starting`, `Running`, `Stopping`, `Failed`, or disconnected `Unknown`.
+The three-row header places the [complete devctl mark](../assets/branding/README.md)
+beside the client version, connection state, and supervisor identity. Compact views
+use the third text row for the selected project instead of the workspace identity.
+The 36 × 10 minimum remains supported; log paging uses the remaining content area.
+Dialogs cover the background mark as a whole rather than leaving clipped strokes.
+Projects show `Stopped`, `Starting`, `Running`, `Stopping`, `Failed`, or disconnected
+`Unknown`.
 Log state is displayed separately from `FOLLOW`/`READ` and saving status. Stopped
 services retain output labeled as retained logs; stale “ready” text does not imply
 current readiness. The log header identifies the latest known run as `latest #N`;

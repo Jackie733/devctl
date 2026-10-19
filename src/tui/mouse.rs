@@ -433,11 +433,12 @@ mod tests {
         app.selected = Some("api".into());
         app.focus(Focus::Logs);
         let area = Rect::new(0, 0, 120, 30);
+        let row = view::projects_area(area, &app).unwrap().y + 2;
 
         assert!(matches!(
             handle(
                 &mut app,
-                event(MouseEventKind::Down(MouseButton::Left), 2, 3),
+                event(MouseEventKind::Down(MouseButton::Left), 2, row),
                 area
             ),
             Action::Selection
@@ -448,7 +449,7 @@ mod tests {
         assert!(matches!(
             handle(
                 &mut app,
-                event(MouseEventKind::Down(MouseButton::Left), 2, 3),
+                event(MouseEventKind::Down(MouseButton::Left), 2, row),
                 area
             ),
             Action::None
@@ -457,7 +458,7 @@ mod tests {
         assert!(matches!(
             handle(
                 &mut app,
-                event(MouseEventKind::Down(MouseButton::Left), 2, 3),
+                event(MouseEventKind::Down(MouseButton::Left), 2, row),
                 area
             ),
             Action::Redraw
@@ -467,14 +468,14 @@ mod tests {
 
         app.focus(Focus::Logs);
         assert!(matches!(
-            handle(&mut app, event(MouseEventKind::ScrollUp, 2, 3), area),
+            handle(&mut app, event(MouseEventKind::ScrollUp, 2, row), area),
             Action::Selection
         ));
         assert_eq!(app.focus, Focus::Projects);
         assert_eq!(app.selected.as_deref(), Some("api"));
 
         assert!(matches!(
-            handle(&mut app, event(MouseEventKind::ScrollDown, 2, 3), area),
+            handle(&mut app, event(MouseEventKind::ScrollDown, 2, row), area),
             Action::Selection
         ));
         assert_eq!(app.selected.as_deref(), Some("web"));
