@@ -231,6 +231,25 @@ one App and supervisor identity; fresh clients follow the tail. Expired anchors
 report eviction; expired selection endpoints cancel selection. Full user-visible
 navigation, modal, and layout rules live in the [usage reference](docs/interaction.md).
 
+Mouse handling uses the same log content rectangle as rendering and paging, excluding
+panel chrome and the fixed notice row. A bounded snapshot of the last drawn rows,
+prefix widths and horizontal offset maps clicks to what was displayed, even if new
+output arrives before the next redraw; stale project/connection/size snapshots
+cannot begin or extend a drag. Selection stores immutable record sequences
+and original UTF-8 endpoint ranges, rather than screen coordinates. Hit testing
+accounts for prefixes, timestamps, horizontal offset, sanitized control characters
+and grapheme widths. `unicode-segmentation` is a direct dependency already present
+through Ratatui; its raw grapheme iterator preserves controls that Ratatui's styled
+iterator filters out. Rendering splits only at selection/search boundaries, then
+sanitizes the spans. Search emphasis remains visible across selection boundaries.
+Keyboard endpoint movement retains whole-line behavior; mouse snippets use exact
+selected bytes. Wheel scrolling reuses bounded page requests without changing the
+selection endpoints. A fresh drag advances the client generation, so an older
+clipboard completion or log query cannot clear/replace the new selection. Resize,
+modal input, endpoint eviction and project/connection changes end an active drag.
+Mouse events never issue service controls. The operation contract lives in the
+[selection reference](docs/interaction.md#line-selection-and-copying).
+
 Clipboard work owns a bounded text snapshot and generations, not a mutable App
 borrow. Only one request may run, with no queue. Local WSL detection uses environment
 or kernel markers and excludes `SSH_CONNECTION`; invoke PATH's `clip.exe` directly
@@ -242,7 +261,8 @@ same unchanged selection, and reports process completion or transmission rather
 than independently verified clipboard contents.
 
 Check TTYs before terminal changes. Establish a restoration guard before attempting
-raw mode, alternate screen, or cursor hiding so partial setup failures roll back.
+raw mode, alternate screen, cursor hiding, paste or mouse capture so partial setup
+failures roll back.
 Restore each terminal setting independently on normal/error exit, signals, and panic
 best-effort handling. Ctrl-C in raw mode is an input event. Reap client request tasks
 without implicitly stopping services. SIGKILL restoration is not guaranteed.

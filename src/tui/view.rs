@@ -5,8 +5,9 @@ use ratatui::{
     text::{Line, Span},
     widgets::{Block, BorderType, Cell, Clear, Padding, Paragraph, Row, Table},
 };
+use unicode_segmentation::UnicodeSegmentation;
 
-use super::app::{App, Focus};
+use super::app::{App, Focus, TextCell, TextPosition};
 use crate::{
     logs::{Record, Source},
     manager::ServiceState,
@@ -40,39 +41,67 @@ fn log_body(
     base: Style,
     current: bool,
     selected: bool,
+    text_selection: Option<std::ops::Range<usize>>,
 ) -> Vec<Span<'static>> {
-    let Some(needle) = needle.filter(|s| !s.is_empty()) else {
-        return vec![Span::styled(clean(text), base)];
-    };
-    let matched = if selected {
-        base.fg(Color::Yellow)
-            .add_modifier(Modifier::BOLD | Modifier::UNDERLINED)
-    } else {
-        base.fg(Color::Black)
-            .bg(if current {
-                Color::LightYellow
-            } else {
-                Color::Yellow
-            })
-            .add_modifier(if current {
-                Modifier::BOLD | Modifier::UNDERLINED
-            } else {
-                Modifier::BOLD
-            })
-    };
-    let mut spans = Vec::new();
-    let mut end = 0;
-    for (start, found) in text.match_indices(needle) {
-        if start > end {
-            spans.push(Span::styled(clean(&text[end..start]), base));
-        }
-        spans.push(Span::styled(clean(found), matched));
-        end = start + found.len();
+    // Measure selection/search in original UTF-8; sanitize only for display.
+    let matches: Vec<_> = needle
+        .filter(|s| !s.is_empty())
+        .map_or_else(Vec::new, |needle| {
+            text.match_indices(needle)
+                .map(|(i, s)| i..i + s.len())
+                .collect()
+        });
+    let mut boundaries = vec![0, text.len()];
+    if let Some(range) = &text_selection {
+        boundaries.extend([range.start, range.end]);
     }
-    if end < text.len() {
-        spans.push(Span::styled(clean(&text[end..]), base));
+    for found in &matches {
+        boundaries.extend([found.start, found.end]);
     }
-    spans
+    boundaries.sort_unstable();
+    boundaries.dedup();
+    let mut found_index = 0;
+    boundaries
+        .windows(2)
+        .map(|pair| {
+            let (start, end) = (pair[0], pair[1]);
+            while matches.get(found_index).is_some_and(|m| m.end <= start) {
+                found_index += 1;
+            }
+            let text_selected = text_selection
+                .as_ref()
+                .is_some_and(|r| start >= r.start && end <= r.end);
+            let found = matches
+                .get(found_index)
+                .is_some_and(|m| m.start <= start && m.end >= end);
+            let mut style = if text_selected {
+                base.bg(Color::Blue).fg(Color::White)
+            } else {
+                base
+            };
+            if found {
+                style = if selected || text_selected {
+                    style
+                        .fg(Color::Yellow)
+                        .add_modifier(Modifier::BOLD | Modifier::UNDERLINED)
+                } else {
+                    style
+                        .fg(Color::Black)
+                        .bg(if current {
+                            Color::LightYellow
+                        } else {
+                            Color::Yellow
+                        })
+                        .add_modifier(if current {
+                            Modifier::BOLD | Modifier::UNDERLINED
+                        } else {
+                            Modifier::BOLD
+                        })
+                };
+            }
+            Span::styled(clean(&text[start..end]), style)
+        })
+        .collect()
 }
 
 fn timestamp(record: &Record, width: u16) -> String {
@@ -103,8 +132,9 @@ fn record_label(app: &App, record: &Record) -> String {
         Source::Stdout => "out",
         Source::Stderr => "err",
     };
-    let pointer = if app.logs.selection.is_some() || app.logs.reading.is_some() {
-        if app.logs.selection.map(|s| s.head).or(app.logs.reading) == Some(record.sequence) {
+    let selection = app.logs.selection.filter(|s| s.text.is_none());
+    let pointer = if selection.is_some() || app.logs.reading.is_some() {
+        if selection.map(|s| s.head).or(app.logs.reading) == Some(record.sequence) {
             "> "
         } else {
             "  "
@@ -399,6 +429,8 @@ fn shortcuts(text: String) -> Line<'static> {
 fn footer(app: &App, width: u16) -> Line<'static> {
     let items: &[&str] = if app.goto_top {
         &["g top", "Esc cancel"]
+    } else if app.logs.selection.is_some_and(|s| s.text.is_some()) {
+        &["y copy", "Esc", "Right-click copy", "wheel scroll"]
     } else if app.logs.selection.is_some() {
         &["y copy", "Esc", "j/k extend"]
     } else if app.focus == Focus::Projects {
@@ -416,7 +448,15 @@ fn footer(app: &App, width: u16) -> Line<'static> {
     } else if app.logs.search.is_some() {
         &["n/N match", "Esc clear", "G follow", "/ search"]
     } else {
-        &["/ search", "v select", "G follow", "p pause", "j/k move"]
+        &[
+            "/ search",
+            "drag select",
+            "v lines",
+            "G follow",
+            "wheel scroll",
+            "p pause",
+            "j/k move",
+        ]
     };
     let mut text = String::new();
     for item in items {
@@ -472,6 +512,103 @@ fn log_areas(area: Rect) -> [Rect; 2] {
 
 pub fn log_height(area: Rect, app: &App) -> usize {
     usize::from(log_areas(layout(area, app).logs)[1].height).max(1)
+}
+
+pub fn log_content(area: Rect, app: &App) -> Option<Rect> {
+    let screen = layout(area, app);
+    (screen.usable && (screen.wide || app.focus == Focus::Logs))
+        .then(|| log_areas(screen.logs)[1])
+        .filter(|content| content.width > 0 && content.height > 0)
+}
+
+pub struct LogViewport {
+    pub area: Rect,
+    pub content: Rect,
+    pub top: Option<u64>,
+    pub horizontal: u16,
+    pub reading: Option<u64>,
+    epoch: u64,
+    service: Option<String>,
+    rows: Vec<(u64, usize)>,
+}
+
+impl LogViewport {
+    pub fn capture(area: Rect, app: &App) -> Option<Self> {
+        if app.help || app.confirm_shutdown || app.add.is_some() || app.search_input.is_some() {
+            return None;
+        }
+        let content = log_content(area, app)?;
+        let pane_width = layout(area, app).logs.width;
+        let rows: Vec<_> = app
+            .logs
+            .records
+            .iter()
+            .skip(app.logs.start(usize::from(content.height)))
+            .take(usize::from(content.height))
+            .map(|record| {
+                // Both prefixes contain ASCII only; avoid a second layout or
+                // grapheme pass for each row in this per-frame snapshot.
+                let prefix = timestamp(record, pane_width).len() + record_label(app, record).len();
+                (record.sequence, prefix)
+            })
+            .collect();
+        Some(Self {
+            area,
+            content,
+            top: rows.first().map(|r| r.0),
+            horizontal: app.logs.horizontal,
+            reading: app
+                .logs
+                .selection
+                .filter(|s| s.text.is_none())
+                .map(|s| s.head)
+                .or(app.logs.reading),
+            epoch: app.epoch,
+            service: app.selected.clone(),
+            rows,
+        })
+    }
+
+    pub fn matches(&self, area: Rect, app: &App) -> bool {
+        self.area == area && self.epoch == app.epoch && self.service == app.selected
+    }
+
+    pub fn position(&self, app: &App, column: u16, row: u16) -> Option<TextPosition> {
+        let content = self.content;
+        let column = column.clamp(content.x, content.right() - 1);
+        let row = row.clamp(content.y, content.bottom() - 1);
+        let index = usize::from(row - content.y);
+        let &(sequence, prefix) = self.rows.get(index).or_else(|| self.rows.last())?;
+        let record = app.logs.records.iter().find(|r| r.sequence == sequence)?;
+        let position = if index >= self.rows.len() {
+            usize::MAX // Dragging into blank rows selects through the last body.
+        } else {
+            usize::from(column - content.x) + usize::from(self.horizontal)
+        };
+        let mut cell = TextCell { start: 0, end: 0 };
+        if position >= prefix {
+            let target = position - prefix;
+            let mut width = 0;
+            // Ratatui's styled_graphemes filters controls, so use the original
+            // graphemes here to preserve byte offsets across tabs and escaped bytes.
+            for (start, glyph) in record.text.grapheme_indices(true) {
+                let end = start + glyph.len();
+                let size = Line::from(clean(glyph)).width();
+                if target < width + size {
+                    cell = TextCell { start, end };
+                    break;
+                }
+                width += size;
+                cell = TextCell { start: end, end };
+            }
+        }
+        Some(TextPosition { sequence, cell })
+    }
+}
+
+#[cfg(test)]
+pub fn log_position(area: Rect, app: &App, column: u16, row: u16) -> Option<TextPosition> {
+    LogViewport::capture(area, app)?.position(app, column, row)
 }
 
 fn log_notice(app: &App) -> (&'static str, &'static str, Color) {
@@ -725,7 +862,14 @@ fn logs_view(frame: &mut Frame, area: Rect, app: &App) {
             .iter()
             .filter(|record| selection.contains(record.sequence))
             .count();
-        format!("V-LINE {count} selected")
+        format!(
+            "{} {count} selected",
+            if selection.text.is_some() {
+                "V-TEXT"
+            } else {
+                "V-LINE"
+            }
+        )
     } else if !app.logs.paused {
         "FOLLOW".into()
     } else if app.logs.records.is_empty() {
@@ -860,13 +1004,13 @@ fn logs_view(frame: &mut Frame, area: Rect, app: &App) {
                 Source::Stdout => Color::Reset,
                 Source::Stderr => Color::LightRed,
             };
-            let selected = app
-                .logs
-                .selection
-                .is_some_and(|selection| selection.contains(record.sequence));
+            let selected = app.logs.selection.is_some_and(|selection| {
+                selection.text.is_none() && selection.contains(record.sequence)
+            });
             let head = app
                 .logs
                 .selection
+                .filter(|selection| selection.text.is_none())
                 .map(|selection| selection.head)
                 .or(app.logs.reading)
                 .is_some_and(|sequence| sequence == record.sequence);
@@ -908,6 +1052,10 @@ fn logs_view(frame: &mut Frame, area: Rect, app: &App) {
                     .as_ref()
                     .is_some_and(|s| s.matched == Some(record.sequence)),
                 selected,
+                app.logs
+                    .selection
+                    .filter(|s| s.text.is_some() && s.contains(record.sequence))
+                    .map(|s| s.byte_range(record.sequence, record.text.len())),
             ));
             spans.push(Span::styled(
                 if record.truncated { " [truncated]" } else { "" },
@@ -1143,6 +1291,10 @@ fn help_lines(app: &App) -> Vec<Line<'static>> {
         heading("READ LOGS"),
         help_action("Ctrl-u/d", "Scroll half a page"),
         help_action("PageUp/Down", "Scroll a page; edges load history"),
+        help_action(
+            "Mouse wheel",
+            "Scroll logs under pointer; edges load history",
+        ),
         help_action("Home / End", "Oldest retained / follow latest logs"),
         help_action("p", "Pause / resume following"),
         help_action("H/L / Left/Right", "Pan long lines horizontally"),
@@ -1155,7 +1307,10 @@ fn help_lines(app: &App) -> Vec<Line<'static>> {
         help_action("n / N", "Next / previous matching line"),
         help_action("Esc", "Clear search; keep surrounding logs"),
         help_action("v then j/k", "Select lines from the log cursor"),
+        help_action("Left drag", "Select log text (V-TEXT); release to keep it"),
+        help_action("Right-click", "Copy selection under the log pointer"),
         help_action("y / Esc", "In selection: copy / cancel"),
+        note("Mouse copies only selected text; j/k changes to whole-line selection."),
         note("/ starts a fresh search snapshot; context stays visible."),
         note("Local WSL: clip.exe; local Mac: pbcopy; elsewhere/SSH: OSC 52."),
         note("Check copy feedback and paste to verify. Failures keep selection."),
@@ -2110,6 +2265,100 @@ mod tests {
     }
 
     #[test]
+    fn text_selection_highlights_only_its_cells_and_keeps_crossing_search_matches() {
+        let mut app = searched_app();
+        let record = &app.logs.records[19];
+        let needle = record.text.find("needle").unwrap();
+        app.logs.selection = Some(super::super::app::LogSelection {
+            anchor: 20,
+            head: 20,
+            text: Some((
+                TextCell {
+                    start: needle + 1,
+                    end: needle + 2,
+                },
+                TextCell {
+                    start: needle + 3,
+                    end: needle + 4,
+                },
+            )),
+        });
+        assert_eq!(app.logs.selected_text().unwrap().0, "eed");
+        let mut terminal = Terminal::new(TestBackend::new(120, 30)).unwrap();
+        terminal.draw(|f| render(f, &app)).unwrap();
+        let cells = &terminal.backend().buffer().content;
+        let selected: Vec<_> = cells
+            .iter()
+            .filter(|c| c.bg == app.appearance.background(Color::Blue))
+            .collect();
+        assert_eq!(
+            selected.iter().map(|c| c.symbol()).collect::<String>(),
+            "eed"
+        );
+        assert!(
+            selected
+                .iter()
+                .all(|c| c.modifier.contains(Modifier::UNDERLINED))
+        );
+        assert_eq!(
+            cells
+                .iter()
+                .filter(|c| c.bg == app.appearance.background(Color::LightYellow))
+                .count(),
+            9
+        );
+        assert!(draw(&app, 120, 30).contains("V-TEXT 1 selected"));
+        app.appearance.no_color = true;
+        terminal.draw(|f| render(f, &app)).unwrap();
+        assert!(
+            terminal
+                .backend()
+                .buffer()
+                .content
+                .iter()
+                .any(|c| c.symbol() == "e" && c.modifier.contains(Modifier::UNDERLINED))
+        );
+    }
+
+    #[test]
+    fn mouse_columns_map_to_original_graphemes_after_tabs_and_control_escapes() {
+        let mut app = App::new();
+        app.focus(Focus::Logs);
+        app.logs.append(crate::logs::Batch {
+            records: vec![Record {
+                sequence: 1,
+                captured_ms: 0,
+                instance: 1,
+                source: Source::Stdout,
+                text: "a\tb中文🙂e\u{301}\x1bend".into(),
+                truncated: false,
+            }],
+            ..crate::logs::Batch::default()
+        });
+        let area = Rect::new(0, 0, 120, 30);
+        let content = log_content(area, &app).unwrap();
+        // "[out #1] " occupies nine cells. Tab expands to four; ESC to six.
+        for (column, start, end) in [
+            (0, 0, 1),
+            (1, 1, 2),
+            (4, 1, 2),
+            (5, 2, 3),
+            (6, 3, 6),
+            (7, 3, 6),
+            (8, 6, 9),
+            (10, 9, 13),
+            (11, 9, 13),
+            (12, 13, 16),
+            (13, 16, 17),
+            (18, 16, 17),
+            (19, 17, 18),
+        ] {
+            let position = log_position(area, &app, content.x + 9 + column, content.y).unwrap();
+            assert_eq!(position.cell, TextCell { start, end }, "column {column}");
+        }
+    }
+
+    #[test]
     fn a_search_hit_on_a_long_unicode_line_scrolls_into_view() {
         let mut app = searched_app();
         app.logs.records[19].text = format!("{} needle 文", "界".repeat(80));
@@ -2123,6 +2372,7 @@ mod tests {
             Style::default(),
             false,
             false,
+            None,
         );
         assert!(spans.iter().all(|s| s.style.bg.is_none()));
         assert_eq!(

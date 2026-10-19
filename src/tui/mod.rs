@@ -1,5 +1,6 @@
 mod app;
 mod appearance;
+mod mouse;
 mod onboarding;
 mod terminal;
 mod view;
@@ -414,6 +415,7 @@ pub async fn run(path: &Path) -> Result<(), String> {
         let mut status_due = true;
         let mut logs_due = false;
         let mut dirty = true;
+        let mut log_viewport = None;
         loop {
             let saving = app.add.as_ref().is_some_and(|d| matches!(d.step, onboarding::Step::Saving));
             if status_due && requests.status.is_none() && has_config && !saving {
@@ -433,11 +435,16 @@ pub async fn run(path: &Path) -> Result<(), String> {
                 event = events.next() => {
                     let event = event.ok_or("Terminal event stream ended.")?.map_err(|error| error.to_string())?;
                     match event {
-                        Event::Key(key) => {
+                        event @ (Event::Key(_) | Event::Mouse(_)) => {
                             let size = terminal.size().map_err(|error| error.to_string())?;
                             let area = ratatui::layout::Rect::new(0, 0, size.width, size.height);
                             let previous_logs = (app.logs.paused, app.logs.requested);
-                            match handle_key(&mut app, key, area) {
+                            let action = match event {
+                                Event::Key(key) => { app.logs.drag = None; handle_key(&mut app, key, area) }
+                                Event::Mouse(event) => mouse::handle(&mut app, event, area, log_viewport.as_ref()),
+                                _ => unreachable!(),
+                            };
+                            match action {
                                 Action::Quit => break Ok(()),
                                 Action::None => {}
                                 Action::Redraw => dirty = true,
@@ -510,6 +517,7 @@ pub async fn run(path: &Path) -> Result<(), String> {
                             if let Some(dialog) = &mut app.add { dialog.paste(&text); dirty = true; }
                         }
                         Event::Resize(width, height) => {
+                            app.logs.drag = None;
                             let area = ratatui::layout::Rect::new(0, 0, width, height);
                             let height = view::log_height(area, &app);
                             app.logs.keep_visible(height);
@@ -669,7 +677,10 @@ pub async fn run(path: &Path) -> Result<(), String> {
                 _ = draw_tick.tick() => {
                     dirty |= app.tick(Instant::now());
                     if dirty {
-                        terminal.draw(|frame| view::render(frame, &app)).map_err(|error| error.to_string())?;
+                        terminal.draw(|frame| {
+                            view::render(frame, &app);
+                            log_viewport = view::LogViewport::capture(frame.area(), &app);
+                        }).map_err(|error| error.to_string())?;
                         dirty = false;
                     }
                 }

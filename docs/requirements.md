@@ -47,6 +47,13 @@ Native Windows acceptance is not implied.
 Vim-style navigation, compact terminal layout, complete-line copying, and Windows
 Terminal/WSL clipboard behavior refine U01/L01 without expanding platform guarantees.
 
+On 2026-10-19 the user confirmed mouse text selection/copy and wheel navigation in
+the log pane (L01/U01). Dragging selects parts of records, including Unicode;
+copy uses the existing clipboard channels. Wheel navigation reaches retained history
+beyond the current client page. Keep keyboard line selection, modal isolation,
+bounded copies and explicit terminal restoration. Real WSL/Mac acceptance remains
+separate from controlled terminal tests.
+
 The confirmed U01 visual refinement adds state symbols, distinct focus/selection,
 emphasized shortcuts and log modes, and bounded waiting/completion feedback.
 Acceptance checks that state remains identifiable when selected or disconnected,
@@ -118,6 +125,7 @@ simplifying documentation must not silently cancel it.
 | R01 | Restore workspace/service choices after supervisor exit or reboot | Candidate; reconnecting to a still-live supervisor is already P05 |
 | L01, L02 | Paging, in-client reading restoration, pause, literal search and export | Delivered in 1.1.0; target WSL experience pending; no cross-exit bookmarks |
 | L04 | Persistent logs, rotation, expiry, cross-supervisor history | Delivered in 1.1.0; target WSL experience pending |
+| L01, U01 | Mouse text selection/copy and wheel navigation through retained logs | Confirmed on 2026-10-19; implemented, unreleased; real WSL/Mac acceptance pending |
 | W04 | Workspace aliases/listing and profiles | Candidate |
 | D04, D05 | HTTP probes, one-shot tasks, sustained health checks, cascaded control | Candidate; standalone startup-state refinement explicitly deferred on 2026-10-18 |
 | U01, P07 | Multiple services per project and aggregate workspace/project/service UI | Candidate; current one-command-per-project scope remains |

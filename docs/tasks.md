@@ -3,37 +3,43 @@
 Keep current work and necessary handoff here; Git retains history. Collaboration
 rules are in [AGENTS.md](../AGENTS.md).
 
-## Current: explain project-addition EOF and reject invalid requests explicitly (A01, M7)
+## Current: mouse log text selection/copy and wheel history (L01 / U01, M5)
 
-Reported on 2026-10-19: a 1.6.1 client shows `Save completion is unknown` /
-`unexpected end of file` after confirming an npm project addition. The user's
-running supervisor version is not yet known. Reproduced the exact dialog with a
-real pre-onboarding supervisor (`9c99851`, reporting 1.5.0) and the current client;
-configuration bytes remained unchanged and the existing service stayed Running.
-Updating the executable alone does not replace a detached supervisor.
+Confirmed on 2026-10-19: select parts of log text with the mouse, copy the selection
+and scroll up/down through history. Implemented left drag/release, `y` or right-click
+copy, and three-record wheel scrolling through existing retained-page requests.
+Keyboard complete-line selection and lifecycle controls retain their behavior.
 
-Addition EOF now explains the possible older supervisor and explicit shutdown/reopen
-recovery, including its effect on running services. Preserve unknown-outcome wording:
-EOF can also mean a completed write lost its reply. Current supervisors return
-normal error responses for invalid requests before dispatch instead of silently
-closing the connection. No automatic retry, shutdown or configuration rewrite.
+Selections use immutable record IDs and original UTF-8 grapheme ranges; rendered-row
+snapshots prevent newly arriving output from shifting a click before the next draw.
+Prefixes, timestamps, horizontal offsets, tabs/control escapes, Chinese/emoji and
+combining characters map to original copy text. Snippets add only inter-record
+newlines. Existing clipboard channels, 64 KiB bounds, failure preservation and
+in-flight selection protection remain. Popups/hidden panes block mouse input;
+resizing/eviction ends a drag. Terminal exit restores capture. The direct
+`unicode-segmentation` dependency reuses the version already locked through Ratatui;
+no new package/version was added to the dependency graph.
 
 Validation on Linux:
 
 - `cargo fmt --check`: passed.
 - `cargo clippy --locked --all-targets -- -D warnings`: passed.
-- `cargo test --locked -- --quiet`: passed, all 321 tests, including 17 PTY tests.
-  Added regressions for addition EOF and explicit unknown/malformed request errors
-  without dispatch. Final message refinements were followed by the same full suite.
-- Real old/new-binary PTY reproduction and recovery passed: old-background EOF,
-  unchanged configuration/running service, explicit shutdown, new-background reopen,
-  successful npm addition and both services remaining stopped. No project npm
-  command ran. Fixture: `/tmp/devctl-add-legacy-repro.py`.
-- `git diff --check`: passed. Inspected the diff and checked balanced fences and
-  all 58 local link paths across the four changed reference/task documents.
+- `cargo test --locked -- --quiet`: passed, all 330 tests, including 18 PTY tests.
+  Unit coverage includes forward/reverse/cross-line text selection, Unicode/control
+  column mapping, horizontal offsets, search overlap, copy bounds, eviction,
+  late-output clicks and overlay isolation. The PTY mouse scenario verifies exact
+  clipboard bytes, retained-page wheel navigation, compact layout, service-control
+  isolation and restoration of all five mouse modes on exit. Existing native
+  clipboard success/failure/in-flight checks also passed.
+- `cargo test --locked --test tui_cli -- --quiet`: passed independently, all 18
+  scenarios. Earlier runs exposed a tab-offset error and excess per-row layout
+  computation; both were corrected. The fixture now waits for copy-completion
+  redraw and actual page arrival instead of assuming scheduling speed.
+- `git diff --check`: passed. Inspected code/docs and checked balanced fences and
+  all 109 local link paths in the seven changed reference/task documents.
 
-The user's WSL recovery and native macOS remain unverified. No release or
-installation is included.
+Native Mac and actual Windows Terminal/WSL acceptance remain pending. No release
+or installation is included.
 
 ## Published baseline: 1.6.1 (U01 / M5, X03)
 
@@ -88,6 +94,10 @@ terminal queue. The failed tag is preserved; no published artifacts were overwri
 
 ## Preserved handoff
 
+- Project-addition EOF handling landed in `6dcc7e7` (A01/M7): possible old-background
+  guidance, explicit invalid-request errors and verified old/new-binary recovery.
+  Linux fmt/clippy, all 321 tests and documentation checks passed. The user's
+  actual supervisor version/recovery remain unconfirmed; no release/install.
 - Local-time log capture and immutable `[out #N]` / `[err #N]` display landed in
   `28c488d` (L01/U01, M5). Linux fmt/clippy, all 319 tests (including 17 PTY tests)
   and documentation checks passed; the initial unrelated discovery-boundary failure
@@ -114,8 +124,11 @@ terminal queue. The failed tag is preserved; no published artifacts were overwri
 
 ## Next steps
 
-1. Verify the user's WSL recovery after an explicit supervisor shutdown/reopen;
-   inspect configuration/status before retrying.
-2. Verify the new log display in the user's terminal with a newly built client.
-3. Continue real-platform acceptance in [roadmap](roadmap.md) and [WSL verification](wsl.md).
-4. Resume startup-readiness or AG01 implementation only after explicit scope approval.
+1. Verify dragging, actual clipboard paste, wheel paging and terminal restoration
+   in the user's Windows Terminal/WSL and native Mac separately, using a new client
+   build. The mouse feature requires no supervisor protocol change or service restart.
+2. Verify the user's project-addition recovery after an explicit supervisor
+   shutdown/reopen; inspect configuration/status before retrying.
+3. Verify the new log display in the user's terminal with a newly built client.
+4. Continue real-platform acceptance in [roadmap](roadmap.md) and [WSL verification](wsl.md).
+5. Resume startup-readiness or AG01 implementation only after explicit scope approval.

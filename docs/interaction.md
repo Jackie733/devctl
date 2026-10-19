@@ -142,10 +142,34 @@ source/instance prefixes, UI padding, and status labels. The limit is
 selection. Only one copy is in flight, and cancelling selection does not retract
 an already issued clipboard request.
 
+Mouse input is enabled while the TUI is open. Over the log body:
+
+- Left-button drag selects text, including parts of lines, in either direction.
+  Release keeps the selection, shown as `V-TEXT`. A fresh click clears the old
+  selection and pauses the view; it does not copy automatically.
+- Press `y` or right-click to copy the current selection. Text copies contain only
+  the selected original bodies, with newlines between records and no added trailing
+  newline, prefixes, padding or truncation labels. Tabs/control characters retain
+  their original bytes; visual endpoints follow whole graphemes, including wide
+  characters and combining marks, after horizontal scrolling.
+- Wheel up/down scrolls three records per event and loads earlier/later retained
+  pages at the client-window edges. Scrolling pauses following. Reaching the latest
+  output resumes following when no selection or active drag remains; scrolling
+  preserves an existing selection. Cancel with `Esc`, then use `G` to follow.
+
+Mouse text selection shares the 64 KiB bound, eviction handling and copy feedback
+above. Keyboard endpoint movement changes it to complete-line selection. Logs keep
+capturing while reading/selecting. Mouse events do not pass through help, search
+input, project addition, shutdown confirmation, hidden log panes or unusably small
+windows. Resizing ends a drag while preserving its current selection. Terminals
+can reserve mouse shortcuts; use `y` when right-click is handled by the terminal.
+Normal/error/signal exits restore mouse capture along with other terminal settings.
+
 Local WSL uses `clip.exe` through Windows interoperability; local macOS uses
 `pbcopy`. SSH and other Linux sessions use OSC 52 to the display terminal, subject
 to terminal/multiplexer support. A failed native clipboard operation is reported
-without channel fallback. Copy never reads the clipboard and occurs only on `y`.
+without channel fallback. Copy never reads the clipboard and occurs only on `y`
+or an explicit right-click over the logs with a selection.
 Success reports a completed native process or an OSC 52 send; paste manually to
 verify the actual clipboard.
 

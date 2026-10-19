@@ -54,6 +54,11 @@ fn visual_line_copy_emits_exact_body_and_preserves_control_and_exit_scopes() {
 }
 
 #[test]
+fn mouse_text_copy_wheel_history_and_terminal_restoration_work_in_a_real_terminal() {
+    scenario("mouse");
+}
+
+#[test]
 fn wsl_copy_handles_unicode_failure_and_in_flight_navigation_without_touching_host_clipboard() {
     scenario("windows-copying");
 }

@@ -7,7 +7,7 @@ use std::{
 use crossterm::{
     clipboard::CopyToClipboard,
     cursor::{Hide, Show},
-    event::{DisableBracketedPaste, EnableBracketedPaste},
+    event::{DisableBracketedPaste, DisableMouseCapture, EnableBracketedPaste, EnableMouseCapture},
     execute,
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
@@ -19,6 +19,7 @@ pub struct TerminalGuard {
     alternate_screen: bool,
     cursor_hidden: bool,
     paste_enabled: bool,
+    mouse_enabled: bool,
 }
 
 impl TerminalGuard {
@@ -32,6 +33,7 @@ impl TerminalGuard {
         let previous_hook = std::panic::take_hook();
         std::panic::set_hook(Box::new(move |info| {
             let _ = disable_raw_mode();
+            let _ = execute!(stdout(), DisableMouseCapture, DisableBracketedPaste);
             let _ = execute!(stdout(), LeaveAlternateScreen);
             let _ = execute!(stdout(), Show);
             previous_hook(info);
@@ -47,6 +49,8 @@ impl TerminalGuard {
             execute!(stdout(), Hide)?;
             guard.paste_enabled = true;
             execute!(stdout(), EnableBracketedPaste)?;
+            guard.mouse_enabled = true;
+            execute!(stdout(), EnableMouseCapture)?;
             Ok(())
         })();
 
@@ -63,6 +67,12 @@ impl TerminalGuard {
 
     pub fn restore(&mut self) -> io::Result<()> {
         let mut errors = Vec::new();
+        if self.mouse_enabled {
+            match execute!(stdout(), DisableMouseCapture) {
+                Ok(()) => self.mouse_enabled = false,
+                Err(error) => errors.push(format!("mouse capture: {error}")),
+            }
+        }
         if self.paste_enabled {
             match execute!(stdout(), DisableBracketedPaste) {
                 Ok(()) => self.paste_enabled = false,

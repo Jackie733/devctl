@@ -158,6 +158,9 @@ class Tui:
     def send(self, value):
         os.write(self.master, value)
 
+    def mouse(self, button, column, row, release=False):
+        self.send(f'\x1b[<{button};{column + 1};{row + 1}{"m" if release else "M"}'.encode())
+
     def choose(self, service):
         self.send(b'1gg')
         self.wait('Selected: middle |')
@@ -182,6 +185,9 @@ class Tui:
         assert not error, error
         assert termios.tcgetattr(self.master) == self.original, 'Terminal modes not restored'
         assert b'\x1b[?1049l' in self.raw and b'\x1b[?25h' in self.raw
+        for mode in (1000, 1002, 1003, 1015, 1006):
+            assert f'\x1b[?{mode}h'.encode() in self.raw, f'Mouse mode {mode} was not enabled'
+            assert f'\x1b[?{mode}l'.encode() in self.raw, f'Mouse mode {mode} was not restored'
 
     def close(self):
         if self.process.poll() is None:
@@ -665,6 +671,96 @@ def copying():
     finally: w.close()
 
 
+def mouse_logs():
+    w = Workspace(mode='history')
+    try:
+        worker = w.root / 'worker.py'
+        worker.write_text(worker.read_text().replace(
+            "for number in range(350): emit(service + '-history-' + str(number))",
+            "for number in range(350): emit(service + '-history-' + str(number) + '-中文🙂\\tend')"))
+        w.cli('start', 'web')
+        ui = Tui(w)
+        ui.choose('web')
+        ui.send(b'0')
+        ui.wait('web-history-ready')
+
+        def first_number(text):
+            match = re.search(r'\[out #\d+\] web-history-(\d+)', text)
+            return int(match[1]) if match else 999
+
+        # One client page holds only 100 records. Wheel across its boundary and
+        # wait for the earlier page without sending Home/PageUp or changing focus.
+        deadline = time.monotonic() + 8
+        while first_number(ui.screen.text()) >= 250:
+            assert time.monotonic() < deadline, ui.screen.text()
+            ui.mouse(64, 50, 10)
+            ui.pump(.03)
+        ui.wait(lambda text: first_number(text) < 250)
+        ui.wait('READ')
+        ui.pump(.2)  # Drain the final queued wheel events and their redraw.
+        anchor = first_number(ui.screen.text())
+        ui.pump(.3)
+        assert first_number(ui.screen.text()) == anchor, (anchor, first_number(ui.screen.text()), ui.screen.text())
+        for _ in range(100):
+            ui.mouse(65, 50, 10)
+            ui.pump(.01)
+        ui.wait('FOLLOW')
+        ui.wait('web-history-ready')
+
+        def position(needle):
+            for y, row in enumerate(ui.screen.rows):
+                text = ''.join(row)
+                index = text.find(needle)
+                if index >= 0:
+                    x = sum(2 if unicodedata.east_asian_width(c) in ('W', 'F') else 1 for c in text[:index])
+                    return x, y
+            raise AssertionError((needle, ui.screen.text()))
+
+        def select(reverse=False):
+            start = position('中文🙂')
+            end = position('end')
+            end = (end[0] + 2, end[1])
+            if reverse: start, end = end, start
+            ui.mouse(0, *start)
+            ui.mouse(32, *end)
+            ui.mouse(0, *end, release=True)
+            ui.wait('V-TEXT 1 selected')
+            return start
+
+        select()
+        ui.send(b'sxAXQy')
+        ui.wait(lambda _: ui.screen.clipboard_requests == 1)
+        assert ui.screen.clipboard == '中文🙂\tend', repr(ui.screen.clipboard)
+        ui.wait(lambda text: 'V-TEXT' not in text and 'Sent 1 lines via OSC 52' in text)
+        w.states(web='Running', middle='Stopped', weapp='Stopped')
+        point = select(reverse=True)
+        ui.mouse(2, *point)
+        ui.wait(lambda _: ui.screen.clipboard_requests == 2)
+        assert ui.screen.clipboard == '中文🙂\tend'
+
+        ui.send(b'?')
+        ui.wait(' Help ')
+        ui.mouse(64, 50, 10)
+        ui.mouse(0, 60, 10)
+        ui.mouse(32, 70, 10)
+        ui.mouse(2, 70, 10)
+        ui.pump(.1)
+        assert ui.screen.clipboard_requests == 2, 'Help leaked mouse input to the logs'
+        ui.send(b'\x1b')
+        ui.wait(lambda text: ' Help ' not in text)
+        assert 'V-TEXT' not in ui.screen.text()
+
+        ui.resize(60, 16)
+        ui.wait('Logs · ACTIVE')
+        select()
+        ui.send(b'y')
+        ui.wait(lambda _: ui.screen.clipboard_requests == 3)
+        assert ui.screen.clipboard == '中文🙂\tend'
+        ui.exit()
+        w.states(web='Running', middle='Stopped', weapp='Stopped')
+    finally: w.close()
+
+
 def windows_copying():
     native_copying(False)
 
@@ -931,6 +1027,6 @@ def config_discovery():
 
 if __name__ == '__main__':
     {'appearance': appearance, 'lifecycle': lifecycle, 'reconnect': reconnect, 'slow': slow_stop_and_failure, 'high': high_output,
-     'discovery': config_discovery, 'navigation': navigation, 'copying': copying,
+     'discovery': config_discovery, 'navigation': navigation, 'copying': copying, 'mouse': mouse_logs,
      'windows-copying': windows_copying, 'mac-copying': mac_copying, 'history': history, 'disk-history': disk_history}[sys.argv[2]]()
     print('PASS:', sys.argv[2])

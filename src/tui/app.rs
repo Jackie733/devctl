@@ -62,15 +62,48 @@ impl Operation {
     }
 }
 
+/// Original UTF-8 byte bounds of one displayed grapheme or an end-of-line boundary.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct LineSelection {
-    pub anchor: u64,
-    pub head: u64,
+pub struct TextCell {
+    pub start: usize,
+    pub end: usize,
 }
 
-impl LineSelection {
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct TextPosition {
+    pub sequence: u64,
+    pub cell: TextCell,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct LogSelection {
+    pub anchor: u64,
+    pub head: u64,
+    pub text: Option<(TextCell, TextCell)>, // Anchor/head cells; None selects full lines.
+}
+
+impl LogSelection {
     pub fn contains(self, sequence: u64) -> bool {
         (self.anchor.min(self.head)..=self.anchor.max(self.head)).contains(&sequence)
+    }
+
+    pub fn byte_range(self, sequence: u64, len: usize) -> std::ops::Range<usize> {
+        let Some((anchor, head)) = self.text else {
+            return 0..len;
+        };
+        let (first, last) = if (self.anchor, anchor.start) <= (self.head, head.start) {
+            ((self.anchor, anchor), (self.head, head))
+        } else {
+            ((self.head, head), (self.anchor, anchor))
+        };
+        let start = if sequence == first.0 {
+            first.1.start
+        } else {
+            0
+        }
+        .min(len);
+        let end = if sequence == last.0 { last.1.end } else { len }.min(len);
+        start.min(end)..end
     }
 }
 
@@ -87,7 +120,8 @@ pub struct LogWindow {
     pub gap: bool,
     pub local_evicted: u64,
     pub anchor_lost: bool,
-    pub selection: Option<LineSelection>,
+    pub selection: Option<LogSelection>,
+    pub drag: Option<TextPosition>,
     pub selection_lost: bool,
     pub paused: bool,
     pub latest: u64,
@@ -345,6 +379,12 @@ impl LogWindow {
             self.selection = None;
             self.selection_lost = true;
         }
+        if self
+            .drag
+            .is_some_and(|position| !self.records.iter().any(|r| r.sequence == position.sequence))
+        {
+            self.drag = None;
+        }
     }
 
     pub fn begin_selection(&mut self, height: usize) -> bool {
@@ -364,9 +404,10 @@ impl LogWindow {
         self.pause(height);
         self.top = Some(self.records[start].sequence);
         self.reading = Some(sequence);
-        self.selection = Some(LineSelection {
+        self.selection = Some(LogSelection {
             anchor: sequence,
             head: sequence,
+            text: None,
         });
         self.selection_lost = false;
         true
@@ -387,6 +428,8 @@ impl LogWindow {
             .saturating_add_signed(amount)
             .min(self.records.len().saturating_sub(1));
         selection.head = self.records[next].sequence;
+        // Keyboard extension retains its established complete-line semantics.
+        selection.text = None;
         self.reading = Some(selection.head);
         self.keep_visible(height);
         if next == 0 && amount < 0 {
@@ -468,14 +511,26 @@ impl LogWindow {
             .iter()
             .filter(|record| selection.contains(record.sequence))
         {
-            let marker = if record.truncated { " [truncated]" } else { "" };
-            if text.len() + record.text.len() + marker.len() + 1 > 64 * 1024 {
+            let body = &record.text[selection.byte_range(record.sequence, record.text.len())];
+            let marker = if record.truncated && selection.text.is_none() {
+                " [truncated]"
+            } else {
+                ""
+            };
+            let newline =
+                selection.text.is_none() || record.sequence < selection.anchor.max(selection.head);
+            if text.len() + body.len() + marker.len() + usize::from(newline) > 64 * 1024 {
                 return Err("Selection exceeds 64 KiB; select fewer log lines.");
             }
-            text.push_str(&record.text);
+            text.push_str(body);
             text.push_str(marker);
-            text.push('\n');
+            if newline {
+                text.push('\n');
+            }
             count += 1;
+        }
+        if text.is_empty() {
+            return Err("No log text selected.");
         }
         Ok((text, count))
     }
@@ -501,7 +556,7 @@ impl LogWindow {
         }
         if start == last && amount > 0 {
             self.request_edge(false);
-            if self.requested.is_none() {
+            if self.requested.is_none() && self.selection.is_none() && self.drag.is_none() {
                 self.follow();
             }
         }
@@ -584,6 +639,7 @@ impl LogWindow {
     pub fn follow(&mut self) {
         self.cancel_search();
         self.selection = None;
+        self.drag = None;
         self.reading = None;
         self.top = None;
         self.anchor_lost = false;
@@ -720,6 +776,7 @@ impl App {
         self.goto_top = false;
         if focus == Focus::Projects {
             self.logs.selection = None;
+            self.logs.drag = None;
         }
     }
 
@@ -1285,6 +1342,36 @@ mod tests {
         logs.move_selection(isize::MAX, 4);
         let (text, count) = logs.selected_text().unwrap();
         assert_eq!((text.len(), count), (64 * 1024, 4));
+    }
+
+    #[test]
+    fn text_selection_limits_apply_to_selected_bytes_and_keep_range_on_failure() {
+        let mut logs = LogWindow::default();
+        logs.append(batch(1..=5, 16 * 1024));
+        logs.selection = Some(LogSelection {
+            anchor: 1,
+            head: 5,
+            text: Some((TextCell { start: 0, end: 1 }, TextCell { start: 0, end: 1 })),
+        });
+        assert!(logs.selected_text().unwrap_err().contains("64 KiB"));
+        assert!(logs.selection.is_some());
+        logs.selection = Some(LogSelection {
+            anchor: 1,
+            head: 1,
+            text: Some((
+                TextCell {
+                    start: 100,
+                    end: 101,
+                },
+                TextCell {
+                    start: 101,
+                    end: 102,
+                },
+            )),
+        });
+        assert_eq!(logs.selected_text().unwrap(), ("xx".into(), 1));
+        logs.append(batch(6..=4100, 1));
+        assert!(logs.selection.is_none() && logs.selection_lost);
     }
 
     #[test]
