@@ -5,6 +5,8 @@ User-facing changes are grouped by released version. Download artifacts from
 
 ## Unreleased
 
+## 1.8.1 — 2026-10-19
+
 - Fix macOS release checks by comparing canonical project paths in the edit/remove test.
 
 ## 1.8.0 — 2026-10-19
