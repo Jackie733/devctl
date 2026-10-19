@@ -185,9 +185,9 @@ verify the actual clipboard.
 The header shows client version, connection state, and supervisor identity in
 one row for wide layouts. Compact layouts retain the original second row for the
 selected project and panel hints. The 36 × 10 minimum remains supported.
-The [complete devctl mark](../assets/branding/README.md) appears only in Help when
-space permits, fixed above its scrollable content. It never reserves rows in the
-main project/log view; smaller help dialogs omit it as a whole.
+The TUI, including Help, uses no decorative logo or abbreviated branding symbol.
+Help reserves its scrollable content area for instructions and diagnostics; the
+[graphical identity](../assets/branding/README.md) is used in documentation.
 Projects show `Stopped`, `Starting`, `Running`, `Stopping`, `Failed`, or disconnected
 `Unknown`.
 Log state is displayed separately from `FOLLOW`/`READ` and saving status. Stopped

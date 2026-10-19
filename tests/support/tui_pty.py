@@ -531,7 +531,6 @@ def appearance():
             if theme == 'mono':
                 options.update(NO_COLOR='1', DEVCTL_TUI_ASCII='1', DEVCTL_TUI_REDUCED_MOTION='1')
             ui = Tui(w, appearance=options)
-            mark = ['---   |', '----- |', '---   |'] if theme == 'mono' else ['━━━   ┃', '━━━━━ ┃', '━━━   ┃']
             assert ui.screen.text().startswith('devctl '), ui.screen.text()
             ui.choose('web')
             ui.wait('- Stopped' if theme == 'mono' else '○ Stopped')
@@ -546,7 +545,7 @@ def appearance():
             ui.wait(lambda text: 'V-LINE' not in text)
             ui.send(b'?')
             ui.wait('CURRENT PANEL')
-            assert ui.screen.text().count(mark[0]) == 2 and mark[1] in ui.screen.text(), ui.screen.text()
+            assert '━━━━━' not in ui.screen.text() and '----- |' not in ui.screen.text(), ui.screen.text()
             ui.send(b'\x1b')
             ui.wait(lambda text: ' Help ' not in text)
             ui.resize(60,18)

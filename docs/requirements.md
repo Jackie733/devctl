@@ -64,11 +64,10 @@ success feedback expires. Actual WSL appearance remains a user acceptance step.
 On 2026-10-19 the maintainer selected the service-line/control-rail identity and
 required complete rendering wherever a logo is used (U01). The
 [brand usage rule](../assets/branding/README.md#usage) owns the shape and rendering
-constraints. This authorizes asset and TUI integration, not publication or
-acceptance of physical-terminal rendering on every platform.
-The confirmed layout keeps the original compact workspace header; place the
-complete identity in Help only when space permits, without substituting an
-abbreviated symbol or adding brand rows to the main workspace.
+constraints. The confirmed placement is documentation and project identity,
+without authorizing publication. The TUI keeps the original compact workspace
+header and text-only Help, with no decorative or abbreviated logo. Functional
+status/selection symbols remain part of the existing U01 interface.
 
 ## Initial scope and acceptance
 

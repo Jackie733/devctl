@@ -31,26 +31,16 @@ including the longer middle line and all gaps. Scale proportionally. Do not crop
 remove strokes, replace it with punctuation, or use a one-row abbreviation.
 Color may follow the background/theme; the four-stroke structure is invariant.
 
+Use the graphical identity in READMEs, documentation, project avatars and release
+materials. The TUI, including Help, uses text rather than decorative branding.
+It retains the product name, version, connection/status information and functional
+navigation/state symbols. No graphic or abbreviated logo is inserted into it.
+
 The everyday TUI keeps its original compact text header: one row in the wide
-layout and two in the compact layout. No brand rows are reserved in the project/
-log workspace, and no abbreviated logo is inserted into the title.
-
-The Help dialog shows the complete mark in seven columns and three fixed rows
-when enough space remains for readable help and its footer. It does not scroll
-with the help text. Smaller dialogs omit the entire mark rather than clipping it.
-Common line-drawing characters provide the normal treatment; ASCII mode changes
-only stroke characters, preserving every row and its length/spacing:
-
-```text
----   |
------ |
----   |
-```
-
-This is the same complete cell geometry, not an abbreviated companion. It needs
-no image protocol, new dependency, Nerd Font, or special terminal configuration.
-Themes and `NO_COLOR` preserve its structure. The regular 36 × 10 minimum remains
-supported. Unusable windows prioritize the original resize/exit guidance.
+layout and two in the compact layout. Help reserves its space for instructions
+and diagnostics. The regular 36 × 10 minimum remains supported; unusable windows
+prioritize resize/exit guidance. Neither special fonts nor terminal graphics
+protocols are needed for branding.
 
 The English/Chinese READMEs display the same full vector geometry, with background-
 appropriate color. Existing CLI help, status and log text keep their text formats;
@@ -58,7 +48,7 @@ the brand integration does not insert decorative output into data/diagnostics.
 
 ## Terminal preview
 
-[Preview](tui-preview.png) shows the compact main header and full identity in Help,
+[Preview](tui-preview.png) shows the compact main header and text-only Help,
 including light and monochrome/ASCII treatments. It reconstructs actual PTY
 characters and emitted colors with Menlo; it is not a native terminal-window
 screenshot. The capture used

@@ -5,9 +5,9 @@ User-facing changes are grouped by released version. Download artifacts from
 
 ## Unreleased
 
-- Add the selected devctl identity to both READMEs and to Help when space permits,
-  preserving the complete mark in themes, monochrome output and ASCII mode.
-  Keep the original compact workspace header. Include transparent SVG/PNG assets.
+- Add the selected devctl identity to both READMEs, with complete transparent
+  SVG/PNG assets. Keep the TUI header compact and Help text-only; graphical
+  branding is used outside the terminal interface.
 
 ## 1.8.1 — 2026-10-19
 

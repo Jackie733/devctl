@@ -1,6 +1,5 @@
 mod app;
 mod appearance;
-mod brand;
 mod mouse;
 mod onboarding;
 mod terminal;

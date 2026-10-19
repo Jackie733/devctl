@@ -3,21 +3,19 @@
 Keep current work and necessary handoff here; Git retains history. Collaboration
 rules are in [AGENTS.md](../AGENTS.md).
 
-## Current: restore compact workspace header (U01 visual identity)
+## Current: graphical identity outside the TUI (U01 visual identity)
 
-The maintainer selected the service-line/control-rail identity with no abbreviated
-companion, then rejected the three-row main header as too intrusive. Restored the
-original text header: one row in wide layouts, two in compact layouts, with the
-original version/connection/workspace and selection/panel hints. Main-view log and
-project areas recover their original space; unusable windows show exit/resize
-guidance without decorative rows.
+The maintainer authorized keeping the complete service-line/control-rail mark in
+README/documentation and project identity, while removing decorative branding
+from the TUI, including Help. Removed the terminal brand renderer and its layout
+reservations. Help again dedicates its content area to instructions/diagnostics.
+The original compact main header, name/version/status, selection/navigation
+symbols and 36 × 10 minimum remain intact. No abbreviated logo is introduced.
 
-The complete mark now appears only in Help when room remains for readable content
-and its footer. It stays fixed while help text scrolls; smaller help dialogs omit
-the entire mark. ASCII/theme/NO_COLOR treatments retain all four strokes. Full
-SVG/PNG assets and README artwork are unchanged. The
-[brand usage rule](../assets/branding/README.md) owns this placement; docs and the
-updated [preview](../assets/branding/tui-preview.png) match the working build.
+Full SVG/PNG assets and both README artworks are unchanged. The
+[brand usage rule](../assets/branding/README.md) owns the placement; reference
+documents and the [updated preview](../assets/branding/tui-preview.png) match the
+text-only terminal build. No service behavior or new dependency is involved.
 
 Validation on native macOS:
 
@@ -26,9 +24,10 @@ Validation on native macOS:
 - `cargo test --locked -- --quiet`: passed, 334 tests (201 unit, 133 integration;
   includes 20 real-PTY TUI scenarios).
 - Appearance PTY checks cover the compact header in dark/light/terminal/monochrome
-  modes, 120-column, 60-column and 36 × 10 layouts, and the full mark inside Help.
-  Unit coverage verifies original header height, full Help mark before/after
-  scrolling, and whole-mark omission in small Help dialogs. Existing lifecycle,
+  modes, 120-column, 60-column and 36 × 10 layouts, and logo-free Help.
+  Unit coverage verifies original header height, absence of the decorative mark,
+  Help navigation/footer and beginning/end content across themes and sizes.
+  Existing lifecycle,
   log reading/copying, mouse selection, project edit/remove/reload, help diagnostic
   reachability and terminal restoration scenarios pass.
 - Ran isolated dark/light/ASCII-monochrome main views and light Help. Reconstructed

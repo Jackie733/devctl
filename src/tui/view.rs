@@ -7,10 +7,7 @@ use ratatui::{
 };
 use unicode_segmentation::UnicodeSegmentation;
 
-use super::{
-    app::{App, Focus, TextCell, TextPosition},
-    brand,
-};
+use super::app::{App, Focus, TextCell, TextPosition};
 use crate::{
     logs::{Record, Source},
     manager::ServiceState,
@@ -1437,38 +1434,22 @@ fn help_area(area: Rect, app: &App) -> Rect {
     let width = area.width.saturating_sub(4).min(80);
     let inner = help_block().inner(Rect::new(0, 0, width, area.height));
     let rows = wrapped(help_lines(app), inner.width).len();
-    // Borders, padding and footer occupy six rows; allow room for the full mark.
-    let height = rows
-        .saturating_add(6 + usize::from(brand::HEIGHT))
-        .min(usize::from(u16::MAX)) as u16;
+    // Borders, vertical padding and the two fixed footer rows occupy six rows.
+    let height = rows.saturating_add(6).min(usize::from(u16::MAX)) as u16;
     popup(area, width, height.min(area.height.saturating_sub(2)))
 }
 
-fn help_sections(inner: Rect) -> [Rect; 3] {
-    // The optional identity must leave room for readable help and its footer.
-    // Never reserve brand rows in the everyday project/log workspace.
-    let brand_height = if inner.width >= brand::WIDTH && inner.height >= 8 {
-        brand::HEIGHT
-    } else {
-        0
-    };
-    Layout::vertical([
-        Constraint::Length(brand_height),
-        Constraint::Min(0),
-        Constraint::Length(2),
-    ])
-    .areas(inner)
-}
-
 pub fn help_height(area: Rect, app: &App) -> u16 {
-    help_sections(help_block().inner(help_area(area, app)))[1]
+    help_block()
+        .inner(help_area(area, app))
         .height
+        .saturating_sub(2)
         .max(1)
 }
 
 pub fn help_max_scroll(area: Rect, app: &App) -> u16 {
     let inner = help_block().inner(help_area(area, app));
-    let height = usize::from(help_sections(inner)[1].height);
+    let height = usize::from(inner.height.saturating_sub(2));
     let count = wrapped(help_lines(app), inner.width).len();
     count.saturating_sub(height).min(usize::from(u16::MAX)) as u16
 }
@@ -1597,20 +1578,8 @@ fn overlay(frame: &mut Frame, app: &App) {
         let block = help_block();
         let inner = block.inner(area);
         frame.render_widget(block, area);
-        let [identity, body, footer] = help_sections(inner);
-        brand::render(frame, identity, app.appearance.ascii);
-        if identity.height > 0 {
-            frame.render_widget(
-                Paragraph::new(format!("devctl {}", env!("CARGO_PKG_VERSION")))
-                    .style(modal_style().add_modifier(Modifier::BOLD)),
-                Rect::new(
-                    identity.x + brand::WIDTH + 2,
-                    identity.y + 1,
-                    identity.width.saturating_sub(brand::WIDTH + 2),
-                    1,
-                ),
-            );
-        }
+        let [body, footer] =
+            Layout::vertical([Constraint::Min(0), Constraint::Length(2)]).areas(inner);
         let max = help_max_scroll(frame.area(), app);
         let scroll = app.help_scroll.min(max);
         let lines = wrapped(help_lines(app), body.width);
@@ -2002,7 +1971,7 @@ mod tests {
     }
 
     #[test]
-    fn full_brand_in_help_keeps_the_workspace_header_compact() {
+    fn text_only_workspace_and_help_preserve_compact_layout_and_navigation() {
         use super::super::appearance::Theme;
 
         for ascii in [false, true] {
@@ -2019,31 +1988,16 @@ mod tests {
                         app.help = false;
                         let text = draw(&app, width, height);
                         assert!(text.starts_with(concat!("devctl ", env!("CARGO_PKG_VERSION"))));
-                        assert!(!text.contains(brand::rows(ascii)[1]));
                         app.help = true;
-                        let inner = help_block().inner(help_area(area, &app));
-                        let [identity, _, _] = help_sections(inner);
                         for scroll in [0, help_max_scroll(area, &app)] {
                             app.help_scroll = scroll;
                             let text = draw(&app, width, height);
-                            for (offset, stroke) in brand::rows(ascii).into_iter().enumerate() {
-                                if identity.height > 0 {
-                                    assert_eq!(
-                                        text.chars()
-                                            .skip(
-                                                (usize::from(identity.y) + offset)
-                                                    * usize::from(width)
-                                                    + usize::from(identity.x),
-                                            )
-                                            .take(usize::from(brand::WIDTH))
-                                            .collect::<String>(),
-                                        stroke
-                                    );
-                                } else {
-                                    assert!(!text.contains(stroke), "{text}");
-                                }
-                            }
+                            assert!(!text.contains('━') && !text.contains('┃'));
+                            assert!(!text.contains("----- |"));
                             assert!(text.contains("?/Esc close | q leave"));
+                            if scroll == 0 {
+                                assert!(text.contains("CURRENT PANEL"));
+                            }
                         }
                     }
                 }
@@ -2080,19 +2034,19 @@ mod tests {
         let mut app = App::new();
         app.help = true;
         app.feedback = "HELP-TAIL".into();
-        let large = Rect::new(7, 3, 300, 80);
+        let large = Rect::new(7, 3, 300, 64);
         let popup = help_area(large, &app);
         assert_eq!(popup.width, 80);
         let inner_width = help_block().inner(popup).width;
         assert_eq!(
             usize::from(popup.height),
-            wrapped(help_lines(&app), inner_width).len() + 6 + usize::from(brand::HEIGHT)
+            wrapped(help_lines(&app), inner_width).len() + 6
         );
         assert!(popup.height < large.height - 2);
         assert_eq!(popup.x, large.x + (large.width - popup.width) / 2);
         assert_eq!(popup.y, large.y + (large.height - popup.height) / 2);
         assert_eq!(help_max_scroll(large, &app), 0);
-        let text = draw(&app, 300, 80);
+        let text = draw(&app, 300, 64);
         assert!(text.contains("CURRENT PANEL") && text.contains("HELP-TAIL"));
 
         for (width, height) in [(120, 30), (80, 12), (60, 16), (36, 10)] {
@@ -2106,7 +2060,7 @@ mod tests {
             assert!(text.contains("?/Esc close | q leave"));
         }
         // A stale scroll position must not hide content after enlarging the window.
-        let text = draw(&app, 300, 80);
+        let text = draw(&app, 300, 64);
         assert!(text.contains("CURRENT PANEL") && text.contains("HELP-TAIL"));
     }
 
