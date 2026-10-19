@@ -3,7 +3,51 @@
 Keep current work and necessary handoff here; Git retains history. Collaboration
 rules are in [AGENTS.md](../AGENTS.md).
 
-## Current: graphical identity outside the TUI (U01 visual identity)
+## Current: Python terminal-check cleanup complete (U01 / L01 / A01; X03 tooling boundary)
+
+The maintainer authorized organizing existing Python support code. No product
+feature, runtime dependency, release command or workflow configuration changes.
+The [contributor guide](../CONTRIBUTING.md#python-support-code) owns the Python
+code map and check commands; both READMEs summarize the development-only role.
+
+Split the former 1,039-line TUI runner into reusable screen/driver/workspace/service
+fixtures and lifecycle, navigation/appearance, clipboard/mouse and history modules.
+The entry point keeps every existing scenario name and binary argument. Binary
+paths are passed explicitly instead of being captured from another script's argv.
+Memory/disk history share navigation setup while retaining their distinct eviction,
+reconnect, search and copy assertions. Unicode fixture output uses an explicit
+suffix instead of rewriting Python source text.
+
+The four terminal entry points execute only under their main guards. Onboarding
+checks use readable statements and clean their temporary directories after closing
+clients and shutting down the isolated workspace. A new Rust integration check
+verifies imports with no CLI arguments cannot launch processes or create workspaces.
+Release tools remain in their existing locations with their own isolated tests.
+
+Validation on native macOS:
+
+- `cargo fmt --check`: passed.
+- `cargo clippy --locked --all-targets -- -D warnings`: passed.
+- `cargo test --locked -- --quiet`: passed, 335 tests (201 unit, 134 integration),
+  including all 20 existing TUI checks and the new import-isolation check.
+- `python3 tests/support/install_scripts.py`: 14 passed;
+  `python3 tests/support/merge_release.py`: 8 passed;
+  `python3 tests/support/release_command.py`: 21 passed;
+  `python3 tests/support/package_release.py ./target/debug/devctl`: 4 passed.
+- `uvx ruff check tests/support/tui_support tests/support/{tui_pty,tui_add_pty,import_pty,update_pty}.py --select F,I`
+  and `uvx ruff format --check tests/support/tui_support tests/support/{tui_pty,tui_add_pty,import_pty,update_pty}.py`:
+  passed. Ruff was used as an external check tool; no project dependency was added.
+- All Python sources compile. Compared the screen interpreter and 11 unchanged
+  scenario/helper bodies against their original syntax trees; statements match
+  after accounting for explicit binary parameters. TUI runner `--help` passed.
+- `git diff --check`: passed. Four changed Markdown documents have balanced
+  fences and 72 valid local links/anchors.
+
+Next: no cleanup work remains. Physical-terminal/WSL acceptance and the preserved
+release repair handoff below remain separate; this cleanup ran no WSL/Linux CI,
+installed-client replacement, push or publication.
+
+## Preserved: graphical identity outside the TUI (U01 visual identity)
 
 The maintainer authorized keeping the complete service-line/control-rail mark in
 README/documentation and project identity, while removing decorative branding

@@ -212,6 +212,10 @@ Bug reports, documentation fixes, and focused pull requests are welcome. Read
 [CONTRIBUTING.md](CONTRIBUTING.md) for setup, checks, and how to report a problem.
 Please discuss substantial behavior changes before implementing them.
 
+The Rust program runs without Python. Repository Python uses the standard library
+for tests and release tooling; shared terminal helpers and scenarios are separated.
+See [Python support code](CONTRIBUTING.md#python-support-code) for the layout and commands.
+
 Maintainers can run `./scripts/release 1.7.0` from a clean main checkout after
 committing reviewed `Unreleased` notes. It updates versions, tests, commits/tags,
 pushes and follows publication/public verification. See [release maintenance](docs/releasing.md).

@@ -2,6 +2,37 @@
 
 use std::{path::Path, process::Command};
 
+#[test]
+fn python_terminal_helpers_import_without_arguments_or_starting_processes() {
+    let output = Command::new("python3")
+        .current_dir(env!("CARGO_MANIFEST_DIR"))
+        .args([
+            "-c",
+            r#"
+import sys
+from unittest.mock import patch
+
+sys.path.insert(0, 'tests/support')
+sys.argv = ['import-check']
+with patch('subprocess.Popen', side_effect=AssertionError('import started a process')), \
+     patch('tempfile.mkdtemp', side_effect=AssertionError('import created a workspace')):
+    import tui_pty
+    import tui_add_pty
+    from tui_support import worker
+    import import_pty
+    import update_pty
+"#,
+        ])
+        .output()
+        .expect("Python 3 must import the PTY helpers.");
+    assert!(
+        output.status.success(),
+        "{}\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
 fn scenario(name: &str) {
     let script = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/support/tui_pty.py");
     let output = Command::new("python3")

@@ -157,6 +157,8 @@ TUI 连接空闲工作区，不自动启动服务。按 `s` 启动选中服务�
 
 欢迎问题反馈、文档改进与范围明确的 PR。开发环境、检查命令和问题反馈要求见 [CONTRIBUTING.md](CONTRIBUTING.md)。较大的产品行为调整请先讨论。
 
+程序本身由 Rust 实现，日常使用无需 Python。仓库中的 Python 用于自动测试和发布工具，仅使用标准库；终端测试已将共用工具与具体场景分开，目录分工和运行方式见[开发说明](CONTRIBUTING.md#python-support-code)。
+
 维护者可在干净的 `main` 检出中，提交审核过的 `Unreleased` 更新记录后执行 `./scripts/release 1.7.0`（替换为目标版本）。脚本自动更新版本、测试、提交、打标签、推送，并等待双平台发布与公开验证；`--resume` 可继续查看已有标签的发布结果。详见[发布维护](docs/releasing.md)。
 
 ## 许可证

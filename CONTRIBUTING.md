@@ -49,6 +49,31 @@ Tests need Linux or macOS with local Unix sockets, PTYs, process groups, and sig
 processes rather than your development projects. Clipboard tests use a fake
 `clip.exe` or captured OSC 52 output.
 
+### Python support code
+
+Python is used for development checks and release tooling; the installed Rust
+program does not require it. These scripts use only Python's standard library.
+
+- `scripts/release`, `scripts/package-release.sh` (including its embedded Python),
+  and `scripts/merge-release.py` prepare, package, and combine releases.
+- `tests/support/install_scripts.py`, `merge_release.py`, `release_command.py`,
+  and `package_release.py` check those tools with isolated fixtures.
+  `release_artifact.py` and `public_release.py` verify native and public artifacts.
+- `tests/support/{tui_pty,tui_add_pty,import_pty,update_pty}.py` are terminal-check
+  entry points invoked by Rust integration tests and, where applicable, release
+  checks. Their existing command arguments remain unchanged.
+- `tests/support/tui_support/` owns the shared screen interpreter, terminal driver,
+  temporary workspace and service fixture. TUI scenarios are grouped into
+  lifecycle, navigation/appearance, clipboard/mouse and retained-history modules.
+  Entry points parse arguments only when executed; importing helpers does not
+  launch processes or create workspaces. Pass the binary explicitly to fixtures.
+
+Run terminal checks through `cargo test --locked --test tui_cli --test config_import_cli --test update_cli`.
+For a single TUI scenario, use
+`python3 tests/support/tui_pty.py ./target/debug/devctl appearance`; `--help` lists
+the available scenarios. Keep checks beside the workflow they exercise and reuse
+the terminal helpers instead of importing executable entry points.
+
 For documentation changes, check relative links, heading anchors, code fences,
 example syntax, and consistency with `devctl --help` and the configuration parser.
 Do not add implementation-mirroring tests for prose edits. Release automation
