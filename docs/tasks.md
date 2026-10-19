@@ -3,7 +3,31 @@
 Keep current work and necessary handoff here; Git retains history. Collaboration
 rules are in [AGENTS.md](../AGENTS.md).
 
-## Current: dedicated restart, hot config reload, TUI project edit/remove, and Projects mouse navigation (P01, P07, A01, U01)
+## Current: repair macOS release checks (X03 / A01)
+
+The [v1.8.0 workflow](https://github.com/Jackie733/devctl/actions/runs/39235652469)
+failed in the macOS edit/remove unit test: production code canonicalizes project
+paths to `/private/tmp/...`, but two assertions expected the uncanonicalized
+`/tmp/...` fixture paths. Linux passed; publication and public verification were
+skipped. `gh release view v1.8.0 -R Jackie733/devctl` returned `release not found`.
+
+Both assertions now canonicalize their expected paths. Runtime behavior and
+workflow configuration are unchanged. A Linux run with `TMPDIR` pointing through
+a directory symlink reproduced the original failure; all four hot-add tests passed
+with that same setup after the fix.
+
+Validation on Linux: `cargo fmt --check`,
+`cargo clippy --locked --all-targets -- -D warnings`,
+`cargo test --locked -- --quiet` (336 tests), and `git diff --check` passed.
+Inspected the diff and verified the recovery document link/anchor.
+
+Next: publish a new version with `./scripts/release 1.8.1`.
+Per [release recovery](releasing.md#failure-and-recovery),
+keep `v1.8.0` intact: rerunning or resuming it cannot include this source fix.
+Native macOS validation and publication of the repaired version remain pending.
+No push, workflow rerun, or publication was triggered during this repair.
+
+## Implementation handoff: dedicated restart, hot config reload, TUI project edit/remove, and Projects mouse navigation (P01, P07, A01, U01)
 
 Authorized on 2026-10-19: implement three high-frequency daily workflow enhancements:
 

@@ -1334,7 +1334,7 @@ mod hot_add_tests {
         let added =
             apply_owned(first.proposal(), &f.config, owner.clone(), &f.fingerprint()).unwrap();
         let (path, cmd) = inspect_existing(Some(f.config.clone()), "first").unwrap();
-        assert_eq!(path, f.root.join("first"));
+        assert_eq!(path, f.root.join("first").canonicalize().unwrap());
         assert_eq!(cmd, vec!["sleep", "60"]);
 
         let moved = f.root.join("moved");
@@ -1357,7 +1357,7 @@ mod hot_add_tests {
         .unwrap();
         let loaded = config::load(&f.config).unwrap();
         assert_eq!(loaded.services["first"].cmd, vec!["sleep", "120"]);
-        assert_eq!(loaded.projects["first"].path, moved);
+        assert_eq!(loaded.projects["first"].path, moved.canonicalize().unwrap());
 
         let removed = remove_owned("first", &f.config, owner, &updated.fingerprint).unwrap();
         let loaded = config::load(&f.config).unwrap();
