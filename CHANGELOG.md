@@ -5,6 +5,8 @@ User-facing changes are grouped by released version. Download artifacts from
 
 ## Unreleased
 
+## 1.9.0 — 2026-10-19
+
 - Add the selected devctl identity to both READMEs, with complete transparent
   SVG/PNG assets. Keep the TUI header compact and Help text-only; graphical
   branding is used outside the terminal interface.

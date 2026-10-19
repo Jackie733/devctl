@@ -30,7 +30,7 @@
 
 ## 平台支持
 
-**1.8.1** 提供 **Linux x86_64（含 Windows WSL2）**、**macOS 14 及以上版本的 Apple 芯片** 程序。Linux 版本使用 musl 静态构建，无需安装 Rust，也不依赖特定 glibc 版本。请按[安装指南](docs/install.md)下载对应平台的程序；不支持 Intel Mac 和 Windows 原生运行。
+**1.9.0** 提供 **Linux x86_64（含 Windows WSL2）**、**macOS 14 及以上版本的 Apple 芯片** 程序。Linux 版本使用 musl 静态构建，无需安装 Rust，也不依赖特定 glibc 版本。请按[安装指南](docs/install.md)下载对应平台的程序；不支持 Intel Mac 和 Windows 原生运行。
 
 开发命令需要能够非交互运行。目前支持依赖校验与计划展示，尚未实现运行时依赖编排、就绪探针、自动重启或机器重启后的恢复。已交付和候选功能的区别见[路线图](docs/roadmap.md)。
 
