@@ -3,7 +3,25 @@
 Keep current work and necessary handoff here; Git retains history. Collaboration
 rules are in [AGENTS.md](../AGENTS.md).
 
-## Current: repair macOS release checks (X03 / A01)
+## Current: logo/icon design proposal
+
+Requested on 2026-10-19: a minimal, modern icon grounded in devctl's terminal
+workspace and service-control purpose (visual identity only; related to U01).
+Created a mint-teal lowercase `d` / terminal `>` mark on a dark rounded tile.
+The [asset and generation brief](../assets/branding/README.md) include the original
+1254 × 1254 transparent PNG, intended use, and generation prompt.
+
+Validation: decoded the PNG with Pillow; verified square dimensions, the alpha
+range, and all four transparent outer corners. Visually inspected 16/24/32/48/64 px
+on light and dark backgrounds. Recommend at least 24 px for clear interior detail;
+16 px retains the silhouette with reduced detail. `git diff --check` passed.
+No runtime changes; Rust checks are not applicable to this asset-only proposal.
+
+Next: maintainer selection of this direction. No application integration,
+release-packaging changes, push, or publication is included. Release repair and
+real-platform acceptance handoffs below remain pending as previously recorded.
+
+## Preserved: repair macOS release checks (X03 / A01)
 
 The [v1.8.0 workflow](https://github.com/Jackie733/devctl/actions/runs/39235652469)
 failed in the macOS edit/remove unit test: production code canonicalizes project

@@ -190,6 +190,8 @@ for selection modes, search boundaries, pagination, and failure feedback.
 
 ## Documentation
 
+- [Logo/icon proposal and original asset](assets/branding/README.md): a mint-teal
+  `d` / terminal `>` mark; proposed identity, pending maintainer selection.
 - [Installation, updates, rollback, and source builds](docs/install.md)
 - [Configuration, CLI, TUI, and log reference](docs/interaction.md)
 - [WSL setup and hands-on verification](docs/wsl.md)

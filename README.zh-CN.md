@@ -139,6 +139,7 @@ TUI 连接空闲工作区，不自动启动服务。按 `s` 启动选中服务�
 
 ## 文档
 
+- [Logo / 图标方案与原图](assets/branding/README.md)：青绿色的 `d` 与终端符号 `>` 组合，体现集中控制开发服务；已检查深浅背景及小尺寸效果，建议至少 24 像素使用，目前待选定。
 - [安装、更新、回退与源码构建](docs/install.md)
 - [配置、CLI、TUI 与日志参考](docs/interaction.md)
 - [WSL 设置与实际验收](docs/wsl.md)
