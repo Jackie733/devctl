@@ -1,5 +1,8 @@
 # devctl icon
 
+Superseded proposal: the maintainer rejected this lowercase `d` direction.
+See the [terminal-first alternatives](v2/README.md) for the current exploration.
+
 [Original PNG](devctl-icon.png) — 1254 × 1254 pixels, RGBA, with transparent
 space outside the dark rounded tile.
 
@@ -7,7 +10,7 @@ The mark combines a lowercase **d** with the terminal prompt **>**. The enclosin
 shape suggests a single place to control development services. Mint teal against
 deep blue-black reflects a calm, focused terminal tool.
 
-This is a proposed visual identity, pending the maintainer's selection. It is not
+This is a superseded visual proposal. It is not
 installed into the terminal interface or release packaging. The PNG is the
 original image-generation output; no editable vector master is included.
 

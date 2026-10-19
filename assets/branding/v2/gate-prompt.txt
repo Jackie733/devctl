@@ -1,0 +1,9 @@
+Use case: logo-brand
+Asset type: one standalone devctl app icon, square 1024 x 1024.
+Primary request: Create a radically simple, modern geometric brand mark called Gate. The entire mark consists of precisely two elements: one bold right-pointing angle chevron > and one separate vertical bar | placed immediately to its right, reading visually as >|. Symbolizes terminal execution meeting a controlled boundary.
+Input images: Image 1 is only a reference for the existing devctl TUI visual environment and dark palette; do not reproduce any interface, text, frame, panel, or screenshot content.
+Scene/backdrop: one solid deep navy-black #111827 square canvas extending to all edges.
+Subject: one flat pale cyan #A5F3FC mark, exactly one chevron and one vertical bar. Both share the same stroke thickness and carefully unified geometric proportions. Predominantly sharp angular corners with only microscopic corner easing. Clear breathing gap between chevron point and bar. Vertically aligned with balanced optical weight.
+Composition/framing: mark centered optically on the canvas, occupying approximately 52 percent of canvas width. Generous negative space. One icon only, no variants, no comparison sheet.
+Style/medium: ultra-minimal flat vector-like silhouette, lightweight yet bold enough to read at tiny icon sizes; can reproduce in one ink. Its terminal companion will literally be ASCII >|.
+Constraints: No letter d, no letters of any kind, no text, no wordmark, no gear, no circle or ring, no enclosing border, no rounded square tile, no extra objects. No gradients, shadows, textures, glow, 3D, presentation mockup, captions, watermark, or collage. Only the two cyan geometric elements against the solid dark square.

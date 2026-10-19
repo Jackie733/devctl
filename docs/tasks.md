@@ -3,23 +3,27 @@
 Keep current work and necessary handoff here; Git retains history. Collaboration
 rules are in [AGENTS.md](../AGENTS.md).
 
-## Current: logo/icon design proposal
+## Current: terminal-first logo alternatives (U01 visual identity)
 
-Requested on 2026-10-19: a minimal, modern icon grounded in devctl's terminal
-workspace and service-control purpose (visual identity only; related to U01).
-Created a mint-teal lowercase `d` / terminal `>` mark on a dark rounded tile.
-The [asset and generation brief](../assets/branding/README.md) include the original
-1254 × 1254 transparent PNG, intended use, and generation prompt.
+On 2026-10-19 the maintainer rejected the lowercase `d` proposal and requested
+simpler, modern alternatives usable inside the TUI. Created three independent
+directions with ordinary ASCII companions: Gate, Parallel, and Workspace.
+The [comparison and original assets](../assets/branding/v2/README.md) include
+generation prompts, dark/light/monochrome title specimens, rendering tradeoffs,
+and precise validation limits. The old image is preserved as superseded.
 
-Validation: decoded the PNG with Pillow; verified square dimensions, the alpha
-range, and all four transparent outer corners. Visually inspected 16/24/32/48/64 px
-on light and dark backgrounds. Recommend at least 24 px for clear interior detail;
-16 px retains the silhouette with reduced detail. `git diff --check` passed.
-No runtime changes; Rust checks are not applicable to this asset-only proposal.
+Validation: `cargo build --locked` passed. Ran the existing PTY fixture in an
+isolated workspace: service start/logs, 120 × 30 / 36 × 10 resize, exit and terminal
+restoration passed. Decoded all three PNGs; visually inspected 16/24/32/64 px and
+the separate title specimens. Narrow proposal headers fit 36 ASCII cells.
+Checked changed Markdown links/fences and `git diff --check`. No Rust changes;
+the proposed marks are not integrated or claimed as runtime-tested.
 
-Next: maintainer selection of this direction. No application integration,
-release-packaging changes, push, or publication is included. Release repair and
-real-platform acceptance handoffs below remain pending as previously recorded.
+Next: maintainer visual selection, exact vector master and selected TUI companion,
+then implementation and relevant regression checks. Native-window screenshot
+capture, modified-header runtime behavior, WSL appearance and graphics protocols
+remain unverified. No publication, push or release-packaging changes. Existing
+release repair and real-platform acceptance handoffs below remain as recorded.
 
 ## Preserved: repair macOS release checks (X03 / A01)
 
